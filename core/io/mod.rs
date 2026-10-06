@@ -151,6 +151,10 @@ pub trait SharedWalMappedRegion: Send + Sync {
 }
 
 pub trait File: Send + Sync {
+    fn checkpoint_wal_position(&self, _salts: [u32; 2], _frame_count: u64) -> Result<()> {
+        Ok(())
+    }
+
     fn lock_file(&self, exclusive: bool) -> Result<()>;
     fn unlock_file(&self) -> Result<()>;
     fn pread(&self, pos: u64, c: Completion) -> Result<Completion>;

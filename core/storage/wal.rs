@@ -62,6 +62,7 @@ pub struct RollbackTo {
 
 #[derive(Debug, Clone, Default)]
 pub struct CheckpointResult {
+    pub checkpoint_wal_salts: [u32; 2],
     /// max frame in the WAL after checkpoint
     /// note, that as we TRUNCATE wal outside of the main checkpoint routine - this field will be set to non-zero number even for TRUNCATE mode
     pub wal_max_frame: u64,
@@ -94,6 +95,7 @@ impl CheckpointResult {
     ) -> Self {
         Self {
             wal_max_frame,
+            checkpoint_wal_salts: [0; 2],
             wal_total_backfilled,
             wal_checkpoint_backfilled,
             maybe_guard: None,
@@ -4953,9 +4955,10 @@ impl WalFile {
                     if !needs_backfill && !mode.should_restart_log() {
                         // there are no frames to copy over and we don't need to reset
                         // the log so we can return early success.
-                        return Ok(IOResult::Done(CheckpointResult::new(
-                            max_frame, nbackfills, 0,
-                        )));
+                        let mut result = CheckpointResult::new(max_frame, nbackfills, 0);
+                        let header = self.coordination.wal_header();
+                        result.checkpoint_wal_salts = [header.salt_1, header.salt_2];
+                        return Ok(IOResult::Done(result));
                     }
                     // acquire the appropriate exclusive locks depending on the checkpoint mode
                     self.acquire_proper_checkpoint_guard(mode, lock_source)?;
@@ -5159,11 +5162,13 @@ impl WalFile {
                     let wal_checkpoint_backfilled =
                         wal_total_backfilled.saturating_sub(ongoing_chkpt.min_frame - 1);
 
-                    let checkpoint_result = CheckpointResult::new(
+                    let mut checkpoint_result = CheckpointResult::new(
                         wal_max_frame,
                         wal_total_backfilled,
                         wal_checkpoint_backfilled,
                     );
+                    let header = self.coordination.wal_header();
+                    checkpoint_result.checkpoint_wal_salts = [header.salt_1, header.salt_2];
                     tracing::debug!("checkpoint_result={:?}, mode={:?}", checkpoint_result, mode);
                     if mode.require_all_backfilled() && !checkpoint_result.everything_backfilled() {
                         return Err(LimboError::Busy.into());

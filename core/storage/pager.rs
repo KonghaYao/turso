@@ -5160,6 +5160,14 @@ impl Pager {
                         continue;
                     }
 
+                    {
+                        let state = self.checkpoint_state.read();
+                        let result = state.result.as_ref().expect("result should be set");
+                        self.db_file.checkpoint_wal_position(
+                            result.checkpoint_wal_salts,
+                            result.wal_total_backfilled,
+                        )?;
+                    }
                     let c = sqlite3_ondisk::begin_sync(
                         self.db_file.as_ref(),
                         self.syncing.clone(),

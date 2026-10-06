@@ -104,6 +104,10 @@ impl Default for IOContext {
 /// the storage medium. A database can either be a file on disk, like in SQLite,
 /// or something like a remote page server service.
 pub trait DatabaseStorage: Send + Sync {
+    fn checkpoint_wal_position(&self, _salts: [u32; 2], _frame_count: u64) -> Result<()> {
+        Ok(())
+    }
+
     /// Reads the encoded prefix of page 1 without applying a page transform.
     ///
     /// This is only for bootstrapping the page layout before a complete page
@@ -138,6 +142,10 @@ pub struct DatabaseFile {
 }
 
 impl DatabaseStorage for DatabaseFile {
+    fn checkpoint_wal_position(&self, salts: [u32; 2], frame_count: u64) -> Result<()> {
+        self.file.checkpoint_wal_position(salts, frame_count)
+    }
+
     #[instrument(skip_all, level = Level::DEBUG)]
     fn read_header(&self, c: Completion) -> Result<Completion> {
         self.file.pread(0, c)
