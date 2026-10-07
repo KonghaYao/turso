@@ -46,6 +46,9 @@ use tempfile::TempDir;
 use tracing::{instrument, Level};
 use turso_macros::{turso_assert_ne, AtomicEnum};
 
+#[path = "connection_safety.rs"]
+mod safety;
+
 #[cfg(feature = "simulator")]
 fn db_identity_for_testing(db_path: &Path) -> Result<(u32, u32)> {
     let bytes =

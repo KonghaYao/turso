@@ -156,7 +156,10 @@ pub use io::{
     SyscallIO, WriteCompletion, IO,
 };
 pub use numeric::{nonnan::NonNan, Numeric};
-pub use statement::{ColumnTypeInfo, ColumnTypeKind, Statement, StatementStatusCounter};
+pub use statement::{
+    ColumnTypeInfo, ColumnTypeKind, NativeIoRetirementGuard, NoncommittingAbort,
+    NoncommittingRetirement, RetirementErrors, Statement, StatementStatusCounter,
+};
 pub use storage::{
     buffer_pool::BufferPool,
     database::{DatabaseStorage, IOContext},

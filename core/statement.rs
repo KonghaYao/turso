@@ -34,6 +34,13 @@ type ProgramExecutionState = vdbe::ProgramExecutionState;
 type Row = vdbe::Row;
 type StepResult = vdbe::StepResult;
 
+#[path = "statement_safety.rs"]
+mod safety;
+use safety::{AbortState, CleanupState};
+pub use safety::{
+    NativeIoRetirementGuard, NoncommittingAbort, NoncommittingRetirement, RetirementErrors,
+};
+
 /// Classifies how a [`Statement`] participates in connection-level lifecycle
 /// and active-statement accounting.
 ///
@@ -325,6 +332,9 @@ pub struct Statement {
     /// True if this statement called `Connection::start_nested()` during
     /// construction and therefore must call `end_nested()` on drop.
     nested_guard_active: bool,
+    noncommitting_abort: AbortState,
+    cleanup_state: CleanupState,
+    detached_io: Vec<crate::Completion>,
 }
 
 crate::assert::assert_send_sync!(Statement);
@@ -406,6 +416,9 @@ impl Statement {
             is_blob_handle: false,
             nested_guard_active,
             analyze_refresh: None,
+            noncommitting_abort: AbortState::NotRequested,
+            cleanup_state: CleanupState::Unentered,
+            detached_io: Vec::new(),
         }
     }
 
@@ -513,7 +526,12 @@ impl Statement {
     /// Returns None if no IO is pending.
     /// This is used by async state machines that need to yield the completions.
     pub fn take_io_completions(&mut self) -> Option<crate::types::IOCompletions> {
-        self.state.io_completions.take()
+        let completions = self.state.io_completions.take()?;
+        self.detached_io.retain(|completion| !completion.finished());
+        if !completions.0.is_wait() && !completions.finished() {
+            self.detached_io.push(completions.0.clone());
+        }
+        Some(completions)
     }
 
     fn arm_query_timeout_if_needed(&mut self) {
@@ -564,20 +582,38 @@ impl Statement {
     /// gated behind cheap flag tests and kept out of line. A row in the middle
     /// of a scan runs only the interpreter call and the result-row bookkeeping.
     fn _step(&mut self, waker: Option<&Waker>) -> Result<StepResult> {
+        self.step_checked(waker, &mut None)
+    }
+
+    fn step_checked(
+        &mut self,
+        waker: Option<&Waker>,
+        admission: &mut Option<&mut dyn FnMut(bool) -> bool>,
+    ) -> Result<StepResult> {
+        self.ensure_not_aborted()?;
+        if !self.check_admission(admission)? {
+            return Ok(StepResult::Yield);
+        }
         // ANALYZE already ran to Done; only its stats refresh is outstanding.
         // Checked first: the root-statement count was released at Done, so
         // `prepare_step` must not re-register this statement as a root.
         if self.analyze_refresh.is_some() {
+            self.record_execution_entry(admission.is_some());
             return self.drive_analyze_refresh(waker);
         }
         if matches!(self.state.execution_state, ProgramExecutionState::Init)
             || !self.counted_as_active_root
             || self.busy_handler_state.is_some()
         {
+            self.record_execution_entry(admission.is_some());
             if let Some(result) = self.prepare_step(waker)? {
                 return Ok(result);
             }
+            if !self.check_admission(admission)? {
+                return Ok(StepResult::Yield);
+            }
         }
+        self.record_execution_entry(admission.is_some());
         let res = match self.query_mode {
             QueryMode::Normal => {
                 match self
@@ -596,7 +632,7 @@ impl Statement {
                 .program
                 .step(&mut self.state, &self.pager, self.query_mode, waker),
         };
-        self.finish_step(res, waker)
+        self.finish_step(res, waker, admission)
     }
 
     /// Advance the post-ANALYZE stats refresh. Returns `IO`/`Yield` while the
@@ -690,6 +726,7 @@ impl Statement {
         &mut self,
         mut res: std::result::Result<StepResult, Box<LimboError>>,
         waker: Option<&Waker>,
+        admission: &mut Option<&mut dyn FnMut(bool) -> bool>,
     ) -> Result<StepResult> {
         const MAX_SCHEMA_RETRY: usize = 50;
         for attempt in 0..MAX_SCHEMA_RETRY {
@@ -715,6 +752,10 @@ impl Statement {
                 self.release_active_root_if_counted();
                 return Err(err);
             }
+            if !self.check_admission(admission)? {
+                return Ok(StepResult::Yield);
+            }
+            self.record_execution_entry(admission.is_some());
             res = self
                 .program
                 .step(&mut self.state, &self.pager, self.query_mode, waker);
@@ -815,6 +856,8 @@ impl Statement {
     /// The parent statement handles all of those concerns.
     #[inline]
     pub fn step_subprogram(&mut self) -> Result<StepResult> {
+        self.ensure_not_aborted()?;
+        self.record_execution_entry(false);
         self.program
             .step(&mut self.state, &self.pager, self.query_mode, None)
             .map_err(|err| *err)
@@ -1062,6 +1105,7 @@ impl Statement {
             Some(max_registers),
             Some(cursor_count),
             self.counted_as_active_root,
+            true,
         )?;
         self.state.metrics.reprepares = self.state.metrics.reprepares.saturating_add(1);
         self.program = new_program;
@@ -1476,7 +1520,7 @@ impl Statement {
     }
 
     pub fn reset(&mut self) -> Result<()> {
-        self.reset_internal(None, None, false)
+        self.reset_internal(None, None, false, false)
     }
 
     /// If `Insn::SequenceBeginInnerTx` swapped the connection's mv_tx to
@@ -1530,14 +1574,22 @@ impl Statement {
     /// Skips transaction handling and abort(): the caller (op_program) has
     /// already handled trigger execution tracking. Only resets ProgramState
     /// fields so the subprogram can run again from the beginning.
-    pub fn reset_for_subprogram_reuse(&mut self) {
+    pub fn reset_for_subprogram_reuse(&mut self) -> Result<()> {
+        self.ensure_not_aborted()?;
+        if self.origin != StatementOrigin::Subprogram {
+            return Err(LimboError::InvalidArgument(
+                "subprogram reuse requires a subprogram statement".into(),
+            ));
+        }
         self.cleanup_orphaned_seq_inner_tx();
         self.state.reset(None, None);
+        self.cleanup_state = CleanupState::Unentered;
         self.state
             .n_change
             .store(0, std::sync::atomic::Ordering::Release);
         self.busy = false;
         self.has_returned_row = false;
+        Ok(())
     }
 
     fn reset_internal(
@@ -1545,7 +1597,13 @@ impl Statement {
         max_registers: Option<usize>,
         max_cursors: Option<usize>,
         preserve_active_root_count: bool,
+        preserve_finalization: bool,
     ) -> Result<()> {
+        match &self.noncommitting_abort {
+            AbortState::NotRequested => {}
+            AbortState::Stopped | AbortState::Retired(_) => return Ok(()),
+            _ => return self.ensure_not_aborted(),
+        }
         fn capture_reset_error(
             reset_error: &mut Option<LimboError>,
             err: LimboError,
@@ -1703,15 +1761,23 @@ impl Statement {
             self.release_active_root_if_counted();
         }
         self.cleanup_orphaned_seq_inner_tx();
+        let finalization_started = self.state.noncommitting_finalization_started;
         self.state.reset(max_registers, max_cursors);
+        if preserve_finalization {
+            self.state.noncommitting_finalization_started = finalization_started;
+        }
         self.busy = false;
         self.busy_handler_state = None;
         self.query_timeout_override = None;
         self.has_returned_row = false;
 
         if let Some(err) = reset_error {
+            if preserve_finalization && self.cleanup_state == CleanupState::Checked {
+                self.noncommitting_abort = AbortState::Failed(err.clone());
+            }
             return Err(err);
         }
+        self.cleanup_state = CleanupState::Unentered;
         Ok(())
     }
 

@@ -776,6 +776,7 @@ pub fn op_checkpoint(
         state.pc += 1;
         return Ok(InsnFunctionStepResult::Step);
     }
+    state.noncommitting_finalization_started = true;
     let step_result = pager.checkpoint(*checkpoint_mode, sync_mode, true);
     match step_result {
         Ok(IOResult::Done(CheckpointResult {
@@ -5905,7 +5906,7 @@ pub fn op_program(
                 let pc_key = state.pc as usize;
                 let mut statement =
                     if let Some(mut cached) = state.subprogram_stmt_cache.remove(&pc_key) {
-                        cached.reset_for_subprogram_reuse();
+                        cached.reset_for_subprogram_reuse()?;
                         cached
                     } else {
                         Box::new(Statement::new_with_origin(
@@ -19021,6 +19022,8 @@ fn op_journal_mode_inner(
                 if program.connection.is_readonly(*db) {
                     return Err(LimboError::ReadOnly.into());
                 }
+
+                state.noncommitting_finalization_started = true;
 
                 // CDC capture is connection-level state that feeds off the
                 // current journal mode's write path. Changing the mode while

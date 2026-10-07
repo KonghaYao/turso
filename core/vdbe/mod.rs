@@ -22,6 +22,7 @@ use crate::translate::plan::BitSet;
 use crate::types::IOResultOr;
 use crate::types::{Extendable, Text, ValueBlob};
 use crate::{turso_assert, turso_assert_ne, turso_debug_assert, NonNan};
+mod admission;
 pub mod affinity;
 pub mod array;
 #[cfg(test)]
@@ -871,6 +872,7 @@ pub struct SequenceInnerTxState {
 }
 
 pub struct ProgramState {
+    pub(crate) noncommitting_finalization_started: bool,
     /// Instructions left before the next interrupt/progress check of
     /// normal_step; reloaded with `check_interval` each time it reaches zero.
     check_countdown: u64,
@@ -1099,6 +1101,7 @@ impl ProgramState {
             pending_fail_error: None,
             pending_fail_prepare_error: None,
             halt_in_progress: false,
+            noncommitting_finalization_started: false,
             pending_cdc_info: None,
             subprogram_stmt_cache: HashMap::default(),
             mv_store_cache: None,
@@ -1266,6 +1269,7 @@ impl ProgramState {
         self.pending_fail_error = None;
         self.pending_fail_prepare_error = None;
         self.halt_in_progress = false;
+        self.noncommitting_finalization_started = false;
         self.pending_cdc_info = None;
         self.subprogram_stmt_cache.clear();
     }
@@ -2785,6 +2789,7 @@ impl Program {
         rollback: bool,
     ) -> IOResultOr<()> {
         if !rollback {
+            program_state.noncommitting_finalization_started = true;
             turso_assert!(
                 !matches!(
                     program_state.sequence_inner_tx_pending.as_ref(),
