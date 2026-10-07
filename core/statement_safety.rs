@@ -52,16 +52,24 @@ impl Statement {
     }
 
     pub(super) fn check_admission(
-        &self,
+        &mut self,
         admission: &mut Option<&mut dyn FnMut(bool) -> bool>,
     ) -> Result<bool> {
         let Some(admission) = admission.as_mut() else {
             return Ok(true);
         };
         self.validate_noncommitting_profile()?;
-        Ok(admission(
-            self.query_mode != QueryMode::Normal || self.program.is_readonly(),
-        ))
+        if !admission(self.query_mode != QueryMode::Normal || self.program.is_readonly()) {
+            self.state.internal_temp_certificate = None;
+            return Ok(false);
+        }
+        self.validate_noncommitting_profile()?;
+        self.state.internal_temp_certificate = if self.query_mode == QueryMode::Normal {
+            self.program.certify_internal_temp()
+        } else {
+            None
+        };
+        Ok(true)
     }
 
     pub fn abort_noncommitting(&mut self) -> Result<NoncommittingAbort> {
@@ -149,7 +157,10 @@ impl Statement {
         &mut self,
         guard: &(impl NativeIoRetirementGuard + ?Sized),
     ) -> Result<NoncommittingRetirement> {
-        if !std::sync::Arc::ptr_eq(guard.io(), &self.pager.io) {
+        if !std::sync::Arc::ptr_eq(guard.io(), &self.pager.io)
+            || !std::sync::Arc::ptr_eq(guard.io(), &self.program.connection.db.io)
+            || !std::sync::Arc::ptr_eq(&self.pager, &self.program.connection.pager.load_full())
+        {
             return Err(LimboError::InvalidArgument(
                 "retirement guard belongs to a different IO instance".into(),
             ));
@@ -167,7 +178,9 @@ impl Statement {
             }
         };
         self.validate_noncommitting_cleanup()?;
-        self.program.validate_noncommitting_runtime(true)?;
+        self.program
+            .connection
+            .validate_noncommitting_cleanup_runtime()?;
         let expected_roots = i32::from(self.counted_as_active_root);
         if self
             .program
@@ -212,6 +225,7 @@ impl Statement {
         if self.pager.is_checkpointing() {
             self.pager.cleanup_after_checkpoint_failure();
         }
+        connection.cleanup_internal_temp_checkpoint();
         let cleanup_error = if self.cleanup_state == CleanupState::Unentered {
             None
         } else {
@@ -262,6 +276,12 @@ impl Statement {
     }
 
     pub(super) fn record_execution_entry(&mut self, checked: bool) {
+        if !checked {
+            self.state.internal_temp_certificate = None;
+            if self.origin == StatementOrigin::Root {
+                self.program.connection.invalidate_internal_temp_execution();
+            }
+        }
         self.cleanup_state = if checked {
             CleanupState::Checked
         } else {
@@ -273,12 +293,18 @@ impl Statement {
         self.validate_noncommitting_origin()?;
         match self.cleanup_state {
             CleanupState::Unentered => Ok(()),
-            CleanupState::Checked => self.program.validate_noncommitting_runtime(true),
-            CleanupState::Unchecked => self.validate_noncommitting_profile().map_err(|error| {
-                LimboError::InvalidArgument(format!(
+            CleanupState::Checked => self
+                .program
+                .connection
+                .validate_noncommitting_cleanup_runtime(),
+            CleanupState::Unchecked => self
+                .program
+                .validate_noncommitting_cleanup_admission(self.query_mode == QueryMode::Normal)
+                .map_err(|error| {
+                    LimboError::InvalidArgument(format!(
                     "noncommitting cleanup cannot adopt unsupported unchecked execution: {error}"
                 ))
-            }),
+                }),
         }
     }
 

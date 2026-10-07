@@ -36,6 +36,12 @@ type StepResult = vdbe::StepResult;
 
 #[path = "statement_safety.rs"]
 mod safety;
+#[cfg(test)]
+#[path = "statement_temp_io.rs"]
+mod temp_test_io;
+#[cfg(test)]
+#[path = "statement_temp_tests.rs"]
+mod temp_tests;
 use safety::{AbortState, CleanupState};
 pub use safety::{
     NativeIoRetirementGuard, NoncommittingAbort, NoncommittingRetirement, RetirementErrors,
@@ -1002,6 +1008,7 @@ impl Statement {
 
     #[instrument(skip_all, level = Level::DEBUG)]
     fn reprepare(&mut self) -> Result<()> {
+        self.state.internal_temp_certificate = None;
         tracing::trace!("repreparing statement");
         let conn = self.program.connection.clone();
         let main_pager = conn.pager.load().clone();

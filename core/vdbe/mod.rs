@@ -873,6 +873,7 @@ pub struct SequenceInnerTxState {
 
 pub struct ProgramState {
     pub(crate) noncommitting_finalization_started: bool,
+    pub(crate) internal_temp_certificate: Option<admission::InternalTempCertificate>,
     /// Instructions left before the next interrupt/progress check of
     /// normal_step; reloaded with `check_interval` each time it reaches zero.
     check_countdown: u64,
@@ -1102,6 +1103,7 @@ impl ProgramState {
             pending_fail_prepare_error: None,
             halt_in_progress: false,
             noncommitting_finalization_started: false,
+            internal_temp_certificate: None,
             pending_cdc_info: None,
             subprogram_stmt_cache: HashMap::default(),
             mv_store_cache: None,
@@ -1270,6 +1272,7 @@ impl ProgramState {
         self.pending_fail_prepare_error = None;
         self.halt_in_progress = false;
         self.noncommitting_finalization_started = false;
+        self.internal_temp_certificate = None;
         self.pending_cdc_info = None;
         self.subprogram_stmt_cache.clear();
     }

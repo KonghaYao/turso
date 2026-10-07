@@ -11,12 +11,12 @@ impl Connection {
         guard: &(impl NativeIoRetirementGuard + ?Sized),
     ) -> Result<NoncommittingRetirement> {
         let pager = self.pager.load_full();
-        if !Arc::ptr_eq(guard.io(), &pager.io) {
+        if !Arc::ptr_eq(guard.io(), &pager.io) || !Arc::ptr_eq(guard.io(), &self.db.io) {
             return Err(LimboError::InvalidArgument(
                 "retirement guard belongs to a different IO instance".into(),
             ));
         }
-        self.validate_noncommitting_runtime(true)?;
+        self.validate_noncommitting_cleanup_runtime()?;
         if self.n_active_root_statements.load(Ordering::SeqCst) != 0
             || self.n_active_writes.load(Ordering::SeqCst) != 0
             || self.n_active_blob_statements.load(Ordering::SeqCst) != 0
@@ -33,6 +33,7 @@ impl Connection {
         if pager.is_checkpointing() {
             pager.cleanup_after_checkpoint_failure();
         }
+        self.cleanup_internal_temp_checkpoint();
         self.rollback_current_txn_state(&pager, true);
         self.clear_named_savepoints();
         self.clear_deferred_foreign_key_violations();
@@ -45,6 +46,51 @@ impl Connection {
                 cleanup_error: None,
             },
         ))
+    }
+
+    pub fn verify_noncommitting_retired(
+        &self,
+        guard: &(impl NativeIoRetirementGuard + ?Sized),
+    ) -> Result<()> {
+        let pager = self.pager.load_full();
+        if !Arc::ptr_eq(guard.io(), &self.db.io) || !Arc::ptr_eq(guard.io(), &pager.io) {
+            return Err(LimboError::InvalidArgument(
+                "retirement guard belongs to a different IO instance".into(),
+            ));
+        }
+        self.validate_noncommitting_cleanup_runtime()?;
+        if !self.is_closed()
+            || self.get_tx_state() != super::TransactionState::None
+            || self.get_mv_tx().is_some()
+            || self.next_attached_mv_tx().is_some()
+            || !self.get_auto_commit()
+            || self.n_active_root_statements.load(Ordering::SeqCst) != 0
+            || self.n_active_writes.load(Ordering::SeqCst) != 0
+            || self.n_active_blob_statements.load(Ordering::SeqCst) != 0
+            || self.is_nested_stmt()
+            || self.statement_activity.lock().explicit_checkpoint_active
+            || pager.holds_read_lock()
+            || pager.holds_write_lock()
+            || pager.is_checkpointing()
+            || self.temp.database.read().as_ref().is_some_and(|temp| {
+                temp.pager.holds_read_lock()
+                    || temp.pager.holds_write_lock()
+                    || temp.pager.is_checkpointing()
+            })
+        {
+            return Err(LimboError::InvalidArgument(
+                "noncommitting retirement is not physically complete".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn cleanup_internal_temp_checkpoint(&self) {
+        if let Some(temp) = self.temp.database.read().as_ref() {
+            if temp.pager.is_checkpointing() {
+                temp.pager.cleanup_after_checkpoint_failure();
+            }
+        }
     }
 }
 

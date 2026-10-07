@@ -4603,10 +4603,19 @@ pub fn op_transaction_inner(
             "Transaction instruction should not be used in trigger subprograms"
         );
     }
-    if *db == crate::TEMP_DB_ID {
-        program.connection.ensure_temp_database()?;
+    if let Some(certificate) = &state.internal_temp_certificate {
+        certificate.validate(program)?;
     }
-    let pager = pager_for_db(program, pager, *db)?;
+    let pager = if *db == crate::TEMP_DB_ID {
+        if let Some(certificate) = &state.internal_temp_certificate {
+            certificate.pager(program)?
+        } else {
+            program.connection.ensure_temp_database()?;
+            pager_for_db(program, pager, *db)?
+        }
+    } else {
+        pager_for_db(program, pager, *db)?
+    };
     // Get the MvStore for the specific database (main or attached).
     let mv_store = mv_store_for_db(program, state, *db);
     let is_main_db = *db == crate::MAIN_DB_ID;

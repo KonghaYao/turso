@@ -84,8 +84,17 @@ pub(crate) enum TransactionState {
 pub(crate) struct TempDatabase {
     pub(crate) db: Arc<Database>,
     pub(crate) pager: Arc<Pager>,
+    internal_begin: Option<InternalBeginTemp>,
     #[cfg(not(target_family = "wasm"))]
     _temp_dir: Option<TempDir>,
+}
+
+struct InternalBeginTemp {
+    io: Arc<MemoryIO>,
+    database: std::sync::Weak<Database>,
+    pager: std::sync::Weak<Pager>,
+    schema: Arc<Schema>,
+    generation: u64,
 }
 
 /// All of the connection-local state needed to manage the `TEMP` schema.
@@ -97,6 +106,7 @@ pub(crate) struct TempDatabase {
 /// lookup while `committed_schema` is only touched at commit/rollback
 /// boundaries, and `schema_did_change` is flipped from inside `SetCookie`.
 pub(crate) struct TempDbContext {
+    generation: AtomicU64,
     /// Per-connection temp database (`TEMP_DB_ID`/schema `temp`).
     /// Lazily initialized on first temp DDL.
     pub(crate) database: RwLock<Option<TempDatabase>>,
@@ -117,6 +127,7 @@ pub(crate) struct TempDbContext {
 impl TempDbContext {
     pub(crate) fn new() -> Self {
         Self {
+            generation: AtomicU64::new(0),
             database: RwLock::new(None),
             committed_schema: RwLock::new(None),
             schema_did_change: AtomicBool::new(false),
@@ -710,6 +721,7 @@ impl Connection {
             return Ok(TempDatabase {
                 db,
                 pager,
+                internal_begin: None,
                 #[cfg(not(target_family = "wasm"))]
                 _temp_dir: None,
             });
@@ -741,6 +753,7 @@ impl Connection {
             Ok(TempDatabase {
                 db,
                 pager,
+                internal_begin: None,
                 _temp_dir: Some(temp_dir),
             })
         }
@@ -758,7 +771,11 @@ impl Connection {
             )?;
             let pager = Arc::new(db._init(None, None)?);
             pager.set_initial_page_size(page_size)?;
-            Ok(TempDatabase { db, pager })
+            Ok(TempDatabase {
+                db,
+                pager,
+                internal_begin: None,
+            })
         }
     }
 
@@ -778,12 +795,14 @@ impl Connection {
         Ok(TempDatabase {
             db,
             pager,
+            internal_begin: None,
             #[cfg(not(target_family = "wasm"))]
             _temp_dir: None,
         })
     }
 
     pub(crate) fn ensure_temp_database(&self) -> Result<()> {
+        self.invalidate_internal_temp_execution();
         if self.temp.database.read().is_some() {
             return Ok(());
         }
@@ -795,6 +814,84 @@ impl Connection {
             *guard = Some(temp_db);
         }
         Ok(())
+    }
+
+    pub(crate) fn invalidate_internal_temp_execution(&self) {
+        self.temp.generation.fetch_add(1, Ordering::AcqRel);
+    }
+
+    pub(crate) fn internal_temp_generation(&self) -> u64 {
+        self.temp.generation.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn validate_internal_temp(&self, execution: bool) -> Result<()> {
+        let guard = self.temp.database.read();
+        let Some(temp) = guard.as_ref() else {
+            return Ok(());
+        };
+        let valid = temp.internal_begin.as_ref().is_some_and(|proof| {
+            let io: Arc<dyn IO> = proof.io.clone();
+            Arc::ptr_eq(&io, &temp.db.io)
+                && Arc::ptr_eq(&io, &temp.pager.io)
+                && std::sync::Weak::ptr_eq(&proof.database, &Arc::downgrade(&temp.db))
+                && std::sync::Weak::ptr_eq(&proof.pager, &Arc::downgrade(&temp.pager))
+                && temp.db.get_mv_store().is_none()
+                && (!execution
+                    || (proof.generation == self.internal_temp_generation()
+                        && self.get_temp_store() == crate::TempStore::Memory
+                        && Arc::ptr_eq(&proof.schema, &temp.db.schema.lock())
+                        && !self.temp.schema_did_change.load(Ordering::Acquire)))
+        });
+        if valid {
+            Ok(())
+        } else {
+            Err(LimboError::InvalidArgument(
+                "noncommitting admission requires certified internal memory TEMP".into(),
+            ))
+        }
+    }
+
+    pub(crate) fn internal_begin_temp_pager(&self, generation: u64) -> Result<Arc<Pager>> {
+        self.validate_internal_temp(true)?;
+        if generation != self.internal_temp_generation()
+            || self.get_temp_store() != crate::TempStore::Memory
+        {
+            return Err(LimboError::InvalidArgument(
+                "noncommitting admission TEMP certificate expired".into(),
+            ));
+        }
+        let mut guard = self.temp.database.write();
+        if let Some(temp) = guard.as_ref() {
+            return Ok(temp.pager.clone());
+        }
+        let memory = Arc::new(MemoryIO::new());
+        let io: Arc<dyn IO> = memory.clone();
+        let db = Database::open_file_with_flags(
+            io,
+            crate::util::MEMORY_PATH,
+            OpenFlags::Create,
+            self.make_temp_database_opts(),
+            None,
+            self.db.dialect(),
+        )?;
+        let pager = Arc::new(db._init(None, None)?);
+        pager.set_initial_page_size(self.get_page_size())?;
+        let proof = InternalBeginTemp {
+            io: memory,
+            database: Arc::downgrade(&db),
+            pager: Arc::downgrade(&pager),
+            schema: db.schema.lock().clone(),
+            generation,
+        };
+        *guard = Some(TempDatabase {
+            db,
+            pager: pager.clone(),
+            internal_begin: Some(proof),
+            #[cfg(not(target_family = "wasm"))]
+            _temp_dir: None,
+        });
+        self.has_non_main_pagers.store(true, Ordering::Release);
+        Ok(pager)
     }
 
     /// Tear down the per-connection temp database.
@@ -814,6 +911,7 @@ impl Connection {
     /// commit/rollback path knows to snapshot or restore the in-memory
     /// temp schema. Called from `SetCookie` for `TEMP_DB_ID`.
     pub(crate) fn mark_temp_schema_did_change(&self) {
+        self.invalidate_internal_temp_execution();
         // If we're marking the temp schema dirty, temp DDL must have
         // just run against the temp pager — which means the temp
         // database was initialized. The opposite state is unreachable.
@@ -3189,6 +3287,7 @@ impl Connection {
         match database_id {
             crate::MAIN_DB_ID => self.with_schema_mut(f),
             crate::TEMP_DB_ID => {
+                self.invalidate_internal_temp_execution();
                 // The temp database is connection-local, no other connection can
                 // reference its schema, so we can mutate it directly without cloning
                 // into `database_schemas`.
@@ -3233,6 +3332,7 @@ impl Connection {
         match *index {
             crate::MAIN_DB_ID => Ok(self.pager.load().clone()),
             crate::TEMP_DB_ID => {
+                self.invalidate_internal_temp_execution();
                 // Lazily initialize the temp database if it hasn't been created yet.
                 if self.temp.database.read().is_none() {
                     self.ensure_temp_database()?;
@@ -4066,6 +4166,7 @@ impl Connection {
     }
 
     pub fn set_temp_store(&self, value: crate::TempStore) {
+        self.invalidate_internal_temp_execution();
         if self.temp_store.get() == value {
             return;
         }
