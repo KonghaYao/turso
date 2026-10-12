@@ -1,5 +1,505 @@
 @database :memory:
 
+test fk-check-orphan-filtered-table {
+    PRAGMA foreign_keys=OFF;
+    CREATE TABLE p(id INTEGER PRIMARY KEY);
+    CREATE TABLE c(pid INTEGER REFERENCES p(id));
+    INSERT INTO c VALUES(42);
+    PRAGMA foreign_key_check(c);
+    PRAGMA foreign_key_check;
+}
+expect {
+    c|1|p|0
+    c|1|p|0
+}
+
+test fk-check-attached-schema-isolation {
+    PRAGMA foreign_keys=OFF;
+    CREATE TABLE p(id INTEGER PRIMARY KEY);
+    INSERT INTO p VALUES(0);
+    CREATE TABLE c(pid INTEGER REFERENCES p(id));
+    INSERT INTO c VALUES(0),(41);
+    ATTACH ':memory:' AS aux;
+    CREATE TABLE aux.p(id INTEGER PRIMARY KEY);
+    CREATE TABLE aux.c(pid INTEGER REFERENCES p(id));
+    INSERT INTO aux.c VALUES(42);
+    PRAGMA aux.foreign_key_check(c);
+    PRAGMA main.foreign_key_check(c);
+    PRAGMA foreign_key_check(c);
+    PRAGMA aux.foreign_key_check;
+}
+expect {
+    c|1|p|0
+    c|2|p|0
+    c|2|p|0
+    c|1|p|0
+}
+
+test fk-check-temp-schema-precedence {
+    PRAGMA foreign_keys=OFF;
+    CREATE TABLE p(id INTEGER PRIMARY KEY);
+    INSERT INTO p VALUES(0);
+    CREATE TABLE c(pid REFERENCES p(id));
+    INSERT INTO c VALUES(0),(41);
+    CREATE TEMP TABLE p(id INTEGER PRIMARY KEY);
+    CREATE TEMP TABLE c(pid REFERENCES p(id));
+    INSERT INTO temp.c VALUES(42);
+    PRAGMA foreign_key_check;
+    PRAGMA foreign_key_check(c);
+    PRAGMA temp.foreign_key_check(c);
+    PRAGMA main.foreign_key_check(c);
+    PRAGMA temp.foreign_key_check;
+}
+expect {
+    c|2|p|0
+    c|1|p|0
+    c|1|p|0
+    c|2|p|0
+    c|1|p|0
+}
+
+test fk-check-explicit-schema-missing-table {
+    PRAGMA main.foreign_key_check(missing);
+}
+expect error {
+    no such table: main.missing
+}
+
+test fk-check-numeric-filter-is-missing-table {
+    PRAGMA foreign_key_check(123);
+}
+expect error {
+    no such table: 123
+}
+
+test fk-check-negative-numeric-filter-is-missing-table {
+    PRAGMA foreign_key_check(-2);
+}
+expect error {
+    no such table: -2
+}
+
+test fk-check-positive-numeric-filter-is-missing-table {
+    PRAGMA foreign_key_check(+2);
+}
+expect error {
+    no such table: 2
+}
+
+test fk-check-boolean-filter-is-missing-table {
+    PRAGMA foreign_key_check(TRUE);
+}
+expect error {
+    no such table: TRUE
+}
+
+test fk-check-current-date-filter-is-missing-table {
+    PRAGMA foreign_key_check(CURRENT_DATE);
+}
+expect error {
+    no such table: CURRENT_DATE
+}
+
+test fk-check-keyword-filters-find-quoted-tables {
+    PRAGMA foreign_keys=OFF;
+    CREATE TABLE p(id INTEGER PRIMARY KEY);
+    CREATE TABLE "true"(pid REFERENCES p(id));
+    CREATE TABLE "current_date"(pid REFERENCES p(id));
+    INSERT INTO "true" VALUES(42);
+    INSERT INTO "current_date" VALUES(43);
+    PRAGMA foreign_key_check(TRUE);
+    PRAGMA foreign_key_check(CURRENT_DATE);
+}
+expect {
+    true|1|p|0
+    current_date|1|p|0
+}
+
+test fk-check-equals-filter-finds-orphans {
+    PRAGMA foreign_keys=OFF;
+    CREATE TABLE p(id INTEGER PRIMARY KEY);
+    CREATE TABLE c(pid REFERENCES p(id));
+    INSERT INTO c VALUES(42);
+    PRAGMA foreign_key_check = c;
+}
+expect {
+    c|1|p|0
+}
+
+test fk-check-unqualified-missing-table {
+    PRAGMA foreign_key_check(missing);
+}
+expect error {
+    no such table: missing
+}
+
+test fk-check-numeric-filter-finds-quoted-table {
+    PRAGMA foreign_keys=OFF;
+    CREATE TABLE p(id INTEGER PRIMARY KEY);
+    CREATE TABLE "123"(pid REFERENCES p(id));
+    INSERT INTO "123" VALUES(42);
+    PRAGMA foreign_key_check(123);
+}
+expect {
+    123|1|p|0
+}
+
+test fk-check-negative-numeric-filter-finds-quoted-table {
+    PRAGMA foreign_keys=OFF;
+    CREATE TABLE p(id INTEGER PRIMARY KEY);
+    CREATE TABLE "-2"(pid REFERENCES p(id));
+    INSERT INTO "-2" VALUES(42);
+    PRAGMA foreign_key_check(-2);
+}
+expect {
+    -2|1|p|0
+}
+
+test fk-check-attached-schema-missing-table {
+    ATTACH ':memory:' AS aux;
+    PRAGMA aux.foreign_key_check(missing);
+}
+expect error {
+    no such table: aux.missing
+}
+
+test fk-check-composite-parent-nocase {
+    PRAGMA foreign_keys=OFF;
+    CREATE TABLE p(a TEXT COLLATE NOCASE,b INT,PRIMARY KEY(a,b));
+    CREATE TABLE c(x TEXT,y INT,FOREIGN KEY(x,y) REFERENCES p(a,b));
+    INSERT INTO p VALUES('a',1);
+    INSERT INTO c VALUES('A',1),('A',2);
+    PRAGMA foreign_key_check;
+}
+expect {
+    c|2|p|0
+}
+
+test fk-check-rtrim-parent-ignores-child-nocase {
+    PRAGMA foreign_keys=OFF;
+    CREATE TABLE p(id TEXT COLLATE RTRIM UNIQUE);
+    CREATE TABLE c(pid TEXT COLLATE NOCASE REFERENCES p(id));
+    INSERT INTO p VALUES('key');
+    INSERT INTO c VALUES('key '),('KEY'),('orphan '),(NULL);
+    PRAGMA foreign_key_check(c);
+}
+expect {
+    c|2|p|0
+    c|3|p|0
+}
+
+test fk-check-binary-parent-ignores-child-rtrim {
+    PRAGMA foreign_keys=OFF;
+    CREATE TABLE p(id TEXT COLLATE BINARY UNIQUE);
+    CREATE TABLE c(pid TEXT COLLATE RTRIM REFERENCES p(id));
+    INSERT INTO p VALUES('key');
+    INSERT INTO c VALUES('key '),('key'),(NULL);
+    PRAGMA foreign_key_check(c);
+}
+expect {
+    c|1|p|0
+}
+
+test fk-check-composite-partial-null {
+    PRAGMA foreign_keys=OFF;
+    CREATE TABLE p(a INTEGER,b INTEGER,PRIMARY KEY(a,b));
+    CREATE TABLE c(x INTEGER,y INTEGER,FOREIGN KEY(x,y) REFERENCES p(a,b));
+    INSERT INTO p VALUES(1,2);
+    INSERT INTO c VALUES(1,2),(1,3),(NULL,3),(1,NULL),(NULL,NULL);
+    PRAGMA foreign_key_check(c);
+}
+expect {
+    c|2|p|0
+}
+
+test fk-check-quoted-table-names-and-case-insensitive-filter {
+    PRAGMA foreign_keys=OFF;
+    CREATE TABLE "parent's key"(id INTEGER PRIMARY KEY);
+    CREATE TABLE "mixed child"(pid REFERENCES "parent's key"(id));
+    INSERT INTO "mixed child" VALUES(42);
+    PRAGMA foreign_key_check('MIXED CHILD');
+    PRAGMA main.foreign_key_check('mixed child');
+}
+expect {
+    mixed child|1|parent's key|0
+    mixed child|1|parent's key|0
+}
+
+test fk-check-preserves-child-table-name-case {
+    PRAGMA foreign_keys=OFF;
+    CREATE TABLE p(id INTEGER PRIMARY KEY);
+    CREATE TABLE "Mixed Child"(pid REFERENCES p(id));
+    INSERT INTO "Mixed Child" VALUES(42);
+    PRAGMA foreign_key_check('mixed child');
+}
+expect {
+    Mixed Child|1|p|0
+}
+
+test fk-check-preserves-temp-child-table-name-case {
+    PRAGMA foreign_keys=OFF;
+    CREATE TEMP TABLE p(id INTEGER PRIMARY KEY);
+    CREATE TEMP TABLE "Mi'X"(pid REFERENCES p(id));
+    INSERT INTO "Mi'X" VALUES(42);
+    PRAGMA temp.foreign_key_check('Mi''X');
+}
+expect {
+    Mi'X|1|p|0
+}
+
+test fk-check-preserves-attached-child-table-name-case {
+    PRAGMA foreign_keys=OFF;
+    ATTACH ':memory:' AS aux;
+    CREATE TABLE aux.p(id INTEGER PRIMARY KEY);
+    CREATE TABLE aux."Mixed Child"(pid REFERENCES p(id));
+    INSERT INTO aux."Mixed Child" VALUES(42);
+    PRAGMA aux.foreign_key_check('Mixed Child');
+}
+expect {
+    Mixed Child|1|p|0
+}
+
+test fk-check-preserves-declared-parent-table-case {
+    PRAGMA foreign_keys=OFF;
+    CREATE TABLE "Parent's Key"(id INTEGER PRIMARY KEY);
+    CREATE TABLE "Mixed Child"(pid REFERENCES "PARENT'S KEY"(id));
+    INSERT INTO "Mixed Child" VALUES(42);
+    PRAGMA foreign_key_check('Mixed Child');
+    PRAGMA foreign_key_list('Mixed Child');
+}
+expect {
+    Mixed Child|1|PARENT'S KEY|0
+    0|0|PARENT'S KEY|pid|id|NO ACTION|NO ACTION|NONE
+}
+
+test fk-check-preserves-altered-parent-table-case {
+    PRAGMA foreign_keys=OFF;
+    CREATE TABLE "Parent's Key"(id INTEGER PRIMARY KEY);
+    CREATE TABLE "Mixed Child"(id);
+    ALTER TABLE "Mixed Child" ADD COLUMN pid REFERENCES "PARENT'S KEY"(id);
+    INSERT INTO "Mixed Child" VALUES(1,42);
+    PRAGMA foreign_key_list('Mixed Child');
+    PRAGMA foreign_key_check('Mixed Child');
+}
+expect {
+    0|0|PARENT'S KEY|pid|id|NO ACTION|NO ACTION|NONE
+    Mixed Child|1|PARENT'S KEY|0
+}
+
+test fk-check-preserves-renamed-parent-table-case {
+    PRAGMA foreign_keys=ON;
+    CREATE TABLE "Parent Key"(id INTEGER PRIMARY KEY);
+    CREATE TABLE "Mixed Child"(pid REFERENCES "PARENT KEY"(id));
+    ALTER TABLE "Parent Key" RENAME TO "Renamed Key";
+    PRAGMA foreign_keys=OFF;
+    INSERT INTO "Mixed Child" VALUES(42);
+    PRAGMA foreign_key_list('Mixed Child');
+    PRAGMA foreign_key_check('Mixed Child');
+}
+expect {
+    0|0|Renamed Key|pid|id|NO ACTION|NO ACTION|NONE
+    Mixed Child|1|Renamed Key|0
+}
+
+test fk-check-preserves-renamed-self-reference-case {
+    PRAGMA foreign_keys=ON;
+    CREATE TABLE "Self Node"(id INTEGER PRIMARY KEY,pid REFERENCES "SELF NODE"(id));
+    ALTER TABLE "Self Node" RENAME TO "Renamed Node";
+    PRAGMA foreign_keys=OFF;
+    INSERT INTO "Renamed Node" VALUES(1,42);
+    PRAGMA foreign_key_list('Renamed Node');
+    PRAGMA foreign_key_check('Renamed Node');
+}
+expect {
+    0|0|Renamed Node|pid|id|NO ACTION|NO ACTION|NONE
+    Renamed Node|1|Renamed Node|0
+}
+
+test fk-list-preserves-inline-column-case {
+    CREATE TABLE "P"("Key" INTEGER PRIMARY KEY);
+    CREATE TABLE "C"("Local" REFERENCES "P"("Key"));
+    PRAGMA foreign_key_list('C');
+}
+expect {
+    0|0|P|Local|Key|NO ACTION|NO ACTION|NONE
+}
+
+test fk-list-preserves-composite-column-case {
+    CREATE TABLE "P"("Key" INT,"Part" INT,UNIQUE("Key","Part"));
+    CREATE TABLE "C"("Local" INT,"Other" INT,FOREIGN KEY("Local","Other") REFERENCES "P"("Key","Part"));
+    PRAGMA foreign_key_list('C');
+}
+expect {
+    0|0|P|Local|Key|NO ACTION|NO ACTION|NONE
+    0|1|P|Other|Part|NO ACTION|NO ACTION|NONE
+}
+
+test fk-list-preserves-altered-column-case {
+    CREATE TABLE "P"("Key" INTEGER PRIMARY KEY);
+    CREATE TABLE "C"("Local" INT REFERENCES "P"("Key"));
+    ALTER TABLE "C" ADD COLUMN "Other" INT REFERENCES "P"("Key");
+    PRAGMA foreign_key_list('C');
+}
+expect {
+    0|0|P|Other|Key|NO ACTION|NO ACTION|NONE
+    1|0|P|Local|Key|NO ACTION|NO ACTION|NONE
+}
+
+test fk-list-preserves-renamed-column-case-after-rewrite {
+    CREATE TABLE "P"("Key" INTEGER UNIQUE);
+    CREATE TABLE "C"("Local" INT,"DropMe" INT,FOREIGN KEY("Local") REFERENCES "P"("Key"));
+    ALTER TABLE "P" RENAME COLUMN "Key" TO "NewKey";
+    ALTER TABLE "C" RENAME COLUMN "Local" TO "NewLocal";
+    ALTER TABLE "C" DROP COLUMN "DropMe";
+    INSERT INTO "C"("NewLocal") VALUES(42);
+    PRAGMA foreign_key_list('C');
+    PRAGMA foreign_key_check('C');
+}
+expect {
+    0|0|P|NewLocal|NewKey|NO ACTION|NO ACTION|NONE
+    C|1|P|0
+}
+
+test fk-check-integer-parent-affinity {
+    PRAGMA foreign_keys=OFF;
+    CREATE TABLE p(id INTEGER PRIMARY KEY);
+    CREATE TABLE c(pid TEXT REFERENCES p(id));
+    INSERT INTO p VALUES(1);
+    INSERT INTO c VALUES('01'),('1.0'),('2'),(NULL),('not-a-number');
+    PRAGMA foreign_key_check(c);
+}
+expect {
+    c|3|p|0
+    c|5|p|0
+}
+
+test fk-check-text-parent-affinity {
+    PRAGMA foreign_keys=OFF;
+    CREATE TABLE p(id TEXT PRIMARY KEY);
+    CREATE TABLE c(pid INTEGER REFERENCES p(id));
+    INSERT INTO p VALUES('1');
+    INSERT INTO c VALUES(1),(2),(NULL);
+    PRAGMA foreign_key_check(c);
+}
+expect {
+    c|2|p|0
+}
+
+test fk-check-without-rowid-child {
+    PRAGMA foreign_keys=OFF;
+    CREATE TABLE p(id INTEGER PRIMARY KEY);
+    CREATE TABLE c(id TEXT PRIMARY KEY,pid INTEGER REFERENCES p(id)) WITHOUT ROWID;
+    INSERT INTO c VALUES('x',42);
+    PRAGMA foreign_key_check;
+}
+expect {
+    c||p|0
+}
+
+test fk-check-shadowed-rowid-aliases {
+    PRAGMA foreign_keys=OFF;
+    CREATE TABLE p(id INTEGER PRIMARY KEY);
+    CREATE TABLE c(rowid TEXT,_rowid_ TEXT,pid REFERENCES p(id));
+    INSERT INTO c VALUES('shadow','hidden',42);
+    PRAGMA foreign_key_check(c);
+}
+expect {
+    c|1|p|0
+}
+
+test fk-check-reports-each-constraint-id {
+    PRAGMA foreign_keys=OFF;
+    CREATE TABLE p(id INTEGER PRIMARY KEY);
+    CREATE TABLE c(a INTEGER REFERENCES p(id),b INTEGER REFERENCES p(id));
+    INSERT INTO c VALUES(42,43);
+    PRAGMA foreign_key_check;
+}
+expect {
+    c|1|p|0
+    c|1|p|1
+}
+
+test fk-check-interleaves-constraints-by-child-row {
+    PRAGMA foreign_keys=OFF;
+    CREATE TABLE p(id INTEGER PRIMARY KEY);
+    CREATE TABLE c(x REFERENCES p(id),y REFERENCES p(id));
+    INSERT INTO c VALUES(11,12),(21,22);
+    PRAGMA foreign_key_check(c);
+}
+expect {
+    c|1|p|0
+    c|1|p|1
+    c|2|p|0
+    c|2|p|1
+}
+
+test fk-check-multiple-constraints-skip-valid-and-null-keys {
+    PRAGMA foreign_keys=OFF;
+    CREATE TABLE p(id INTEGER PRIMARY KEY);
+    CREATE TABLE c(x REFERENCES p(id),y REFERENCES p(id));
+    INSERT INTO p VALUES(1);
+    INSERT INTO c VALUES(1,12),(21,NULL);
+    PRAGMA foreign_key_check(c);
+}
+expect {
+    c|1|p|0
+    c|2|p|1
+}
+
+test fk-check-interleaves-distinct-parents-by-child-row {
+    PRAGMA foreign_keys=OFF;
+    CREATE TABLE p1(id INTEGER PRIMARY KEY);
+    CREATE TABLE p2(id INTEGER PRIMARY KEY);
+    CREATE TABLE c(x REFERENCES p1(id),y REFERENCES p2(id));
+    INSERT INTO c VALUES(11,12),(21,22);
+    PRAGMA foreign_key_check(c);
+}
+expect {
+    c|1|p2|0
+    c|1|p1|1
+    c|2|p2|0
+    c|2|p1|1
+}
+
+test fk-check-missing-parent {
+    PRAGMA foreign_keys=OFF;
+    CREATE TABLE c(pid INTEGER REFERENCES missing(id));
+    INSERT INTO c VALUES(42);
+    PRAGMA foreign_key_check;
+}
+expect {
+    c|1|missing|0
+}
+
+test fk-check-missing-composite-parent-with-null-child {
+    PRAGMA foreign_keys=OFF;
+    CREATE TABLE c(x INTEGER,y INTEGER,FOREIGN KEY(x,y) REFERENCES missing(a,b));
+    INSERT INTO c VALUES(NULL,3),(1,NULL),(1,2);
+    PRAGMA foreign_key_check(c);
+}
+expect {
+    c|3|missing|0
+}
+
+test fk-check-rejects-nonunique-parent-key {
+    CREATE TABLE p(a INT);
+    CREATE TABLE c(x INT REFERENCES p(a));
+    PRAGMA foreign_key_check;
+}
+expect error {
+    foreign key mismatch.*
+}
+
+test fk-check-rejects-invalid-parent-with-another-missing-parent {
+    PRAGMA foreign_keys=OFF;
+    CREATE TABLE p(a INT);
+    CREATE TABLE c(x INT REFERENCES p(a),y INT REFERENCES missing(id));
+    PRAGMA foreign_key_check;
+}
+expect error {
+    foreign key mismatch.*
+}
+
 @cross-check-integrity
 test fk-basic-ok {
     PRAGMA foreign_keys=ON;
@@ -592,6 +1092,118 @@ test fk-cross-table-parent-collation-still-matches-child {
     INSERT INTO p VALUES ('A');
     INSERT INTO c VALUES ('a');
     SELECT pk FROM c;
+}
+expect {
+    a
+}
+
+@cross-check-integrity
+test fk-composite-parent-mismatched-collation-after-add-column {
+    PRAGMA foreign_keys=ON;
+    CREATE TABLE p(a TEXT,b INT,PRIMARY KEY(a COLLATE NOCASE,b));
+    CREATE TABLE c(x TEXT,y INT,FOREIGN KEY(x,y) REFERENCES p(a,b));
+    INSERT INTO p VALUES('a',1);
+    ALTER TABLE p ADD COLUMN extra INT DEFAULT 7;
+    INSERT INTO c VALUES('A',1);
+}
+expect error {
+    foreign key mismatch.*
+}
+
+@cross-check-integrity
+test fk-composite-parent-declared-collation-after-add-column {
+    PRAGMA foreign_keys=ON;
+    CREATE TABLE p(a TEXT COLLATE NOCASE,b INT,PRIMARY KEY(a,b));
+    CREATE TABLE c(x TEXT,y INT,FOREIGN KEY(x,y) REFERENCES p(a,b));
+    INSERT INTO p VALUES('a',1);
+    ALTER TABLE p ADD COLUMN extra INT DEFAULT 7;
+    INSERT INTO c VALUES('A',1);
+    SELECT c.x,c.y,p.extra FROM c JOIN p ON c.x=p.a COLLATE NOCASE AND c.y=p.b;
+    PRAGMA foreign_key_check;
+}
+expect {
+    A|1|7
+}
+
+@cross-check-integrity
+test fk-cascade-composite-nocase-parent-after-add-column {
+    PRAGMA foreign_keys=ON;
+    CREATE TABLE p(a TEXT COLLATE NOCASE,b INT,PRIMARY KEY(a,b));
+    CREATE TABLE c(x TEXT,y INT,FOREIGN KEY(x,y) REFERENCES p(a,b) ON UPDATE CASCADE);
+    INSERT INTO p VALUES('a',1);
+    INSERT INTO c VALUES('A',1);
+    ALTER TABLE p ADD COLUMN extra INT DEFAULT 7;
+    UPDATE p SET a='z' WHERE a='a';
+    SELECT x,y FROM c;
+    PRAGMA foreign_key_check;
+}
+expect {
+    z|1
+}
+
+@cross-check-integrity
+test fk-delete-actions-use-parent-nocase-collation {
+    PRAGMA foreign_keys=ON;
+    CREATE TABLE p(a TEXT COLLATE NOCASE PRIMARY KEY);
+    CREATE TABLE d(x TEXT REFERENCES p(a) ON DELETE CASCADE);
+    CREATE TABLE n(x TEXT REFERENCES p(a) ON DELETE SET NULL);
+    CREATE TABLE f(x TEXT DEFAULT 'Z' REFERENCES p(a) ON DELETE SET DEFAULT);
+    INSERT INTO p VALUES('a'),('z');
+    INSERT INTO d VALUES('A');
+    INSERT INTO n VALUES('A');
+    INSERT INTO f VALUES('A');
+    DELETE FROM p WHERE a='a';
+    SELECT count(*) FROM d;
+    SELECT quote(x) FROM n;
+    SELECT x FROM f;
+    PRAGMA foreign_key_check;
+}
+expect {
+    0
+    NULL
+    Z
+}
+
+@cross-check-integrity
+test fk-cascade-does-not-use-child-nocase-for-binary-parent {
+    PRAGMA foreign_keys=OFF;
+    CREATE TABLE p(a TEXT COLLATE BINARY PRIMARY KEY);
+    CREATE TABLE c(x TEXT COLLATE NOCASE REFERENCES p(a) ON DELETE CASCADE);
+    INSERT INTO p VALUES('a');
+    INSERT INTO c VALUES('A');
+    PRAGMA foreign_keys=ON;
+    DELETE FROM p WHERE a='a';
+    SELECT x FROM c;
+    SELECT count(*) FROM p;
+    SELECT c.x FROM c WHERE NOT EXISTS (SELECT 1 FROM p WHERE p.a=c.x);
+}
+expect {
+    A
+    0
+    A
+}
+
+@cross-check-integrity
+test fk-parent-only-mismatched-unique-collation {
+    PRAGMA foreign_keys=ON;
+    CREATE TABLE p(a TEXT,UNIQUE(a COLLATE NOCASE));
+    CREATE TABLE c(x TEXT REFERENCES p(a));
+    INSERT INTO p VALUES('a');
+    INSERT INTO c VALUES('a');
+}
+expect error {
+    foreign key mismatch.*
+}
+
+@cross-check-integrity
+test fk-parent-skips-mismatched-unique-index-for-valid-index {
+    PRAGMA foreign_keys=ON;
+    CREATE TABLE p(a TEXT,UNIQUE(a COLLATE NOCASE),UNIQUE(a));
+    CREATE TABLE c(x TEXT REFERENCES p(a));
+    INSERT INTO p VALUES('a');
+    INSERT INTO c VALUES('a');
+    SELECT x FROM c;
+    PRAGMA foreign_key_check;
 }
 expect {
     a

@@ -1,0 +1,103 @@
+@database :memory:
+
+setup schema {
+    CREATE TABLE t3(a,b,c);
+    INSERT INTO t3 VALUES(6,4,5),(7,5,6);
+}
+
+@setup schema
+test insert-values-cannot-bind-target-table-qualified-column {
+    INSERT INTO t3 VALUES((SELECT max(a) FROM t3)+1,t3.a,6);
+}
+expect error {
+    ^Parse error: no such column: t3\.a$
+}
+
+@setup schema
+test select-unknown-expression-qualifier {
+    SELECT missing.a FROM t3;
+}
+expect error {
+    ^Parse error: no such column: missing\.a$
+}
+
+@setup schema
+test select-alias-hides-original-table-qualifier {
+    SELECT t3.a FROM t3 AS x;
+}
+expect error {
+    ^Parse error: no such column: t3\.a$
+}
+
+test select-qualified-expression-without-from {
+    SELECT t3.a;
+}
+expect error {
+    ^Parse error: no such column: t3\.a$
+}
+
+@setup schema
+test select-missing-column-on-bound-table {
+    SELECT t3.missing FROM t3;
+}
+expect error {
+    ^Parse error: no such column: t3\.missing$
+}
+
+@setup schema
+test select-quoted-unknown-expression-qualifier {
+    SELECT "MiSsInG"."A" FROM t3;
+}
+expect error {
+    ^Parse error: no such column: MiSsInG\.A$
+}
+
+@setup schema
+test cte-definition-is-not-an-expression-table-binding {
+    WITH q(a) AS (SELECT 1) SELECT q.a FROM t3;
+}
+expect error {
+    ^Parse error: no such column: q\.a$
+}
+
+@setup schema
+test actual-missing-from-table-remains-table-error {
+    SELECT a FROM missing;
+}
+expect error {
+    ^Parse error: no such table: missing$
+}
+
+@setup schema
+test actual-qualified-missing-from-table-remains-table-error {
+    SELECT a FROM main.missing;
+}
+expect error {
+    ^Parse error: no such table: main\.missing$
+}
+
+@setup schema
+test actual-missing-insert-target-remains-table-error {
+    INSERT INTO missing VALUES(1);
+}
+expect error {
+    ^Parse error: no such table: missing$
+}
+
+@setup schema
+test valid-alias-qualified-column-still-binds {
+    SELECT x.a FROM t3 AS x ORDER BY x.a;
+}
+expect {
+    6
+    7
+}
+
+@setup schema
+test valid-correlated-qualified-column-still-binds {
+    SELECT (SELECT x.a) FROM t3 AS x ORDER BY x.a;
+}
+expect {
+    6
+    7
+}

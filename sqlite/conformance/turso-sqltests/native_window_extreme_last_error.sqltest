@@ -1,0 +1,13 @@
+@database :memory:
+setup anchored_int_extremes {
+    CREATE TABLE tx(k INT);
+    INSERT INTO tx VALUES (-9223372036854775808),(-5),(0),(5),(9223372036854775807);
+}
+
+@setup anchored_int_extremes
+test anchored-window-extreme-m2-d1-f4 {
+    SELECT k, sum(k) OVER w, count(*) OVER w, min(k) OVER w, max(k) OVER w FROM tx WINDOW w AS (ORDER BY k DESC RANGE BETWEEN 100 PRECEDING AND 2 PRECEDING) ORDER BY k DESC;
+}
+expect error {
+    integer overflow
+}

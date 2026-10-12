@@ -249,7 +249,7 @@ pub(crate) struct VacuumTempDb {
     #[cfg(test)]
     path: String,
     #[cfg(not(target_family = "wasm"))]
-    _temp_dir: tempfile::TempDir,
+    _temp_dir: Option<tempfile::TempDir>,
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -278,17 +278,25 @@ pub(crate) fn open_vacuum_temp_db(
     page_size: u32,
     reserved_space: u8,
 ) -> Result<VacuumTempDb> {
-    let temp_dir = source_conn.create_tempdir()?;
-    let source_db_name = std::path::Path::new(&source_db.path)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("tursodb_vacuum_temp.db");
-    // all temp files we will prefix with `etilqs_` as an homage to SQLite's lore
-    let path = temp_dir.path().join(format!("etilqs_{source_db_name}"));
-    let path = path
-        .to_str()
-        .ok_or_else(|| LimboError::InternalError("vacuum temp path is not valid UTF-8".into()))?
-        .to_string();
+    let (temp_dir, path, io) = if source_db.is_in_memory_db() {
+        (
+            None,
+            ":memory:vacuum".to_string(),
+            Arc::new(crate::MemoryIO::new()) as Arc<dyn crate::IO>,
+        )
+    } else {
+        let temp_dir = source_conn.create_tempdir()?;
+        let source_db_name = std::path::Path::new(&source_db.path)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("tursodb_vacuum_temp.db");
+        let path = temp_dir.path().join(format!("etilqs_{source_db_name}"));
+        let path = path
+            .to_str()
+            .ok_or_else(|| LimboError::InternalError("vacuum temp path is not valid UTF-8".into()))?
+            .to_string();
+        (Some(temp_dir), path, source_db.io.clone())
+    };
     #[cfg(test)]
     let test_path = path.clone();
 
@@ -296,7 +304,7 @@ pub(crate) fn open_vacuum_temp_db(
     let page_codec = source_conn.pager.load().page_codec_external();
     let db = match &page_codec {
         Some(codec) => Database::open(
-            source_db.io.clone(),
+            io.clone(),
             &path,
             crate::OpenOptions::new(source_db.dialect())
                 .flags(OpenFlags::Create)
@@ -305,7 +313,7 @@ pub(crate) fn open_vacuum_temp_db(
                 .page_codec(codec.clone()),
         )?,
         None => Database::open_file_with_flags(
-            source_db.io.clone(),
+            io,
             &path,
             OpenFlags::Create,
             vacuum_target_opts_from_source(source_db),
@@ -478,7 +486,7 @@ impl VacuumTargetBuildContext {
             // unwind connection-local transaction state before the caller drops
             // the target database handle.
             let pager = self.target_conn.pager.load();
-            self.target_conn.rollback_manual_txn_cleanup(&pager, true);
+            self.target_conn.rollback_manual_txn_cleanup(&pager, true)?;
         }
         Ok(())
     }
@@ -1738,13 +1746,6 @@ fn vacuum_in_place_step(
                 // 4. Resolve source database mode.
                 let source_db = connection.get_source_database(db);
                 let source_mvcc_enabled = source_db.mvcc_enabled();
-                // 5. Reject in-memory databases.
-                if source_db.is_in_memory_db() {
-                    return Err(LimboError::InternalError(
-                        "cannot VACUUM an in-memory database".to_string(),
-                    )
-                    .into());
-                }
                 reject_unsupported_vacuum_auto_vacuum_mode(source_pager.get_auto_vacuum_mode())?;
                 // 6. Reject non-WAL pagers.
                 let wal = source_pager.wal.as_ref().ok_or_else(|| {
@@ -2346,9 +2347,12 @@ fn vacuum_in_place_cleanup(
     committed_image: Option<VacuumCommittedImageMeta>,
     mut cleanup_state: VacuumInPlaceCleanupState,
 ) -> Result<()> {
-    if let VacuumInPlacePhase::TargetBuild { context, .. } = &mut phase {
-        context.cleanup_after_error()?;
-    }
+    let target_cleanup_result = if let VacuumInPlacePhase::TargetBuild { context, .. } = &mut phase
+    {
+        context.cleanup_after_error()
+    } else {
+        Ok(())
+    };
 
     match cleanup_state.checkpoint_cleanup {
         CheckpointLockCleanup::ReleaseRaw => {
@@ -2382,8 +2386,9 @@ fn vacuum_in_place_cleanup(
             }
         }
         drop(cleanup_state.mvcc_guard.take());
+        drop(phase);
         drop(temp_db);
-        return Ok(());
+        return target_cleanup_result;
     }
 
     // Drop the phase first to release any target-build helper statements.
@@ -2396,7 +2401,7 @@ fn vacuum_in_place_cleanup(
     let pager = connection
         .get_pager_from_database_index(&db)
         .expect("VACUUM cleanup requires source pager");
-    pager.rollback_tx(connection);
+    let rollback_result = pager.rollback_tx(connection);
 
     if cleanup_state.vacuum_lock_held {
         let pager = connection
@@ -2410,7 +2415,7 @@ fn vacuum_in_place_cleanup(
     connection.auto_commit.store(true, Ordering::SeqCst);
     connection.set_tx_state(crate::connection::TransactionState::None);
     drop(cleanup_state.mvcc_guard.take());
-    Ok(())
+    rollback_result.and(target_cleanup_result)
 }
 
 #[cfg(test)]
@@ -2447,6 +2452,7 @@ mod tests {
         tracked_wal_path: String,
         db_syncs: Arc<AtomicUsize>,
         wal_syncs: Arc<AtomicUsize>,
+        fail_next_read: Arc<std::sync::atomic::AtomicBool>,
     }
 
     impl SyncCountingIo {
@@ -2457,6 +2463,7 @@ mod tests {
                 tracked_wal_path: format!("{tracked_db_path}-wal"),
                 db_syncs: Arc::new(AtomicUsize::new(0)),
                 wal_syncs: Arc::new(AtomicUsize::new(0)),
+                fail_next_read: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             }
         }
 
@@ -2487,6 +2494,7 @@ mod tests {
                 count_as_wal_sync: path == self.tracked_wal_path,
                 db_syncs: self.db_syncs.clone(),
                 wal_syncs: self.wal_syncs.clone(),
+                fail_next_read: self.fail_next_read.clone(),
             }))
         }
 
@@ -2517,6 +2525,7 @@ mod tests {
         count_as_wal_sync: bool,
         db_syncs: Arc<AtomicUsize>,
         wal_syncs: Arc<AtomicUsize>,
+        fail_next_read: Arc<std::sync::atomic::AtomicBool>,
     }
 
     #[derive(Debug)]
@@ -2556,6 +2565,13 @@ mod tests {
         }
 
         fn pread(&self, pos: u64, c: Completion) -> Result<Completion> {
+            if self.fail_next_read.swap(false, StdOrdering::SeqCst) {
+                c.error(crate::CompletionError::IOError(
+                    std::io::ErrorKind::Other,
+                    "vacuum target bookmark",
+                ));
+                return Ok(c);
+            }
             self.inner.pread(pos, c)
         }
 
@@ -3277,6 +3293,64 @@ mod tests {
 
     #[cfg(not(target_family = "wasm"))]
     #[test]
+    fn in_place_vacuum_memory_reclaims_backing_file() -> Result<()> {
+        let io: Arc<dyn IO> = Arc::new(MemoryIO::new());
+        let db = Database::open_file_with_flags(
+            io,
+            ":memory:",
+            OpenFlags::Create,
+            DatabaseOpts::new()
+                .with_vacuum(true)
+                .with_generated_columns(true),
+            None,
+            Arc::new(SqliteDialect),
+        )?;
+        let conn = db.connect()?;
+
+        conn.execute(
+            "CREATE TABLE t1(id INTEGER PRIMARY KEY, doubled AS (id * 2) VIRTUAL, payload BLOB)",
+        )?;
+        conn.execute("CREATE INDEX idx_doubled ON t1(doubled)")?;
+        conn.execute(
+            "WITH RECURSIVE ids(id) AS (VALUES(1) UNION ALL SELECT id + 1 FROM ids WHERE id < 80) \
+             INSERT INTO t1(id, payload) SELECT id, zeroblob(3500) FROM ids",
+        )?;
+        conn.execute("DELETE FROM t1 WHERE id > 1")?;
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")?;
+
+        let pager = conn.get_pager();
+        let compact_size = 3 * u64::from(pager.get_page_size_unchecked().get());
+        assert!(pager.db_file.size()? > compact_size);
+
+        conn.execute("VACUUM")?;
+
+        assert_eq!(pager.db_file.size()?, compact_size);
+
+        Ok(())
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    #[test]
+    fn internal_vacuum_memory_temp_db_has_separate_storage() -> Result<()> {
+        let io: Arc<dyn crate::IO> = Arc::new(MemoryIO::new());
+        let source_db = Database::open_file(io, ":memory:", Arc::new(SqliteDialect))?;
+        let source_conn = source_db.connect()?;
+
+        let temp = open_vacuum_temp_db(&source_conn, &source_db, 4096, 0)?;
+
+        assert!(temp._db.is_in_memory_db());
+        assert!(!Arc::ptr_eq(&temp._db.io, &source_db.io));
+        assert!(temp._temp_dir.is_none());
+        assert_eq!(
+            temp.conn.wal_auto_actions(),
+            crate::storage::wal::WalAutoActions::empty()
+        );
+
+        Ok(())
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    #[test]
     fn internal_vacuum_temp_db_preserves_source_encryption() -> Result<()> {
         let io: Arc<dyn crate::IO> = Arc::new(crate::io::PlatformIO::new()?);
         let source_dir = tempfile::tempdir().unwrap();
@@ -3314,6 +3388,112 @@ mod tests {
     }
 
     #[cfg(not(target_family = "wasm"))]
+    #[test]
+    fn vacuum_target_rollback_error_still_releases_source_transaction_and_locks() -> Result<()> {
+        for source_tx_open in [false, true] {
+            let source_database = Database::open_file(
+                Arc::new(MemoryIO::new()),
+                "vacuum-source-fault.db",
+                Arc::new(SqliteDialect),
+            )?;
+            let source = source_database.connect()?;
+            source.execute("CREATE TABLE source_t(x); INSERT INTO source_t VALUES(1);")?;
+            let source_pager = source.pager.load().clone();
+            let wal = source_pager.wal.as_ref().unwrap();
+            wal.try_begin_vacuum_checkpoint_lock()?;
+            if source_tx_open {
+                source_pager
+                    .io
+                    .block(|| source_pager.begin_vacuum_blocking_tx())?;
+                source.auto_commit.store(false, Ordering::SeqCst);
+                source.set_tx_state(crate::connection::TransactionState::Write {
+                    schema_did_change: false,
+                });
+                source.execute("UPDATE source_t SET x=2;")?;
+            }
+            let target_io = Arc::new(SyncCountingIo::new("vacuum-target-fault.db"));
+            let target_database = Database::open_file(
+                target_io.clone(),
+                "vacuum-target-fault.db",
+                Arc::new(SqliteDialect),
+            )?;
+            let target = target_database.connect()?;
+            target
+                .execute("PRAGMA cache_size=10; CREATE TABLE t1(i,h); CREATE INDEX i1 ON t1(h);")?;
+            let prefix = "abcdefghij".repeat(1000);
+            for value in 1..=40 {
+                target.execute(format!(
+                    "INSERT INTO t1 VALUES({value},'{prefix}{value:02X}');"
+                ))?;
+            }
+            target.execute(
+                "PRAGMA wal_checkpoint(TRUNCATE); BEGIN; UPDATE t1 SET i=-1 WHERE i=40;",
+            )?;
+            let mut reader = target.prepare("SELECT 1 FROM t1 ORDER BY h ASC;")?;
+            loop {
+                match reader.step()? {
+                    crate::StepResult::Row => break,
+                    crate::StepResult::IO => reader._io().step()?,
+                    crate::StepResult::Yield => continue,
+                    other => panic!("unexpected reader step: {other:?}"),
+                }
+            }
+            let config = VacuumTargetBuildConfig {
+                source_conn: source.clone(),
+                escaped_schema_name: "main".to_string(),
+                source_db_id: crate::MAIN_DB_ID,
+                header_meta: VacuumDbHeaderMeta::from_source_header(&DatabaseHeader::default()),
+                source_custom_types: Vec::new(),
+                target_mvcc_enabled: false,
+                target_auto_vacuum_mode: AutoVacuumMode::None,
+                copy_mvcc_metadata_table: false,
+            };
+            let phase = VacuumInPlacePhase::TargetBuild {
+                config: Box::new(config),
+                context: Box::new(VacuumTargetBuildContext::new(target.clone())),
+            };
+            target_io.fail_next_read.store(true, StdOrdering::SeqCst);
+            let error = vacuum_in_place_cleanup(
+                &source,
+                crate::MAIN_DB_ID,
+                phase,
+                None,
+                None,
+                VacuumInPlaceCleanupState {
+                    source_tx_open,
+                    vacuum_lock_held: source_tx_open,
+                    checkpoint_cleanup: CheckpointLockCleanup::ReleaseRaw,
+                    mvcc_guard: None,
+                },
+            )
+            .unwrap_err();
+            assert!(matches!(error, LimboError::CompletionError(_)));
+            assert!(matches!(reader.step(), Err(LimboError::CompletionError(_))));
+            assert!(source.get_auto_commit());
+            assert_eq!(
+                source.get_tx_state(),
+                crate::connection::TransactionState::None
+            );
+            assert!(target.get_auto_commit());
+            assert!(!source_pager.holds_read_lock());
+            assert!(!source_pager.holds_write_lock());
+            wal.try_begin_vacuum_checkpoint_lock()?;
+            wal.release_vacuum_checkpoint_lock();
+            let second = source_database.connect()?;
+            let rows = second
+                .prepare("SELECT x FROM source_t;")?
+                .run_collect_rows()?;
+            assert_eq!(rows[0][0].as_int(), Some(1));
+            second.execute("BEGIN IMMEDIATE; UPDATE source_t SET x=3; ROLLBACK;")?;
+            let integrity = second
+                .prepare("PRAGMA integrity_check;")?
+                .run_collect_rows()?;
+            assert_eq!(integrity[0][0].to_string(), "ok");
+            target.execute("BEGIN; UPDATE t1 SET h='changed' WHERE i=2; ROLLBACK;")?;
+        }
+        Ok(())
+    }
+
     #[test]
     fn vacuum_target_build_cleanup_clears_target_connection_state() -> Result<()> {
         let io: Arc<dyn crate::IO> = Arc::new(crate::io::PlatformIO::new()?);

@@ -1,0 +1,596 @@
+@database :memory:
+
+test scalar-rowvalue-dynamic-zero {
+    SELECT typeof((SELECT 2 LIMIT abs(0))),coalesce((SELECT 2 LIMIT abs(0)),-1);
+}
+expect {null|-1}
+
+test scalar-rowvalue-dynamic-positive-first {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(3),(1),(2);
+    SELECT (SELECT value FROM items ORDER BY value LIMIT abs(2));
+}
+expect {1}
+
+test scalar-rowvalue-dynamic-negative-first {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(3),(1),(2);
+    SELECT (SELECT value FROM items ORDER BY value LIMIT -abs(2));
+}
+expect {1}
+
+test scalar-rowvalue-dynamic-offset {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(3),(1),(2);
+    SELECT (SELECT value FROM items ORDER BY value LIMIT abs(2) OFFSET abs(1));
+}
+expect {2}
+
+test scalar-rowvalue-dynamic-offset-empty {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(1),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT abs(2) OFFSET abs(3)));
+}
+expect {null}
+
+test scalar-rowvalue-text-zero {
+    SELECT typeof((SELECT 2 LIMIT '0'));
+}
+expect {null}
+
+test scalar-rowvalue-text-positive-first {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(3),(1),(2);
+    SELECT (SELECT value FROM items ORDER BY value LIMIT '2');
+}
+expect {1}
+
+test scalar-rowvalue-integral-real-first {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(3),(1),(2);
+    SELECT (SELECT value FROM items ORDER BY value LIMIT 2.0);
+}
+expect {1}
+
+test scalar-rowvalue-null-limit-rejected {
+    SELECT (SELECT 2 LIMIT NULL);
+}
+expect error {datatype mismatch}
+
+test scalar-rowvalue-fractional-limit-nonzero {
+    SELECT (SELECT 2 LIMIT 1.5);
+}
+expect {2}
+
+test scalar-rowvalue-nonnumeric-limit-nonzero {
+    SELECT (SELECT 2 LIMIT 'invalid');
+}
+expect {2}
+
+test scalar-rowvalue-grouped-first {
+    CREATE TABLE items(category,value);
+    INSERT INTO items VALUES(1,2),(1,3),(2,4);
+    SELECT (SELECT sum(value) FROM items GROUP BY category ORDER BY category LIMIT abs(2));
+}
+expect {5}
+
+test scalar-rowvalue-distinct-offset {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(1),(1),(2),(3);
+    SELECT (SELECT DISTINCT value FROM items ORDER BY value LIMIT abs(2) OFFSET 1);
+}
+expect {2}
+
+test scalar-rowvalue-zero-aggregate {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(1),(2);
+    SELECT typeof((SELECT count(*) FROM items LIMIT abs(0)));
+}
+expect {null}
+
+test update-rowvalue-dynamic-zero {
+    CREATE TABLE pairs(identifier PRIMARY KEY,left_value,right_value);
+    INSERT INTO pairs VALUES(1,10,20);
+    UPDATE pairs SET (left_value,right_value)=(SELECT 2,3 LIMIT abs(0));
+    SELECT left_value IS NULL,right_value IS NULL FROM pairs;
+}
+expect {1|1}
+
+test update-rowvalue-dynamic-first-offset {
+    CREATE TABLE pairs(identifier PRIMARY KEY,left_value,right_value);
+    CREATE TABLE items(value);
+    INSERT INTO pairs VALUES(1,10,20);
+    INSERT INTO items VALUES(3),(1),(2);
+    UPDATE pairs SET (left_value,right_value)=(SELECT value,value+10 FROM items ORDER BY value LIMIT abs(2) OFFSET 1);
+    SELECT left_value,right_value FROM pairs;
+}
+expect {2|12}
+
+test scalar-rowvalue-literal-first-control {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(3),(1),(2);
+    SELECT (SELECT value FROM items ORDER BY value LIMIT 100);
+}
+expect {1}
+
+test scalar-rowvalue-blob-limit-nonzero {
+    SELECT (SELECT 2 LIMIT x'30');
+}
+expect {2}
+
+test scalar-rowvalue-text-real-zero {
+    SELECT typeof((SELECT 2 LIMIT '0.0'));
+}
+expect {null}
+
+test scalar-rowvalue-text-whitespace-zero {
+    SELECT typeof((SELECT 2 LIMIT ' 0 '));
+}
+expect {null}
+
+test scalar-rowvalue-comparison-preserves-text {
+    SELECT typeof('0'),typeof((SELECT 2 LIMIT '0')),typeof('0');
+}
+expect {text|null|text}
+
+test scalar-rowvalue-large-heap-offset {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT (SELECT value FROM items ORDER BY value LIMIT abs(100) OFFSET abs(2));
+}
+expect {3}
+
+test scalar-rowvalue-no-limit-first-control {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(3),(1),(2);
+    SELECT (SELECT value FROM items ORDER BY value);
+}
+expect {1}
+
+test scalar-offset-validation-0-0 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT abs(0) OFFSET NULL));
+}
+expect {null}
+
+test scalar-offset-validation-0-1 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT abs(0) OFFSET 'invalid'));
+}
+expect {null}
+
+test scalar-offset-validation-0-2 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT abs(0) OFFSET 1.5));
+}
+expect {null}
+
+test scalar-offset-validation-0-3 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT abs(0) OFFSET '1.0'));
+}
+expect {null}
+
+test scalar-offset-validation-0-4 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT abs(0) OFFSET x'31'));
+}
+expect {null}
+
+test scalar-offset-validation-0-5 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT abs(0) OFFSET abs(2)));
+}
+expect {null}
+
+test scalar-offset-validation-0-6 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT abs(0) OFFSET 9223372036854775807));
+}
+expect {null}
+
+test scalar-offset-validation-0-7 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT abs(0) OFFSET -abs(2)));
+}
+expect {null}
+
+test scalar-offset-validation-1-0 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT '0.0' OFFSET NULL));
+}
+expect {null}
+
+test scalar-offset-validation-1-1 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT '0.0' OFFSET 'invalid'));
+}
+expect {null}
+
+test scalar-offset-validation-1-2 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT '0.0' OFFSET 1.5));
+}
+expect {null}
+
+test scalar-offset-validation-1-3 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT '0.0' OFFSET '1.0'));
+}
+expect {null}
+
+test scalar-offset-validation-1-4 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT '0.0' OFFSET x'31'));
+}
+expect {null}
+
+test scalar-offset-validation-1-5 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT '0.0' OFFSET abs(2)));
+}
+expect {null}
+
+test scalar-offset-validation-1-6 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT '0.0' OFFSET 9223372036854775807));
+}
+expect {null}
+
+test scalar-offset-validation-1-7 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT '0.0' OFFSET -abs(2)));
+}
+expect {null}
+
+test scalar-offset-validation-2-0 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT 1.5 OFFSET NULL));
+}
+expect error {datatype mismatch}
+
+test scalar-offset-validation-2-1 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT 1.5 OFFSET 'invalid'));
+}
+expect error {datatype mismatch}
+
+test scalar-offset-validation-2-2 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT 1.5 OFFSET 1.5));
+}
+expect error {datatype mismatch}
+
+test scalar-offset-validation-2-3 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT 1.5 OFFSET '1.0'));
+}
+expect {integer}
+
+test scalar-offset-validation-2-4 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT 1.5 OFFSET x'31'));
+}
+expect error {datatype mismatch}
+
+test scalar-offset-validation-2-5 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT 1.5 OFFSET abs(2)));
+}
+expect {integer}
+
+test scalar-offset-validation-2-6 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT 1.5 OFFSET 9223372036854775807));
+}
+expect {null}
+
+test scalar-offset-validation-2-7 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT 1.5 OFFSET -abs(2)));
+}
+expect {integer}
+
+test scalar-offset-validation-3-0 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT abs(2) OFFSET NULL));
+}
+expect error {datatype mismatch}
+
+test scalar-offset-validation-3-1 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT abs(2) OFFSET 'invalid'));
+}
+expect error {datatype mismatch}
+
+test scalar-offset-validation-3-2 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT abs(2) OFFSET 1.5));
+}
+expect error {datatype mismatch}
+
+test scalar-offset-validation-3-3 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT abs(2) OFFSET '1.0'));
+}
+expect {integer}
+
+test scalar-offset-validation-3-4 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT abs(2) OFFSET x'31'));
+}
+expect error {datatype mismatch}
+
+test scalar-offset-validation-3-5 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT abs(2) OFFSET abs(2)));
+}
+expect {integer}
+
+test scalar-offset-validation-3-6 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT abs(2) OFFSET 9223372036854775807));
+}
+expect {null}
+
+test scalar-offset-validation-3-7 {
+    CREATE TABLE items(value);
+    INSERT INTO items VALUES(5),(3),(1),(4),(2);
+    SELECT typeof((SELECT value FROM items ORDER BY value LIMIT abs(2) OFFSET -abs(2)));
+}
+expect {integer}
+
+test offset-zero-expression-overflow-reference {
+    SELECT typeof((SELECT 2 LIMIT abs(0) OFFSET abs(-9223372036854775808)));
+}
+expect {null}
+
+test offset-case-shortcircuit {
+    SELECT typeof((SELECT 2 LIMIT abs(0) OFFSET CASE WHEN 1 THEN NULL ELSE abs(-9223372036854775808) END));
+}
+expect {null}
+
+test offset-coalesce-shortcircuit {
+    SELECT typeof((SELECT 2 LIMIT abs(0) OFFSET coalesce(0,abs(-9223372036854775808))));
+}
+expect {null}
+
+test offset-null-limit-rejected {
+    SELECT (SELECT 2 LIMIT NULL OFFSET NULL);
+}
+expect error {datatype mismatch}
+
+test offset-top-level-zero {
+    SELECT count(*) FROM (SELECT 2 LIMIT abs(0) OFFSET 1.5);
+}
+expect {0}
+
+test offset-top-level-nonzero-rejected {
+    SELECT 2 LIMIT abs(2) OFFSET 1.5;
+}
+expect error {datatype mismatch}
+
+test offset-negative-limit-rejected {
+    SELECT 2 LIMIT -abs(2) OFFSET NULL;
+}
+expect error {datatype mismatch}
+
+test offset-compound-zero {
+    SELECT count(*) FROM (SELECT 1 UNION ALL SELECT 2 LIMIT abs(0) OFFSET NULL);
+}
+expect {0}
+
+test offset-recursive-zero {
+    WITH RECURSIVE numbers(value) AS (SELECT 1 UNION ALL SELECT value+1 FROM numbers WHERE value<3 LIMIT abs(0) OFFSET NULL) SELECT count(*) FROM numbers;
+}
+expect {0}
+
+test offset-update-rowvalue-zero {
+    CREATE TABLE pairs(left_value,right_value); INSERT INTO pairs VALUES(10,20); UPDATE pairs SET (left_value,right_value)=(SELECT 2,3 LIMIT abs(0) OFFSET 1.5); SELECT left_value IS NULL,right_value IS NULL FROM pairs;
+}
+expect {1|1}
+
+test offset-update-predicate-zero {
+    CREATE TABLE items(value); INSERT INTO items VALUES(1),(2); UPDATE items SET value=10 WHERE value IN (SELECT value FROM items LIMIT abs(0) OFFSET NULL); SELECT value FROM items ORDER BY value;
+}
+expect {1
+2}
+
+test offset-delete-predicate-zero {
+    CREATE TABLE items(value); INSERT INTO items VALUES(1),(2); DELETE FROM items WHERE value IN (SELECT value FROM items LIMIT abs(0) OFFSET x'31'); SELECT value FROM items ORDER BY value;
+}
+expect {1
+2}
+
+test offset-compound-unsorted-zero-overflow {
+    SELECT count(*) FROM (SELECT 1 AS value UNION ALL SELECT 2 LIMIT abs(0) OFFSET abs(-9223372036854775808));
+}
+expect {0}
+
+test offset-compound-unsorted-zero-null {
+    SELECT count(*) FROM (SELECT 1 AS value UNION ALL SELECT 2 LIMIT abs(0) OFFSET NULL);
+}
+expect {0}
+
+test offset-compound-unsorted-zero-fraction {
+    SELECT count(*) FROM (SELECT 1 AS value UNION ALL SELECT 2 LIMIT abs(0) OFFSET 1.5);
+}
+expect {0}
+
+test offset-compound-unsorted-zero-blob {
+    SELECT count(*) FROM (SELECT 1 AS value UNION ALL SELECT 2 LIMIT abs(0) OFFSET x'31');
+}
+expect {0}
+
+test offset-compound-unsorted-zero-shortcircuit {
+    SELECT count(*) FROM (SELECT 1 AS value UNION ALL SELECT 2 LIMIT abs(0) OFFSET CASE WHEN 1 THEN 0 ELSE abs(-9223372036854775808) END);
+}
+expect {0}
+
+test offset-compound-unsorted-nonzero-null {
+    SELECT count(*) FROM (SELECT 1 AS value UNION ALL SELECT 2 LIMIT abs(2) OFFSET NULL);
+}
+expect error {datatype mismatch}
+
+test offset-compound-unsorted-nonzero-overflow {
+    SELECT count(*) FROM (SELECT 1 AS value UNION ALL SELECT 2 LIMIT abs(2) OFFSET abs(-9223372036854775808));
+}
+expect error {integer overflow}
+
+test offset-compound-unsorted-nonzero-fraction {
+    SELECT count(*) FROM (SELECT 1 AS value UNION ALL SELECT 2 LIMIT abs(2) OFFSET 1.5);
+}
+expect error {datatype mismatch}
+
+test offset-compound-unsorted-nonzero-negative-offset {
+    SELECT count(*) FROM (SELECT 1 AS value UNION ALL SELECT 2 LIMIT abs(2) OFFSET -abs(2));
+}
+expect {2}
+
+test offset-compound-unsorted-negative-limit {
+    SELECT count(*) FROM (SELECT 1 AS value UNION ALL SELECT 2 LIMIT -abs(2) OFFSET -abs(2));
+}
+expect {2}
+
+test offset-compound-unsorted-null-limit-overflow-offset {
+    SELECT count(*) FROM (SELECT 1 AS value UNION ALL SELECT 2 LIMIT NULL OFFSET abs(-9223372036854775808));
+}
+expect error {datatype mismatch}
+
+test offset-compound-unsorted-fractional-limit-overflow-offset {
+    SELECT count(*) FROM (SELECT 1 AS value UNION ALL SELECT 2 LIMIT 1.5 OFFSET abs(-9223372036854775808));
+}
+expect error {datatype mismatch}
+
+test offset-compound-unsorted-offset-once-counter {
+    SELECT count(*) FROM (SELECT 1 AS value UNION ALL SELECT 2 LIMIT abs(2) OFFSET abs(1));
+}
+expect {1}
+
+test offset-compound-sorted-zero-overflow {
+    SELECT count(*) FROM (SELECT 1 AS value UNION ALL SELECT 2 ORDER BY value LIMIT abs(0) OFFSET abs(-9223372036854775808));
+}
+expect {0}
+
+test offset-compound-sorted-zero-null {
+    SELECT count(*) FROM (SELECT 1 AS value UNION ALL SELECT 2 ORDER BY value LIMIT abs(0) OFFSET NULL);
+}
+expect {0}
+
+test offset-compound-sorted-zero-fraction {
+    SELECT count(*) FROM (SELECT 1 AS value UNION ALL SELECT 2 ORDER BY value LIMIT abs(0) OFFSET 1.5);
+}
+expect {0}
+
+test offset-compound-sorted-zero-blob {
+    SELECT count(*) FROM (SELECT 1 AS value UNION ALL SELECT 2 ORDER BY value LIMIT abs(0) OFFSET x'31');
+}
+expect {0}
+
+test offset-compound-sorted-zero-shortcircuit {
+    SELECT count(*) FROM (SELECT 1 AS value UNION ALL SELECT 2 ORDER BY value LIMIT abs(0) OFFSET CASE WHEN 1 THEN 0 ELSE abs(-9223372036854775808) END);
+}
+expect {0}
+
+test offset-compound-sorted-nonzero-null {
+    SELECT count(*) FROM (SELECT 1 AS value UNION ALL SELECT 2 ORDER BY value LIMIT abs(2) OFFSET NULL);
+}
+expect error {datatype mismatch}
+
+test offset-compound-sorted-nonzero-overflow {
+    SELECT count(*) FROM (SELECT 1 AS value UNION ALL SELECT 2 ORDER BY value LIMIT abs(2) OFFSET abs(-9223372036854775808));
+}
+expect error {integer overflow}
+
+test offset-compound-sorted-nonzero-fraction {
+    SELECT count(*) FROM (SELECT 1 AS value UNION ALL SELECT 2 ORDER BY value LIMIT abs(2) OFFSET 1.5);
+}
+expect error {datatype mismatch}
+
+test offset-compound-sorted-nonzero-negative-offset {
+    SELECT count(*) FROM (SELECT 1 AS value UNION ALL SELECT 2 ORDER BY value LIMIT abs(2) OFFSET -abs(2));
+}
+expect {2}
+
+test offset-compound-sorted-negative-limit {
+    SELECT count(*) FROM (SELECT 1 AS value UNION ALL SELECT 2 ORDER BY value LIMIT -abs(2) OFFSET -abs(2));
+}
+expect {2}
+
+test offset-compound-sorted-null-limit-overflow-offset {
+    SELECT count(*) FROM (SELECT 1 AS value UNION ALL SELECT 2 ORDER BY value LIMIT NULL OFFSET abs(-9223372036854775808));
+}
+expect error {datatype mismatch}
+
+test offset-compound-sorted-fractional-limit-overflow-offset {
+    SELECT count(*) FROM (SELECT 1 AS value UNION ALL SELECT 2 ORDER BY value LIMIT 1.5 OFFSET abs(-9223372036854775808));
+}
+expect error {datatype mismatch}
+
+test offset-compound-sorted-offset-once-counter {
+    SELECT count(*) FROM (SELECT 1 AS value UNION ALL SELECT 2 ORDER BY value LIMIT abs(2) OFFSET abs(1));
+}
+expect {1}
+
+test offset-nonzero-expression-overflow {
+    SELECT (SELECT 2 LIMIT abs(2) OFFSET abs(-9223372036854775808));
+}
+expect error {integer overflow}
+
+test offset-null-limit-before-overflow {
+    SELECT (SELECT 2 LIMIT NULL OFFSET abs(-9223372036854775808));
+}
+expect error {datatype mismatch}
+
+test offset-correlated-counter-reset {
+    CREATE TABLE items(value); INSERT INTO items VALUES(1),(2),(3); SELECT outer_items.value,coalesce((SELECT inner_items.value FROM items AS inner_items WHERE inner_items.value>=outer_items.value ORDER BY inner_items.value LIMIT abs(2) OFFSET abs(1)),-1) FROM items AS outer_items ORDER BY outer_items.value;
+}
+expect {1|2
+2|3
+3|-1}
+
+test offset-nonzero-case-shortcircuit {
+    SELECT (SELECT 2 LIMIT abs(2) OFFSET CASE WHEN 1 THEN 0 ELSE abs(-9223372036854775808) END);
+}
+expect {2}
+
+test offset-top-level-zero-expression-overflow {
+    SELECT count(*) FROM (SELECT 2 LIMIT abs(0) OFFSET abs(-9223372036854775808));
+}
+expect {0}
+
+test offset-recursive-zero-expression-overflow {
+    WITH RECURSIVE numbers(value) AS (SELECT 1 UNION ALL SELECT value+1 FROM numbers WHERE value<3 LIMIT abs(0) OFFSET abs(-9223372036854775808)) SELECT count(*) FROM numbers;
+}
+expect {0}

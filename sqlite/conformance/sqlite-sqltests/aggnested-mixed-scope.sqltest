@@ -1,0 +1,360 @@
+@database :memory:
+
+test mixed-minimal {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(b);
+    INSERT INTO t2 VALUES(3);
+    SELECT (SELECT group_concat(a) || ':' || group_concat(b) FROM t2) FROM t1;
+}
+expect {
+    1,2:3
+}
+
+test outer-only {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(b);
+    INSERT INTO t2 VALUES(3);
+    SELECT (SELECT group_concat(a) FROM t2) FROM t1;
+}
+expect {
+    1,2
+}
+
+test inner-only {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(b);
+    INSERT INTO t2 VALUES(3);
+    SELECT (SELECT group_concat(b) FROM t2) FROM t1;
+}
+expect {
+    3
+    3
+}
+
+test outer-filter {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(b);
+    INSERT INTO t2 VALUES(3);
+    SELECT (SELECT group_concat(a) || ':' || group_concat(b) FROM t2) FROM t1 WHERE a>1;
+}
+expect {
+    2:3
+}
+
+test aliases {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(b);
+    INSERT INTO t2 VALUES(3);
+    SELECT (SELECT group_concat(o.a) || ':' || group_concat(i.b) AS combined FROM t2 AS i) AS result FROM t1 AS o;
+}
+expect {
+    1,2:3
+}
+
+test correlation {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(b);
+    INSERT INTO t2 VALUES(3);
+    SELECT (SELECT group_concat(a) || ':' || group_concat(b) FROM t2 WHERE b>a) FROM t1;
+}
+expect {
+    1,2:3
+}
+
+test multiple-levels {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(b);
+    INSERT INTO t2 VALUES(3);
+    SELECT (SELECT (SELECT group_concat(a) || ':' || group_concat(b) FROM t2) FROM t1);
+}
+expect {
+    1,2:3
+}
+
+test null-outer {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(b);
+    INSERT INTO t2 VALUES(3);
+    INSERT INTO t1 VALUES(NULL); SELECT (SELECT group_concat(a) || ':' || group_concat(b) FROM t2) FROM t1;
+}
+expect {
+    1,2:3
+}
+
+test null-inner {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(b);
+    INSERT INTO t2 VALUES(3);
+    INSERT INTO t2 VALUES(NULL); SELECT (SELECT group_concat(a) || ':' || group_concat(b) FROM t2) FROM t1;
+}
+expect {
+    1,2:3
+}
+
+test empty-inner {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(b);
+    INSERT INTO t2 VALUES(3);
+    DELETE FROM t2; SELECT quote((SELECT group_concat(a) || ':' || group_concat(b) FROM t2)) FROM t1;
+}
+expect {
+    NULL
+}
+
+test empty-outer {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(b);
+    INSERT INTO t2 VALUES(3);
+    DELETE FROM t1; SELECT quote((SELECT group_concat(a) || ':' || group_concat(b) FROM t2)) FROM t1;
+}
+expect {
+    NULL
+}
+
+test aggregate-filter {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(b);
+    INSERT INTO t2 VALUES(3);
+    SELECT (SELECT group_concat(a) FILTER (WHERE a>1) || ':' || group_concat(b) FROM t2) FROM t1;
+}
+expect {
+    2:3
+}
+
+test mixed-arguments {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(b);
+    INSERT INTO t2 VALUES(3);
+    SELECT (SELECT group_concat(a+b) FROM t2) FROM t1;
+}
+expect {
+    4
+    5
+}
+
+test official-isolated {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(b);
+    INSERT INTO t2 VALUES(3);
+    INSERT INTO t1 VALUES(3); DELETE FROM t2; INSERT INTO t2 VALUES(4),(5); SELECT (SELECT string_agg(a,'x') || '-' || string_agg(b,'y') FROM t2) FROM t1;
+}
+expect {
+    1x2x3-4y5
+}
+
+test same-column-name-different-scopes {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(a);
+    INSERT INTO t2 VALUES(3),(4);
+    SELECT (SELECT group_concat(t1.a) || ':' || group_concat(t2.a) FROM t2) FROM t1;
+}
+expect {1,2:3,4}
+
+test shadowed-alias-local-aggregate {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(a);
+    INSERT INTO t2 VALUES(3),(4);
+    SELECT group_concat(o.a), (SELECT group_concat(o.a) FROM t2 AS o) FROM t1 AS o;
+}
+expect {1,2|3,4}
+
+test repeated-table-different-scopes {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    SELECT (SELECT group_concat(o.a) || ':' || group_concat(i.a) FROM t1 AS i) FROM t1 AS o;
+}
+expect {1,2:1,2}
+
+test correlated-outer-only {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(b);
+    INSERT INTO t2 VALUES(3);
+    SELECT quote((SELECT group_concat(a) FROM t2 WHERE b>a)) FROM t1;
+}
+expect {
+    '1,2'
+}
+
+test correlated-rowid {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(b);
+    INSERT INTO t2 VALUES(3);
+    SELECT (SELECT group_concat(a) || ':' || group_concat(b) FROM t2 WHERE b>t1.rowid) FROM t1;
+}
+expect {
+    1,2:3
+}
+
+test correlated-empty-outer {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(b);
+    INSERT INTO t2 VALUES(3);
+    SELECT quote((SELECT group_concat(a) || ':' || group_concat(b) FROM t2 WHERE b>a)) FROM t1 WHERE a=99;
+}
+expect {
+    NULL
+}
+
+test correlated-empty-inner {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(b);
+    INSERT INTO t2 VALUES(3);
+    DELETE FROM t2; SELECT quote((SELECT group_concat(a) || ':' || group_concat(b) FROM t2 WHERE b>a)) FROM t1;
+}
+expect {
+    NULL
+}
+
+test correlated-null-bare-column {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(b);
+    INSERT INTO t2 VALUES(3);
+    DELETE FROM t1; INSERT INTO t1 VALUES(NULL),(1),(2); SELECT quote((SELECT group_concat(a) || ':' || group_concat(b) FROM t2 WHERE b>a)) FROM t1;
+}
+expect {
+    NULL
+}
+
+test correlated-min-winner {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(b);
+    INSERT INTO t2 VALUES(3);
+    DELETE FROM t1; INSERT INTO t1 VALUES(2),(1); INSERT INTO t2 VALUES(2); SELECT (SELECT min(a) || ':' || group_concat(b) FROM t2 WHERE b>a) FROM t1;
+}
+expect {
+    1:3,2
+}
+
+test correlated-max-winner {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(b);
+    INSERT INTO t2 VALUES(3);
+    DELETE FROM t1; INSERT INTO t1 VALUES(1),(2); INSERT INTO t2 VALUES(2); SELECT (SELECT max(a) || ':' || group_concat(b) FROM t2 WHERE b>a) FROM t1;
+}
+expect {
+    2:3
+}
+
+test correlated-repeated-execution {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(b);
+    INSERT INTO t2 VALUES(3);
+    CREATE TABLE keys(k); INSERT INTO keys VALUES(1),(2),(3); SELECT k,(SELECT (SELECT group_concat(a) || ':' || group_concat(b) FROM t2 WHERE b>a) FROM t1 WHERE a<k) FROM keys ORDER BY k;
+}
+expect {
+    1|
+    2|1:3
+    3|1,2:3
+}
+
+test correlated-nested-predicate {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(b);
+    INSERT INTO t2 VALUES(3);
+    SELECT (SELECT group_concat(a) || ':' || group_concat(b) FROM t2 WHERE b>(SELECT a)) FROM t1;
+}
+expect {
+    1,2:3
+}
+
+test correlated-local-shadow {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(b);
+    INSERT INTO t2 VALUES(3);
+    SELECT (SELECT group_concat(o.a) || ':' || group_concat(i.a) FROM t1 AS i WHERE i.a>=o.a) FROM t1 AS o;
+}
+expect {
+    1,2:1,2
+}
+
+test correlated-two-nested-levels {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(b);
+    INSERT INTO t2 VALUES(3);
+    SELECT (SELECT group_concat(a) || ':' || group_concat(b) FROM t2 WHERE b>(SELECT (SELECT a))) FROM t1;
+}
+expect {
+    1,2:3
+}
+
+test correlated-nested-same-column-name {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(b);
+    INSERT INTO t2 VALUES(3);
+    SELECT (SELECT group_concat(t1.a) || ':' || group_concat(b) FROM t2 WHERE b>(SELECT t1.a+x.a FROM (SELECT 0 AS a) AS x)) FROM t1;
+}
+expect {
+    1,2:3
+}
+
+test correlated-nested-min-winner {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(b);
+    INSERT INTO t2 VALUES(3);
+    DELETE FROM t1; INSERT INTO t1 VALUES(2),(1); INSERT INTO t2 VALUES(2); SELECT (SELECT min(a) || ':' || group_concat(b) FROM t2 WHERE b>(SELECT a)) FROM t1;
+}
+expect {
+    1:3,2
+}
+
+test correlated-nested-empty-outer {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(b);
+    INSERT INTO t2 VALUES(3);
+    SELECT quote((SELECT group_concat(a) || ':' || group_concat(b) FROM t2 WHERE b>(SELECT a))) FROM t1 WHERE a=99;
+}
+expect {
+    NULL
+}
+
+test correlated-nested-rowid {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(b);
+    INSERT INTO t2 VALUES(3);
+    SELECT (SELECT group_concat(a) || ':' || group_concat(b) FROM t2 WHERE b>(SELECT t1.rowid)) FROM t1;
+}
+expect {
+    1,2:3
+}
+
+test correlated-nested-lazy-case {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(1),(2);
+    CREATE TABLE t2(b);
+    INSERT INTO t2 VALUES(3);
+    SELECT (SELECT group_concat(a) || ':' || group_concat(b) FROM t2 WHERE b>(SELECT CASE WHEN a>0 THEN a ELSE abs(-9223372036854775808) END)) FROM t1;
+}
+expect {
+    1,2:3
+}

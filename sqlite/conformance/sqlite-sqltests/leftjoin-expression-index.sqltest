@@ -1,0 +1,347 @@
+@database :memory:
+
+test join5-6-3-2-expression-index-empty-right {
+    CREATE TABLE t(x);
+    INSERT INTO t VALUES(1);
+    CREATE TABLE u(y,z);
+    CREATE INDEX ui ON u(y,ifnull(z,'!!!'));
+    SELECT ifnull(z,'!!!'),x FROM t LEFT JOIN u ON x=y;
+}
+expect {!!!|1}
+
+test leftjoin-expression-index-matched-null-and-unmatched {
+    CREATE TABLE t(x);
+    INSERT INTO t VALUES(1),(2),(3),(4);
+    CREATE TABLE u(y,z);
+    INSERT INTO u VALUES(1,'one'),(3,NULL);
+    CREATE INDEX ui ON u(y,ifnull(z,'!!!'));
+    SELECT ifnull(z,'!!!'),x FROM t LEFT JOIN u ON x=y ORDER BY x;
+}
+expect {
+    one|1
+    !!!|2
+    !!!|3
+    !!!|4
+}
+
+test leftjoin-expression-index-null-preserving {
+    CREATE TABLE t(x);
+    INSERT INTO t VALUES(1),(2),(3);
+    CREATE TABLE u(y,z);
+    INSERT INTO u VALUES(1,'ONE'),(3,NULL);
+    CREATE INDEX ui ON u(y,lower(z));
+    SELECT lower(z),x FROM t LEFT JOIN u ON x=y ORDER BY x;
+}
+expect {
+    one|1
+    |2
+    |3
+}
+
+test leftjoin-expression-index-typeof-null {
+    CREATE TABLE t(x);
+    INSERT INTO t VALUES(1),(2),(3),(4);
+    CREATE TABLE u(y,z);
+    INSERT INTO u VALUES(1,42),(3,NULL);
+    CREATE INDEX ui ON u(y,typeof(z));
+    SELECT typeof(z),x FROM t LEFT JOIN u ON x=y ORDER BY x;
+}
+expect {
+    integer|1
+    null|2
+    null|3
+    null|4
+}
+
+test leftjoin-expression-index-compound {
+    CREATE TABLE t(x);
+    INSERT INTO t VALUES(1),(2),(3),(4);
+    CREATE TABLE u(y,z,w);
+    INSERT INTO u VALUES(1,'one','!'),(3,NULL,'?');
+    CREATE INDEX ui ON u(y,ifnull(z,'missing') || ifnull(w,'?'));
+    SELECT ifnull(z,'missing') || ifnull(w,'?'),x
+    FROM t LEFT JOIN u ON x=y ORDER BY x;
+}
+expect {
+    one!|1
+    missing?|2
+    missing?|3
+    missing?|4
+}
+
+test leftjoin-expression-index-two-outer-joins {
+    CREATE TABLE t(x);
+    INSERT INTO t VALUES(1),(2),(3),(4);
+    CREATE TABLE u(y,z);
+    CREATE TABLE v(a,b);
+    INSERT INTO u VALUES(1,'u1'),(3,NULL);
+    INSERT INTO v VALUES(2,'v2'),(3,NULL);
+    CREATE INDEX ui ON u(y,ifnull(z,'U'));
+    CREATE INDEX vi ON v(a,ifnull(b,'V'));
+    SELECT ifnull(z,'U'),ifnull(b,'V'),x
+    FROM t LEFT JOIN u ON x=y LEFT JOIN v ON x=a ORDER BY x;
+}
+expect {
+    u1|V|1
+    U|v2|2
+    U|V|3
+    U|V|4
+}
+
+test leftjoin-expression-index-noncovering {
+    CREATE TABLE t(x);
+    INSERT INTO t VALUES(1),(2),(3),(4);
+    CREATE TABLE u(y,z,w);
+    INSERT INTO u VALUES(1,'one','w1'),(3,NULL,'w3');
+    CREATE INDEX ui ON u(y,ifnull(z,'!!!'));
+    SELECT ifnull(z,'!!!'),w,x FROM t LEFT JOIN u ON x=y ORDER BY x;
+}
+expect {
+    one|w1|1
+    !!!||2
+    !!!|w3|3
+    !!!||4
+}
+
+test leftjoin-expression-index-wrapped-control {
+    CREATE TABLE t(x);
+    INSERT INTO t VALUES(1);
+    CREATE TABLE u(y,z);
+    CREATE INDEX ui ON u(y,ifnull(z,'!!!'));
+    SELECT quote(ifnull(z,'!!!')),x FROM t LEFT JOIN u ON x=y;
+}
+expect {'!!!'|1}
+
+test leftjoin-no-expression-index-control {
+    CREATE TABLE t(x);
+    INSERT INTO t VALUES(1);
+    CREATE TABLE u(y,z);
+    SELECT ifnull(z,'!!!'),x FROM t LEFT JOIN u ON x=y;
+}
+expect {!!!|1}
+
+test expression-index-inner-join-control {
+    CREATE TABLE t(x);
+    INSERT INTO t VALUES(1),(2);
+    CREATE TABLE u(y,z);
+    INSERT INTO u VALUES(1,'one'),(2,NULL);
+    CREATE INDEX ui ON u(y,ifnull(z,'!!!'));
+    SELECT ifnull(z,'!!!'),x FROM t JOIN u ON x=y ORDER BY x;
+}
+expect {
+    one|1
+    !!!|2
+}
+
+test leftjoin-expression-index-null-accepting-where {
+    CREATE TABLE t(x);
+    INSERT INTO t VALUES(1),(2),(3),(4);
+    CREATE TABLE u(y,z);
+    INSERT INTO u(rowid,y,z) VALUES(-7,1,'ONE'),(0,3,NULL),(99,4,'FOUR');
+    CREATE INDEX ui ON u(y,ifnull(z,'!'));
+    SELECT x,ifnull(r.z,'!') FROM t LEFT JOIN u AS r ON x=r.y
+    WHERE ifnull(r.z,'!')='!' ORDER BY x;
+}
+expect {
+    2|!
+    3|!
+}
+
+test leftjoin-expression-index-null-accepting-where-forced {
+    CREATE TABLE t(x);
+    INSERT INTO t VALUES(1),(2),(3),(4);
+    CREATE TABLE u(y,z);
+    INSERT INTO u(rowid,y,z) VALUES(-7,1,'ONE'),(0,3,NULL),(99,4,'FOUR');
+    CREATE INDEX ui ON u(y,ifnull(z,'!'));
+    SELECT x,ifnull(r.z,'!'),ifnull(r.z,'!')
+    FROM t LEFT JOIN u AS r INDEXED BY ui ON x=r.y
+    WHERE ifnull(r.z,'!')='!' ORDER BY x;
+}
+expect {
+    2|!|!
+    3|!|!
+}
+
+test leftjoin-expression-index-null-accepting-on {
+    CREATE TABLE t(x);
+    INSERT INTO t VALUES(1),(2),(3),(4);
+    CREATE TABLE u(y,z);
+    INSERT INTO u(rowid,y,z) VALUES(-7,1,'ONE'),(0,3,NULL),(99,4,'FOUR');
+    CREATE INDEX ui ON u(y,ifnull(z,'!'));
+    SELECT x,ifnull(r.z,'!') FROM t LEFT JOIN u AS r INDEXED BY ui
+    ON x=r.y AND ifnull(r.z,'!')='!' ORDER BY x;
+}
+expect {
+    1|!
+    2|!
+    3|!
+    4|!
+}
+
+test leftjoin-expression-index-null-accepting-where-reversed {
+    CREATE TABLE t(x);
+    INSERT INTO t VALUES(1),(2),(3),(4);
+    CREATE TABLE u(y,z);
+    INSERT INTO u(rowid,y,z) VALUES(-7,1,'ONE'),(0,3,NULL),(99,4,'FOUR');
+    CREATE INDEX ui ON u(y,ifnull(z,'!'));
+    SELECT x,ifnull(r.z,'!') FROM t LEFT JOIN u AS r INDEXED BY ui ON x=r.y
+    WHERE '!'=ifnull(r.z,'!') ORDER BY x;
+}
+expect {
+    2|!
+    3|!
+}
+
+test leftjoin-expression-index-null-accepting-where-typeof {
+    CREATE TABLE t(x);
+    INSERT INTO t VALUES(1),(2),(3),(4);
+    CREATE TABLE u(y,z);
+    INSERT INTO u(rowid,y,z) VALUES(-7,1,'ONE'),(0,3,NULL),(99,4,'FOUR');
+    CREATE INDEX ui ON u(y,typeof(z));
+    SELECT x,typeof(r.z) FROM t LEFT JOIN u AS r INDEXED BY ui ON x=r.y
+    WHERE typeof(r.z)='null' ORDER BY x;
+}
+expect {
+    2|null
+    3|null
+}
+
+test leftjoin-expression-index-null-accepting-where-compound {
+    CREATE TABLE t(x);
+    INSERT INTO t VALUES(1),(2),(3),(4);
+    CREATE TABLE u(y,z);
+    INSERT INTO u(rowid,y,z) VALUES(-7,1,'ONE'),(0,3,NULL),(99,4,'FOUR');
+    CREATE INDEX ui ON u(y,ifnull(z,'!') || '?');
+    SELECT x,ifnull(r.z,'!') || '?' FROM t LEFT JOIN u AS r INDEXED BY ui ON x=r.y
+    WHERE (ifnull(r.z,'!') || '?')='!?' ORDER BY x;
+}
+expect {
+    2|!?
+    3|!?
+}
+
+test leftjoin-expression-index-null-rejecting-where-control {
+    CREATE TABLE t(x);
+    INSERT INTO t VALUES(1),(2),(3),(4);
+    CREATE TABLE u(y,z);
+    INSERT INTO u(rowid,y,z) VALUES(-7,1,'ONE'),(0,3,NULL),(99,4,'FOUR');
+    CREATE INDEX ui ON u(y,lower(z));
+    SELECT x,lower(r.z) FROM t LEFT JOIN u AS r INDEXED BY ui ON x=r.y
+    WHERE lower(r.z)='one' ORDER BY x;
+}
+expect {1|one}
+
+test leftjoin-expression-index-where-minimal-empty-regression {
+    CREATE TABLE t(x);
+    INSERT INTO t VALUES(1);
+    CREATE TABLE u(y,z);
+    INSERT INTO u VALUES(1,'ONE');
+    CREATE INDEX ui ON u(y,ifnull(z,'!'));
+    SELECT x,ifnull(z,'!') FROM t LEFT JOIN u ON x=y WHERE ifnull(z,'!')='!';
+}
+expect {}
+
+setup leftjoin-expression-index-predicate-rows {
+    CREATE TABLE t(x);
+    INSERT INTO t VALUES(1),(2),(3),(4);
+    CREATE TABLE u(y,z);
+    INSERT INTO u(rowid,y,z) VALUES(-7,1,'ONE'),(0,3,NULL),(99,4,'FOUR');
+    CREATE INDEX ui ON u(y,ifnull(z,'!'));
+}
+
+@setup leftjoin-expression-index-predicate-rows
+test leftjoin-expression-index-where-or {
+    SELECT x,ifnull(r.z,'!') FROM t LEFT JOIN u AS r INDEXED BY ui ON x=r.y
+    WHERE ifnull(r.z,'!')='!' OR x=4 ORDER BY x;
+}
+expect {
+    2|!
+    3|!
+    4|FOUR
+}
+
+@setup leftjoin-expression-index-predicate-rows
+test leftjoin-expression-index-where-and {
+    SELECT x,ifnull(r.z,'!') FROM t LEFT JOIN u AS r INDEXED BY ui ON x=r.y
+    WHERE ifnull(r.z,'!')='!' AND x>0 ORDER BY x;
+}
+expect {
+    2|!
+    3|!
+}
+
+@setup leftjoin-expression-index-predicate-rows
+test leftjoin-expression-index-where-is {
+    SELECT x,ifnull(r.z,'!') FROM t LEFT JOIN u AS r INDEXED BY ui ON x=r.y
+    WHERE ifnull(r.z,'!') IS '!' ORDER BY x;
+}
+expect {
+    2|!
+    3|!
+}
+
+@setup leftjoin-expression-index-predicate-rows
+test leftjoin-expression-index-where-is-not {
+    SELECT x,ifnull(r.z,'!') FROM t LEFT JOIN u AS r INDEXED BY ui ON x=r.y
+    WHERE ifnull(r.z,'!') IS NOT 'OTHER' ORDER BY x;
+}
+expect {
+    1|ONE
+    2|!
+    3|!
+    4|FOUR
+}
+
+@setup leftjoin-expression-index-predicate-rows
+test leftjoin-expression-index-where-coalesce {
+    CREATE INDEX uc ON u(y,coalesce(z,'!'));
+    SELECT x,coalesce(r.z,'!') FROM t LEFT JOIN u AS r INDEXED BY uc ON x=r.y
+    WHERE coalesce(r.z,'!')='!' ORDER BY x;
+}
+expect {
+    2|!
+    3|!
+}
+
+@setup leftjoin-expression-index-predicate-rows
+test leftjoin-expression-index-where-length {
+    CREATE INDEX ul ON u(y,length(ifnull(z,'!')));
+    SELECT x,length(ifnull(r.z,'!')) FROM t LEFT JOIN u AS r INDEXED BY ul ON x=r.y
+    WHERE length(ifnull(r.z,'!'))=1 ORDER BY x;
+}
+expect {
+    2|1
+    3|1
+}
+
+@setup leftjoin-expression-index-predicate-rows
+test leftjoin-expression-index-where-two-left-joins {
+    CREATE TABLE v(a,b);
+    INSERT INTO v(rowid,a,b) VALUES(-8,1,'VONE'),(0,3,NULL),(100,4,'VFOUR');
+    CREATE INDEX vi ON v(a,ifnull(b,'?'));
+    SELECT x,ifnull(r.z,'!'),ifnull(s.b,'?')
+    FROM t LEFT JOIN u AS r INDEXED BY ui ON x=r.y
+    LEFT JOIN v AS s INDEXED BY vi ON x=s.a
+    WHERE ifnull(r.z,'!')='!' AND ifnull(s.b,'?')='?' ORDER BY x;
+}
+expect {
+    2|!|?
+    3|!|?
+}
+
+@setup leftjoin-expression-index-predicate-rows
+test leftjoin-expression-index-other-outer-on-control {
+    CREATE TABLE v(a,b);
+    INSERT INTO v VALUES(1,'VONE'),(3,'VTHREE'),(4,'VFOUR');
+    CREATE INDEX vi ON v(a,ifnull(b,'?'));
+    SELECT x,ifnull(r.z,'!'),ifnull(s.b,'?')
+    FROM t LEFT JOIN u AS r INDEXED BY ui ON x=r.y
+    LEFT JOIN v AS s INDEXED BY vi ON s.a=r.y AND ifnull(r.z,'!')='!'
+    ORDER BY x;
+}
+expect {
+    1|ONE|?
+    2|!|?
+    3|!|VTHREE
+    4|FOUR|?
+}

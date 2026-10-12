@@ -34,7 +34,7 @@ impl Connection {
             pager.cleanup_after_checkpoint_failure();
         }
         self.cleanup_internal_temp_checkpoint();
-        self.rollback_current_txn_state(&pager, true);
+        let cleanup_error = self.rollback_current_txn_state(&pager, true).err();
         self.clear_named_savepoints();
         self.clear_deferred_foreign_key_violations();
         self.clear_mvcc_log_meta();
@@ -43,7 +43,7 @@ impl Connection {
             RetirementErrors {
                 abort_error: None,
                 io_error: None,
-                cleanup_error: None,
+                cleanup_error,
             },
         ))
     }

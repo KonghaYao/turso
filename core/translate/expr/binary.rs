@@ -451,6 +451,11 @@ pub(super) fn emit_binary_insn(
     if op.is_comparison() {
         affinity = comparison_affinity(lhs_expr, rhs_expr, referenced_tables, resolver);
     }
+    let collation = if op.is_comparison() {
+        comparison_collation_for_insn(program, lhs_expr, rhs_expr, referenced_tables, resolver)?
+    } else {
+        None
+    };
     let is_array_cmp =
         expr_is_array(lhs_expr, referenced_tables) && expr_is_array(rhs_expr, referenced_tables);
     let cmp_flags = || {
@@ -472,7 +477,7 @@ pub(super) fn emit_binary_insn(
                     rhs,
                     target_pc: if_true_label,
                     flags: cmp_flags(),
-                    collation: program.curr_collation(),
+                    collation,
                 },
                 target_register,
                 if_true_label,
@@ -489,7 +494,7 @@ pub(super) fn emit_binary_insn(
                     rhs,
                     target_pc: if_true_label,
                     flags: cmp_flags(),
-                    collation: program.curr_collation(),
+                    collation,
                 },
                 target_register,
                 if_true_label,
@@ -506,7 +511,7 @@ pub(super) fn emit_binary_insn(
                     rhs,
                     target_pc: if_true_label,
                     flags: cmp_flags(),
-                    collation: program.curr_collation(),
+                    collation,
                 },
                 target_register,
                 if_true_label,
@@ -523,7 +528,7 @@ pub(super) fn emit_binary_insn(
                     rhs,
                     target_pc: if_true_label,
                     flags: cmp_flags(),
-                    collation: program.curr_collation(),
+                    collation,
                 },
                 target_register,
                 if_true_label,
@@ -540,7 +545,7 @@ pub(super) fn emit_binary_insn(
                     rhs,
                     target_pc: if_true_label,
                     flags: cmp_flags(),
-                    collation: program.curr_collation(),
+                    collation,
                 },
                 target_register,
                 if_true_label,
@@ -557,7 +562,7 @@ pub(super) fn emit_binary_insn(
                     rhs,
                     target_pc: if_true_label,
                     flags: cmp_flags(),
-                    collation: program.curr_collation(),
+                    collation,
                 },
                 target_register,
                 if_true_label,
@@ -651,7 +656,7 @@ pub(super) fn emit_binary_insn(
                     rhs,
                     target_pc: if_true_label,
                     flags: CmpInsFlags::default().null_eq().with_affinity(affinity),
-                    collation: program.curr_collation(),
+                    collation,
                 },
                 target_register,
                 if_true_label,
@@ -666,7 +671,7 @@ pub(super) fn emit_binary_insn(
                     rhs,
                     target_pc: if_true_label,
                     flags: CmpInsFlags::default().null_eq().with_affinity(affinity),
-                    collation: program.curr_collation(),
+                    collation,
                 },
                 target_register,
                 if_true_label,
@@ -866,6 +871,11 @@ pub(super) fn emit_binary_condition_insn(
     if op.is_comparison() {
         affinity = comparison_affinity(lhs_expr, rhs_expr, referenced_tables, resolver);
     }
+    let collation = if op.is_comparison() {
+        comparison_collation_for_insn(program, lhs_expr, rhs_expr, referenced_tables, resolver)?
+    } else {
+        None
+    };
 
     let opposite_op = match op {
         ast::Operator::NotEquals => ast::Operator::Equals,
@@ -939,7 +949,7 @@ pub(super) fn emit_binary_condition_insn(
                 rhs,
                 target_pc,
                 flags,
-                collation: program.curr_collation(),
+                collation,
             });
         }
         ast::Operator::Equals => {
@@ -948,7 +958,7 @@ pub(super) fn emit_binary_condition_insn(
                 rhs,
                 target_pc,
                 flags,
-                collation: program.curr_collation(),
+                collation,
             });
         }
         ast::Operator::Less => {
@@ -957,7 +967,7 @@ pub(super) fn emit_binary_condition_insn(
                 rhs,
                 target_pc,
                 flags,
-                collation: program.curr_collation(),
+                collation,
             });
         }
         ast::Operator::LessEquals => {
@@ -966,7 +976,7 @@ pub(super) fn emit_binary_condition_insn(
                 rhs,
                 target_pc,
                 flags,
-                collation: program.curr_collation(),
+                collation,
             });
         }
         ast::Operator::Greater => {
@@ -975,7 +985,7 @@ pub(super) fn emit_binary_condition_insn(
                 rhs,
                 target_pc,
                 flags,
-                collation: program.curr_collation(),
+                collation,
             });
         }
         ast::Operator::GreaterEquals => {
@@ -984,7 +994,7 @@ pub(super) fn emit_binary_condition_insn(
                 rhs,
                 target_pc,
                 flags,
-                collation: program.curr_collation(),
+                collation,
             });
         }
         ast::Operator::Is => {
@@ -993,7 +1003,7 @@ pub(super) fn emit_binary_condition_insn(
                 rhs,
                 target_pc,
                 flags: flags.null_eq(),
-                collation: program.curr_collation(),
+                collation,
             });
         }
         ast::Operator::IsNot => {
@@ -1002,7 +1012,7 @@ pub(super) fn emit_binary_condition_insn(
                 rhs,
                 target_pc,
                 flags: flags.null_eq(),
-                collation: program.curr_collation(),
+                collation,
             });
         }
         ast::Operator::Add => {
@@ -1170,4 +1180,19 @@ pub(super) fn emit_binary_condition_insn(
     }
 
     Ok(())
+}
+
+fn comparison_collation_for_insn(
+    program: &ProgramBuilder,
+    lhs_expr: &Expr,
+    rhs_expr: &Expr,
+    referenced_tables: Option<&TableReferences>,
+    resolver: Option<&Resolver>,
+) -> Result<Option<CollationSeq>> {
+    let resolved_collation = comparison_collation(lhs_expr, rhs_expr, referenced_tables, resolver)?;
+    let emitted_collation = program.curr_collation();
+    Ok(match (resolved_collation, emitted_collation) {
+        (None | Some(CollationSeq::Binary), None | Some(CollationSeq::Binary)) => emitted_collation,
+        _ => resolved_collation,
+    })
 }

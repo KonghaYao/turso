@@ -597,6 +597,25 @@ impl Statement {
         admission: &mut Option<&mut dyn FnMut(bool) -> bool>,
     ) -> Result<StepResult> {
         self.ensure_not_aborted()?;
+        // A cursor may already hold decoded rows on a cached page: neither a
+        // fresh read transaction nor a pager read occurs on its next step.
+        // Gate every step that references the affected database, including a
+        // pinned transaction and a statement prepared before the fault.
+        for db_id in self
+            .program
+            .prepared
+            .read_databases
+            .iter()
+            .chain(self.program.prepared.write_databases.iter())
+        {
+            if self
+                .program
+                .connection
+                .database_wal_commit_is_uncertain(db_id)
+            {
+                return Err(LimboError::CommitUncertain);
+            }
+        }
         if !self.check_admission(admission)? {
             return Ok(StepResult::Yield);
         }
@@ -869,6 +888,10 @@ impl Statement {
             .map_err(|err| *err)
     }
 
+    pub(crate) fn subprogram_state_mut(&mut self) -> &mut vdbe::ProgramState {
+        &mut self.state
+    }
+
     pub fn run_ignore_rows(&mut self) -> Result<()> {
         loop {
             match self.step()? {
@@ -1029,8 +1052,9 @@ impl Statement {
             || attached_leaked
             || self.state.auto_txn_cleanup != vdbe::TxnCleanup::None;
         if conn.get_auto_commit() && has_implicit_txn_state {
-            conn.rollback_current_txn_state(&main_pager, true);
+            let rollback_result = conn.rollback_current_txn_state(&main_pager, true);
             self.state.auto_txn_cleanup = vdbe::TxnCleanup::None;
+            rollback_result?;
         }
         if conn.get_auto_commit() && !conn.schema_reparse_in_progress() {
             conn.maybe_reparse_schema()?;
@@ -1049,6 +1073,7 @@ impl Statement {
             .chain(self.program.prepared.read_databases.iter())
             .filter(|&id| id != crate::MAIN_DB_ID)
             .try_collect()?;
+        let mut rollback_error = None;
         for db_id in &attached_db_ids {
             // Reprepare must not roll back an explicit transaction. SQLite allows
             // reprepare inside a transaction, and uncommitted writes in temp or
@@ -1059,10 +1084,21 @@ impl Statement {
             // Discard any connection-local schema changes for this attached DB
             // so the re-translate reads the committed schema.
             conn.database_schemas().write().remove(&db_id);
-            let pager = conn.get_pager_from_database_index(&db_id)?;
+            let pager = match conn.get_pager_from_database_index(&db_id) {
+                Ok(pager) => pager,
+                Err(error) => {
+                    rollback_error = Some(error);
+                    continue;
+                }
+            };
             if pager.holds_read_lock() {
-                pager.rollback_attached();
+                if let Err(error) = pager.rollback_attached() {
+                    rollback_error = Some(error);
+                }
             }
+        }
+        if let Some(error) = rollback_error {
+            return Err(error);
         }
 
         // Refresh from shared schema only when shared is newer; this preserves a
@@ -1589,6 +1625,7 @@ impl Statement {
             ));
         }
         self.cleanup_orphaned_seq_inner_tx();
+        vdbe::execute::reset_subprograms_iterative(&mut self.state);
         self.state.reset(None, None);
         self.cleanup_state = CleanupState::Unentered;
         self.state
@@ -1642,6 +1679,8 @@ impl Statement {
                 );
             }
         }
+
+        vdbe::execute::reset_subprograms_iterative(&mut self.state);
 
         if self.state.execution_state.is_running() {
             if self.query_mode == QueryMode::Normal

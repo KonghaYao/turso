@@ -2003,8 +2003,14 @@ pub fn insn_to_row(
                 0,
                 format!("DROP INDEX {}", index.name),
             ),
-            Insn::Close { cursor_id } => (
-                "Close",
+            Insn::Close { cursor_id }
+            | Insn::CursorLock { cursor_id }
+            | Insn::CursorUnlock { cursor_id } => (
+                match insn {
+                    Insn::CursorLock { .. } => "CursorLock",
+                    Insn::CursorUnlock { .. } => "CursorUnlock",
+                    _ => "Close",
+                },
                 *cursor_id as i64,
                 0,
                 0,

@@ -1,0 +1,1677 @@
+@database :memory:
+
+# Original setup and all 108 original matrix SQL statements.
+setup two_col_key {
+    CREATE TABLE tmc(a TEXT, b TEXT, c INT);
+    INSERT INTO tmc VALUES
+        ('AA','x',5),('AA','x',5),('AA','y',3),
+        ('BB','x',9),('BB','y',1),('BB','y',1),('CC','x',7);
+}
+
+@setup two_col_key
+test fixed-original-multicol-f1-m1-s1-e1 {
+    SELECT a, b, sum(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|
+    AA|x|5
+    AA|y|10
+    BB|x|13
+    BB|y|22
+    BB|y|23
+    CC|x|24
+}
+
+@setup two_col_key
+test fixed-original-multicol-f1-m1-s1-e2 {
+    SELECT a, b, sum(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|5
+    AA|x|10
+    AA|y|13
+    BB|x|22
+    BB|y|23
+    BB|y|24
+    CC|x|31
+}
+
+@setup two_col_key
+test fixed-original-multicol-f1-m1-s1-e3 {
+    SELECT a, b, sum(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|31
+    AA|x|31
+    AA|y|31
+    BB|x|31
+    BB|y|31
+    BB|y|31
+    CC|x|31
+}
+
+@setup two_col_key
+test fixed-original-multicol-f1-m1-s2-e1 {
+    SELECT a, b, sum(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN 2 PRECEDING AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|
+    CC|x|2
+    AA|x|5
+    BB|x|8
+    AA|y|10
+    BB|y|10
+    BB|y|12
+}
+
+@setup two_col_key
+test fixed-original-multicol-f1-m1-s2-e2 {
+    SELECT a, b, sum(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|5
+    CC|x|9
+    AA|x|10
+    BB|y|11
+    AA|y|13
+    BB|y|13
+    BB|x|17
+}
+
+@setup two_col_key
+test fixed-original-multicol-f1-m1-s2-e3 {
+    SELECT a, b, sum(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    CC|x|9
+    BB|y|18
+    BB|y|21
+    BB|x|26
+    AA|x|31
+    AA|x|31
+    AA|y|31
+}
+
+@setup two_col_key
+test fixed-original-multicol-f1-m1-s3-e1 {
+    SELECT a, b, sum(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN CURRENT ROW AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup two_col_key
+test fixed-original-multicol-f1-m1-s3-e2 {
+    SELECT a, b, sum(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN CURRENT ROW AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    BB|y|1
+    BB|y|1
+    AA|y|3
+    AA|x|5
+    AA|x|5
+    CC|x|7
+    BB|x|9
+}
+
+@setup two_col_key
+test fixed-original-multicol-f1-m1-s3-e3 {
+    SELECT a, b, sum(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    CC|x|7
+    BB|y|8
+    BB|y|9
+    BB|x|18
+    AA|y|21
+    AA|x|26
+    AA|x|31
+}
+
+@setup two_col_key
+test fixed-original-multicol-f1-m2-s1-e1 {
+    SELECT a, b, sum(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|
+    AA|x|
+    AA|y|10
+    BB|x|13
+    BB|y|22
+    BB|y|22
+    CC|x|24
+}
+
+@setup two_col_key
+test fixed-original-multicol-f1-m2-s1-e2 {
+    SELECT a, b, sum(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|10
+    AA|x|10
+    AA|y|13
+    BB|x|22
+    BB|y|24
+    BB|y|24
+    CC|x|31
+}
+
+@setup two_col_key
+test fixed-original-multicol-f1-m2-s1-e3 {
+    SELECT a, b, sum(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|31
+    AA|x|31
+    AA|y|31
+    BB|x|31
+    BB|y|31
+    BB|y|31
+    CC|x|31
+}
+
+@setup two_col_key
+test fixed-original-multicol-f1-m2-s2-e1 {
+    SELECT a, b, sum(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN 2 PRECEDING AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|
+    AA|x|
+    AA|y|10
+    CC|x|11
+    BB|y|12
+    BB|y|12
+    BB|x|13
+}
+
+@setup two_col_key
+test fixed-original-multicol-f1-m2-s2-e2 {
+    SELECT a, b, sum(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN 2 PRECEDING AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|10
+    AA|x|10
+    AA|y|13
+    BB|y|14
+    BB|y|14
+    CC|x|18
+    BB|x|22
+}
+
+@setup two_col_key
+test fixed-original-multicol-f1-m2-s2-e3 {
+    SELECT a, b, sum(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    CC|x|18
+    BB|y|21
+    BB|y|21
+    AA|x|31
+    AA|x|31
+    AA|y|31
+    BB|x|31
+}
+
+@setup two_col_key
+test fixed-original-multicol-f1-m2-s3-e1 {
+    SELECT a, b, sum(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN CURRENT ROW AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup two_col_key
+test fixed-original-multicol-f1-m2-s3-e2 {
+    SELECT a, b, sum(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN CURRENT ROW AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    BB|y|2
+    BB|y|2
+    AA|y|3
+    CC|x|7
+    BB|x|9
+    AA|x|10
+    AA|x|10
+}
+
+@setup two_col_key
+test fixed-original-multicol-f1-m2-s3-e3 {
+    SELECT a, b, sum(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    CC|x|7
+    BB|y|9
+    BB|y|9
+    BB|x|18
+    AA|y|21
+    AA|x|31
+    AA|x|31
+}
+
+@setup two_col_key
+test fixed-original-multicol-f1-m3-s1-e1 {
+    SELECT a, b, sum(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect error {
+    .*RANGE with offset PRECEDING\/FOLLOWING requires one ORDER BY expression.*
+}
+
+@setup two_col_key
+test fixed-original-multicol-f1-m3-s1-e2 {
+    SELECT a, b, sum(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|10
+    AA|x|10
+    AA|y|13
+    BB|x|22
+    BB|y|24
+    BB|y|24
+    CC|x|31
+}
+
+@setup two_col_key
+test fixed-original-multicol-f1-m3-s1-e3 {
+    SELECT a, b, sum(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|31
+    AA|x|31
+    AA|y|31
+    BB|x|31
+    BB|y|31
+    BB|y|31
+    CC|x|31
+}
+
+@setup two_col_key
+test fixed-original-multicol-f1-m3-s2-e1 {
+    SELECT a, b, sum(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN 2 PRECEDING AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect error {
+    .*RANGE with offset PRECEDING\/FOLLOWING requires one ORDER BY expression.*
+}
+
+@setup two_col_key
+test fixed-original-multicol-f1-m3-s2-e2 {
+    SELECT a, b, sum(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN 2 PRECEDING AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect error {
+    .*RANGE with offset PRECEDING\/FOLLOWING requires one ORDER BY expression.*
+}
+
+@setup two_col_key
+test fixed-original-multicol-f1-m3-s2-e3 {
+    SELECT a, b, sum(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect error {
+    .*RANGE with offset PRECEDING\/FOLLOWING requires one ORDER BY expression.*
+}
+
+@setup two_col_key
+test fixed-original-multicol-f1-m3-s3-e1 {
+    SELECT a, b, sum(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN CURRENT ROW AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup two_col_key
+test fixed-original-multicol-f1-m3-s3-e2 {
+    SELECT a, b, sum(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN CURRENT ROW AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    BB|y|2
+    BB|y|2
+    AA|y|3
+    CC|x|7
+    BB|x|9
+    AA|x|10
+    AA|x|10
+}
+
+@setup two_col_key
+test fixed-original-multicol-f1-m3-s3-e3 {
+    SELECT a, b, sum(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    CC|x|7
+    BB|y|9
+    BB|y|9
+    BB|x|18
+    AA|y|21
+    AA|x|31
+    AA|x|31
+}
+
+@setup two_col_key
+test fixed-original-multicol-f2-m1-s1-e1 {
+    SELECT a, b, count(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|0
+    AA|x|1
+    AA|y|2
+    BB|x|3
+    BB|y|4
+    BB|y|5
+    CC|x|6
+}
+
+@setup two_col_key
+test fixed-original-multicol-f2-m1-s1-e2 {
+    SELECT a, b, count(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|1
+    AA|x|2
+    AA|y|3
+    BB|x|4
+    BB|y|5
+    BB|y|6
+    CC|x|7
+}
+
+@setup two_col_key
+test fixed-original-multicol-f2-m1-s1-e3 {
+    SELECT a, b, count(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|7
+    AA|x|7
+    AA|y|7
+    BB|x|7
+    BB|y|7
+    BB|y|7
+    CC|x|7
+}
+
+@setup two_col_key
+test fixed-original-multicol-f2-m1-s2-e1 {
+    SELECT a, b, count(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN 2 PRECEDING AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|0
+    AA|x|1
+    AA|y|2
+    BB|x|2
+    BB|y|2
+    BB|y|2
+    CC|x|2
+}
+
+@setup two_col_key
+test fixed-original-multicol-f2-m1-s2-e2 {
+    SELECT a, b, count(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|1
+    AA|x|2
+    AA|y|3
+    BB|x|3
+    BB|y|3
+    BB|y|3
+    CC|x|3
+}
+
+@setup two_col_key
+test fixed-original-multicol-f2-m1-s2-e3 {
+    SELECT a, b, count(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    CC|x|3
+    BB|y|4
+    BB|y|5
+    BB|x|6
+    AA|x|7
+    AA|x|7
+    AA|y|7
+}
+
+@setup two_col_key
+test fixed-original-multicol-f2-m1-s3-e1 {
+    SELECT a, b, count(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN CURRENT ROW AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup two_col_key
+test fixed-original-multicol-f2-m1-s3-e2 {
+    SELECT a, b, count(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN CURRENT ROW AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|1
+    AA|x|1
+    AA|y|1
+    BB|x|1
+    BB|y|1
+    BB|y|1
+    CC|x|1
+}
+
+@setup two_col_key
+test fixed-original-multicol-f2-m1-s3-e3 {
+    SELECT a, b, count(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    CC|x|1
+    BB|y|2
+    BB|y|3
+    BB|x|4
+    AA|y|5
+    AA|x|6
+    AA|x|7
+}
+
+@setup two_col_key
+test fixed-original-multicol-f2-m2-s1-e1 {
+    SELECT a, b, count(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|0
+    AA|x|0
+    AA|y|2
+    BB|x|3
+    BB|y|4
+    BB|y|4
+    CC|x|6
+}
+
+@setup two_col_key
+test fixed-original-multicol-f2-m2-s1-e2 {
+    SELECT a, b, count(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|2
+    AA|x|2
+    AA|y|3
+    BB|x|4
+    BB|y|6
+    BB|y|6
+    CC|x|7
+}
+
+@setup two_col_key
+test fixed-original-multicol-f2-m2-s1-e3 {
+    SELECT a, b, count(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|7
+    AA|x|7
+    AA|y|7
+    BB|x|7
+    BB|y|7
+    BB|y|7
+    CC|x|7
+}
+
+@setup two_col_key
+test fixed-original-multicol-f2-m2-s2-e1 {
+    SELECT a, b, count(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN 2 PRECEDING AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|0
+    AA|x|0
+    AA|y|2
+    BB|y|2
+    BB|y|2
+    BB|x|3
+    CC|x|3
+}
+
+@setup two_col_key
+test fixed-original-multicol-f2-m2-s2-e2 {
+    SELECT a, b, count(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN 2 PRECEDING AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|2
+    AA|x|2
+    AA|y|3
+    BB|x|4
+    BB|y|4
+    BB|y|4
+    CC|x|4
+}
+
+@setup two_col_key
+test fixed-original-multicol-f2-m2-s2-e3 {
+    SELECT a, b, count(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    CC|x|4
+    BB|y|5
+    BB|y|5
+    AA|x|7
+    AA|x|7
+    AA|y|7
+    BB|x|7
+}
+
+@setup two_col_key
+test fixed-original-multicol-f2-m2-s3-e1 {
+    SELECT a, b, count(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN CURRENT ROW AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup two_col_key
+test fixed-original-multicol-f2-m2-s3-e2 {
+    SELECT a, b, count(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN CURRENT ROW AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|y|1
+    BB|x|1
+    CC|x|1
+    AA|x|2
+    AA|x|2
+    BB|y|2
+    BB|y|2
+}
+
+@setup two_col_key
+test fixed-original-multicol-f2-m2-s3-e3 {
+    SELECT a, b, count(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    CC|x|1
+    BB|y|3
+    BB|y|3
+    BB|x|4
+    AA|y|5
+    AA|x|7
+    AA|x|7
+}
+
+@setup two_col_key
+test fixed-original-multicol-f2-m3-s1-e1 {
+    SELECT a, b, count(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect error {
+    .*RANGE with offset PRECEDING\/FOLLOWING requires one ORDER BY expression.*
+}
+
+@setup two_col_key
+test fixed-original-multicol-f2-m3-s1-e2 {
+    SELECT a, b, count(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|2
+    AA|x|2
+    AA|y|3
+    BB|x|4
+    BB|y|6
+    BB|y|6
+    CC|x|7
+}
+
+@setup two_col_key
+test fixed-original-multicol-f2-m3-s1-e3 {
+    SELECT a, b, count(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|7
+    AA|x|7
+    AA|y|7
+    BB|x|7
+    BB|y|7
+    BB|y|7
+    CC|x|7
+}
+
+@setup two_col_key
+test fixed-original-multicol-f2-m3-s2-e1 {
+    SELECT a, b, count(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN 2 PRECEDING AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect error {
+    .*RANGE with offset PRECEDING\/FOLLOWING requires one ORDER BY expression.*
+}
+
+@setup two_col_key
+test fixed-original-multicol-f2-m3-s2-e2 {
+    SELECT a, b, count(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN 2 PRECEDING AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect error {
+    .*RANGE with offset PRECEDING\/FOLLOWING requires one ORDER BY expression.*
+}
+
+@setup two_col_key
+test fixed-original-multicol-f2-m3-s2-e3 {
+    SELECT a, b, count(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect error {
+    .*RANGE with offset PRECEDING\/FOLLOWING requires one ORDER BY expression.*
+}
+
+@setup two_col_key
+test fixed-original-multicol-f2-m3-s3-e1 {
+    SELECT a, b, count(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN CURRENT ROW AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup two_col_key
+test fixed-original-multicol-f2-m3-s3-e2 {
+    SELECT a, b, count(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN CURRENT ROW AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|y|1
+    BB|x|1
+    CC|x|1
+    AA|x|2
+    AA|x|2
+    BB|y|2
+    BB|y|2
+}
+
+@setup two_col_key
+test fixed-original-multicol-f2-m3-s3-e3 {
+    SELECT a, b, count(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    CC|x|1
+    BB|y|3
+    BB|y|3
+    BB|x|4
+    AA|y|5
+    AA|x|7
+    AA|x|7
+}
+
+@setup two_col_key
+test fixed-original-multicol-f3-m1-s1-e1 {
+    SELECT a, b, min(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|
+    BB|y|1
+    CC|x|1
+    BB|x|3
+    BB|y|3
+    AA|x|5
+    AA|y|5
+}
+
+@setup two_col_key
+test fixed-original-multicol-f3-m1-s1-e2 {
+    SELECT a, b, min(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    BB|y|1
+    BB|y|1
+    CC|x|1
+    AA|y|3
+    BB|x|3
+    AA|x|5
+    AA|x|5
+}
+
+@setup two_col_key
+test fixed-original-multicol-f3-m1-s1-e3 {
+    SELECT a, b, min(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|1
+    AA|x|1
+    AA|y|1
+    BB|x|1
+    BB|y|1
+    BB|y|1
+    CC|x|1
+}
+
+@setup two_col_key
+test fixed-original-multicol-f3-m1-s2-e1 {
+    SELECT a, b, min(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN 2 PRECEDING AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|
+    BB|y|1
+    CC|x|1
+    BB|x|3
+    BB|y|3
+    AA|x|5
+    AA|y|5
+}
+
+@setup two_col_key
+test fixed-original-multicol-f3-m1-s2-e2 {
+    SELECT a, b, min(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    BB|y|1
+    BB|y|1
+    CC|x|1
+    AA|y|3
+    BB|x|3
+    AA|x|5
+    AA|x|5
+}
+
+@setup two_col_key
+test fixed-original-multicol-f3-m1-s2-e3 {
+    SELECT a, b, min(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|1
+    AA|x|1
+    AA|y|1
+    BB|x|1
+    BB|y|1
+    BB|y|1
+    CC|x|1
+}
+
+@setup two_col_key
+test fixed-original-multicol-f3-m1-s3-e1 {
+    SELECT a, b, min(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN CURRENT ROW AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup two_col_key
+test fixed-original-multicol-f3-m1-s3-e2 {
+    SELECT a, b, min(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN CURRENT ROW AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    BB|y|1
+    BB|y|1
+    AA|y|3
+    AA|x|5
+    AA|x|5
+    CC|x|7
+    BB|x|9
+}
+
+@setup two_col_key
+test fixed-original-multicol-f3-m1-s3-e3 {
+    SELECT a, b, min(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|1
+    AA|x|1
+    AA|y|1
+    BB|x|1
+    BB|y|1
+    BB|y|1
+    CC|x|7
+}
+
+@setup two_col_key
+test fixed-original-multicol-f3-m2-s1-e1 {
+    SELECT a, b, min(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|
+    AA|x|
+    CC|x|1
+    BB|x|3
+    BB|y|3
+    BB|y|3
+    AA|y|5
+}
+
+@setup two_col_key
+test fixed-original-multicol-f3-m2-s1-e2 {
+    SELECT a, b, min(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    BB|y|1
+    BB|y|1
+    CC|x|1
+    AA|y|3
+    BB|x|3
+    AA|x|5
+    AA|x|5
+}
+
+@setup two_col_key
+test fixed-original-multicol-f3-m2-s1-e3 {
+    SELECT a, b, min(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|1
+    AA|x|1
+    AA|y|1
+    BB|x|1
+    BB|y|1
+    BB|y|1
+    CC|x|1
+}
+
+@setup two_col_key
+test fixed-original-multicol-f3-m2-s2-e1 {
+    SELECT a, b, min(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN 2 PRECEDING AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|
+    AA|x|
+    CC|x|1
+    BB|x|3
+    BB|y|3
+    BB|y|3
+    AA|y|5
+}
+
+@setup two_col_key
+test fixed-original-multicol-f3-m2-s2-e2 {
+    SELECT a, b, min(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN 2 PRECEDING AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    BB|y|1
+    BB|y|1
+    CC|x|1
+    AA|y|3
+    BB|x|3
+    AA|x|5
+    AA|x|5
+}
+
+@setup two_col_key
+test fixed-original-multicol-f3-m2-s2-e3 {
+    SELECT a, b, min(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|1
+    AA|x|1
+    AA|y|1
+    BB|x|1
+    BB|y|1
+    BB|y|1
+    CC|x|1
+}
+
+@setup two_col_key
+test fixed-original-multicol-f3-m2-s3-e1 {
+    SELECT a, b, min(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN CURRENT ROW AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup two_col_key
+test fixed-original-multicol-f3-m2-s3-e2 {
+    SELECT a, b, min(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN CURRENT ROW AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    BB|y|1
+    BB|y|1
+    AA|y|3
+    AA|x|5
+    AA|x|5
+    CC|x|7
+    BB|x|9
+}
+
+@setup two_col_key
+test fixed-original-multicol-f3-m2-s3-e3 {
+    SELECT a, b, min(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|1
+    AA|x|1
+    AA|y|1
+    BB|x|1
+    BB|y|1
+    BB|y|1
+    CC|x|7
+}
+
+@setup two_col_key
+test fixed-original-multicol-f3-m3-s1-e1 {
+    SELECT a, b, min(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect error {
+    .*RANGE with offset PRECEDING\/FOLLOWING requires one ORDER BY expression.*
+}
+
+@setup two_col_key
+test fixed-original-multicol-f3-m3-s1-e2 {
+    SELECT a, b, min(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    BB|y|1
+    BB|y|1
+    CC|x|1
+    AA|y|3
+    BB|x|3
+    AA|x|5
+    AA|x|5
+}
+
+@setup two_col_key
+test fixed-original-multicol-f3-m3-s1-e3 {
+    SELECT a, b, min(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|1
+    AA|x|1
+    AA|y|1
+    BB|x|1
+    BB|y|1
+    BB|y|1
+    CC|x|1
+}
+
+@setup two_col_key
+test fixed-original-multicol-f3-m3-s2-e1 {
+    SELECT a, b, min(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN 2 PRECEDING AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect error {
+    .*RANGE with offset PRECEDING\/FOLLOWING requires one ORDER BY expression.*
+}
+
+@setup two_col_key
+test fixed-original-multicol-f3-m3-s2-e2 {
+    SELECT a, b, min(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN 2 PRECEDING AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect error {
+    .*RANGE with offset PRECEDING\/FOLLOWING requires one ORDER BY expression.*
+}
+
+@setup two_col_key
+test fixed-original-multicol-f3-m3-s2-e3 {
+    SELECT a, b, min(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect error {
+    .*RANGE with offset PRECEDING\/FOLLOWING requires one ORDER BY expression.*
+}
+
+@setup two_col_key
+test fixed-original-multicol-f3-m3-s3-e1 {
+    SELECT a, b, min(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN CURRENT ROW AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup two_col_key
+test fixed-original-multicol-f3-m3-s3-e2 {
+    SELECT a, b, min(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN CURRENT ROW AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    BB|y|1
+    BB|y|1
+    AA|y|3
+    AA|x|5
+    AA|x|5
+    CC|x|7
+    BB|x|9
+}
+
+@setup two_col_key
+test fixed-original-multicol-f3-m3-s3-e3 {
+    SELECT a, b, min(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|1
+    AA|x|1
+    AA|y|1
+    BB|x|1
+    BB|y|1
+    BB|y|1
+    CC|x|7
+}
+
+@setup two_col_key
+test fixed-original-multicol-f4-m1-s1-e1 {
+    SELECT a, b, max(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|
+    AA|x|5
+    AA|y|5
+    BB|x|5
+    BB|y|9
+    BB|y|9
+    CC|x|9
+}
+
+@setup two_col_key
+test fixed-original-multicol-f4-m1-s1-e2 {
+    SELECT a, b, max(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|5
+    AA|x|5
+    AA|y|5
+    BB|x|9
+    BB|y|9
+    BB|y|9
+    CC|x|9
+}
+
+@setup two_col_key
+test fixed-original-multicol-f4-m1-s1-e3 {
+    SELECT a, b, max(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|9
+    AA|x|9
+    AA|y|9
+    BB|x|9
+    BB|y|9
+    BB|y|9
+    CC|x|9
+}
+
+@setup two_col_key
+test fixed-original-multicol-f4-m1-s2-e1 {
+    SELECT a, b, max(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN 2 PRECEDING AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|
+    CC|x|1
+    AA|x|5
+    AA|y|5
+    BB|x|5
+    BB|y|9
+    BB|y|9
+}
+
+@setup two_col_key
+test fixed-original-multicol-f4-m1-s2-e2 {
+    SELECT a, b, max(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|5
+    AA|x|5
+    AA|y|5
+    CC|x|7
+    BB|x|9
+    BB|y|9
+    BB|y|9
+}
+
+@setup two_col_key
+test fixed-original-multicol-f4-m1-s2-e3 {
+    SELECT a, b, max(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    CC|x|7
+    AA|x|9
+    AA|x|9
+    AA|y|9
+    BB|x|9
+    BB|y|9
+    BB|y|9
+}
+
+@setup two_col_key
+test fixed-original-multicol-f4-m1-s3-e1 {
+    SELECT a, b, max(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN CURRENT ROW AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup two_col_key
+test fixed-original-multicol-f4-m1-s3-e2 {
+    SELECT a, b, max(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN CURRENT ROW AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    BB|y|1
+    BB|y|1
+    AA|y|3
+    AA|x|5
+    AA|x|5
+    CC|x|7
+    BB|x|9
+}
+
+@setup two_col_key
+test fixed-original-multicol-f4-m1-s3-e3 {
+    SELECT a, b, max(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    BB|y|7
+    BB|y|7
+    CC|x|7
+    AA|x|9
+    AA|x|9
+    AA|y|9
+    BB|x|9
+}
+
+@setup two_col_key
+test fixed-original-multicol-f4-m2-s1-e1 {
+    SELECT a, b, max(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|
+    AA|x|
+    AA|y|5
+    BB|x|5
+    BB|y|9
+    BB|y|9
+    CC|x|9
+}
+
+@setup two_col_key
+test fixed-original-multicol-f4-m2-s1-e2 {
+    SELECT a, b, max(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|5
+    AA|x|5
+    AA|y|5
+    BB|x|9
+    BB|y|9
+    BB|y|9
+    CC|x|9
+}
+
+@setup two_col_key
+test fixed-original-multicol-f4-m2-s1-e3 {
+    SELECT a, b, max(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|9
+    AA|x|9
+    AA|y|9
+    BB|x|9
+    BB|y|9
+    BB|y|9
+    CC|x|9
+}
+
+@setup two_col_key
+test fixed-original-multicol-f4-m2-s2-e1 {
+    SELECT a, b, max(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN 2 PRECEDING AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|
+    AA|x|
+    AA|y|5
+    BB|x|5
+    BB|y|9
+    BB|y|9
+    CC|x|9
+}
+
+@setup two_col_key
+test fixed-original-multicol-f4-m2-s2-e2 {
+    SELECT a, b, max(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN 2 PRECEDING AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|5
+    AA|x|5
+    AA|y|5
+    BB|x|9
+    BB|y|9
+    BB|y|9
+    CC|x|9
+}
+
+@setup two_col_key
+test fixed-original-multicol-f4-m2-s2-e3 {
+    SELECT a, b, max(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|9
+    AA|x|9
+    AA|y|9
+    BB|x|9
+    BB|y|9
+    BB|y|9
+    CC|x|9
+}
+
+@setup two_col_key
+test fixed-original-multicol-f4-m2-s3-e1 {
+    SELECT a, b, max(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN CURRENT ROW AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup two_col_key
+test fixed-original-multicol-f4-m2-s3-e2 {
+    SELECT a, b, max(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN CURRENT ROW AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    BB|y|1
+    BB|y|1
+    AA|y|3
+    AA|x|5
+    AA|x|5
+    CC|x|7
+    BB|x|9
+}
+
+@setup two_col_key
+test fixed-original-multicol-f4-m2-s3-e3 {
+    SELECT a, b, max(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    BB|y|7
+    BB|y|7
+    CC|x|7
+    AA|x|9
+    AA|x|9
+    AA|y|9
+    BB|x|9
+}
+
+@setup two_col_key
+test fixed-original-multicol-f4-m3-s1-e1 {
+    SELECT a, b, max(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect error {
+    .*RANGE with offset PRECEDING\/FOLLOWING requires one ORDER BY expression.*
+}
+
+@setup two_col_key
+test fixed-original-multicol-f4-m3-s1-e2 {
+    SELECT a, b, max(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|5
+    AA|x|5
+    AA|y|5
+    BB|x|9
+    BB|y|9
+    BB|y|9
+    CC|x|9
+}
+
+@setup two_col_key
+test fixed-original-multicol-f4-m3-s1-e3 {
+    SELECT a, b, max(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    AA|x|9
+    AA|x|9
+    AA|y|9
+    BB|x|9
+    BB|y|9
+    BB|y|9
+    CC|x|9
+}
+
+@setup two_col_key
+test fixed-original-multicol-f4-m3-s2-e1 {
+    SELECT a, b, max(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN 2 PRECEDING AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect error {
+    .*RANGE with offset PRECEDING\/FOLLOWING requires one ORDER BY expression.*
+}
+
+@setup two_col_key
+test fixed-original-multicol-f4-m3-s2-e2 {
+    SELECT a, b, max(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN 2 PRECEDING AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect error {
+    .*RANGE with offset PRECEDING\/FOLLOWING requires one ORDER BY expression.*
+}
+
+@setup two_col_key
+test fixed-original-multicol-f4-m3-s2-e3 {
+    SELECT a, b, max(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect error {
+    .*RANGE with offset PRECEDING\/FOLLOWING requires one ORDER BY expression.*
+}
+
+@setup two_col_key
+test fixed-original-multicol-f4-m3-s3-e1 {
+    SELECT a, b, max(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN CURRENT ROW AND 1 PRECEDING)
+    ORDER BY wv, a, b;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup two_col_key
+test fixed-original-multicol-f4-m3-s3-e2 {
+    SELECT a, b, max(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN CURRENT ROW AND CURRENT ROW)
+    ORDER BY wv, a, b;
+}
+expect {
+    BB|y|1
+    BB|y|1
+    AA|y|3
+    AA|x|5
+    AA|x|5
+    CC|x|7
+    BB|x|9
+}
+
+@setup two_col_key
+test fixed-original-multicol-f4-m3-s3-e3 {
+    SELECT a, b, max(c) OVER w AS wv
+    FROM tmc
+    WINDOW w AS (ORDER BY a, b RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+    ORDER BY wv, a, b;
+}
+expect {
+    BB|y|7
+    BB|y|7
+    CC|x|7
+    AA|x|9
+    AA|x|9
+    AA|y|9
+    BB|x|9
+}

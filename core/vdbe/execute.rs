@@ -3780,9 +3780,11 @@ pub fn halt(
         SQLITE_CONSTRAINT_NOTNULL => Some(LimboError::Constraint(format!(
             "NOT NULL constraint failed: {description}"
         ))),
-        SQLITE_CONSTRAINT_UNIQUE => Some(LimboError::Constraint(format!(
-            "UNIQUE constraint failed: {description}"
-        ))),
+        SQLITE_CONSTRAINT_UNIQUE => Some(LimboError::ConstraintWithCode {
+            code: err_code,
+            message: format!("UNIQUE constraint failed: {description}"),
+            nested_fail: false,
+        }),
         SQLITE_CONSTRAINT_FOREIGNKEY => {
             Some(LimboError::ForeignKeyConstraint(description.to_string()))
         }
@@ -3847,8 +3849,19 @@ pub fn halt(
         // statement back. FK errors do not respect ON CONFLICT, so leave them
         // as-is.
         if program.resolve_type == ResolveType::Fail {
-            if let LimboError::Constraint(msg) = error {
-                return Err(LimboError::Raise(ResolveType::Fail, msg).into());
+            match error {
+                LimboError::Constraint(msg) => {
+                    return Err(LimboError::Raise(ResolveType::Fail, msg).into());
+                }
+                LimboError::ConstraintWithCode { code, message, .. } => {
+                    return Err(LimboError::ConstraintWithCode {
+                        code,
+                        message,
+                        nested_fail: true,
+                    }
+                    .into());
+                }
+                _ => {}
             }
         }
 
@@ -3891,16 +3904,10 @@ pub fn halt(
                 .fk_deferred_violations
                 .swap(0, Ordering::AcqRel);
             if deferred_violations > 0 {
-                vtab_rollback_all(&program.connection)?;
-                if let Some(mv_store) = mv_store.as_ref() {
-                    if let Some(tx_id) = program.connection.get_mv_tx_id() {
-                        mv_store.rollback_tx(tx_id, pager.clone(), &program.connection, MAIN_DB_ID);
-                    }
-                    pager.end_read_tx();
-                } else {
-                    pager.rollback_tx(&program.connection);
-                }
-                program.connection.set_tx_state(TransactionState::None);
+                let vtab_result = vtab_rollback_all(&program.connection);
+                let rollback_result = program.connection.rollback_manual_txn_cleanup(pager, true);
+                rollback_result?;
+                vtab_result?;
                 return Err(LimboError::ForeignKeyConstraint(
                     "FOREIGN KEY constraint failed".to_string(),
                 )
@@ -5328,21 +5335,27 @@ pub fn op_auto_commit(
 
         match tx_op {
             TxOp::Rollback => {
-                if let Some(mv_store) = mv_store.as_ref() {
+                let rollback_result = if let Some(mv_store) = mv_store.as_ref() {
                     if let Some(tx_id) = conn.get_mv_tx_id() {
                         mv_store.rollback_tx(tx_id, pager.clone(), &conn, MAIN_DB_ID);
                     }
                     pager.end_read_tx();
                     conn.rollback_attached_mvcc_txs(true);
+                    Ok(())
                 } else {
-                    pager.rollback_tx(&conn);
-                }
-                conn.rollback_attached_wal_txns();
+                    pager.rollback_tx(&conn)
+                };
+                let attached_result = conn.rollback_attached_wal_txns();
                 conn.rollback_temp_schema();
                 conn.index_methods_on_transaction_rolled_back();
                 conn.set_tx_state(TransactionState::None);
                 conn.auto_commit.store(true, Ordering::SeqCst);
                 conn.set_cdc_transaction_id(-1);
+                conn.clear_tx_poison();
+                conn.clear_named_savepoints();
+                conn.clear_deferred_foreign_key_violations();
+                attached_result?;
+                rollback_result?;
             }
             TxOp::Commit => {
                 if conn.tx_is_poisoned() {
@@ -5351,7 +5364,7 @@ pub fn op_auto_commit(
                     // undo only that statement. Letting COMMIT proceed would
                     // persist a partial statement, so COMMIT rolls back the
                     // whole transaction and reports the abandoned write.
-                    conn.rollback_manual_txn_cleanup(pager, true);
+                    conn.rollback_manual_txn_cleanup(pager, true)?;
                     return Err(LimboError::TxError(
                         "cannot commit - an unfinished write statement was abandoned".to_string(),
                     )
@@ -5811,6 +5824,8 @@ pub enum OpProgramState {
     Step {
         is_trigger: bool,
         statement: Box<Statement>,
+        step_result: Option<crate::Result<StepResult>>,
+        needs_step: bool,
         /// Saved last_insert_rowid to restore after trigger subprogram completes.
         /// Per SQLite docs, trigger-body INSERTs must not overwrite the top-level rowid.
         saved_last_insert_rowid: Option<i64>,
@@ -5909,6 +5924,21 @@ pub fn op_program(
     loop {
         match std::mem::take(state.active_op_state.program()) {
             OpProgramState::Start => {
+                if let Some(trigger) = &subprogram.trigger {
+                    if !program.connection.recursive_triggers_enabled()
+                        && program.connection.is_trigger_executing(trigger)
+                    {
+                        state.active_op_state.clear();
+                        state.pc += 1;
+                        return Ok(InsnFunctionStepResult::Step);
+                    }
+                    if program.connection.executing_triggers.read().len() >= 1000 {
+                        return Err(LimboError::SqlError(
+                            "too many levels of trigger recursion".into(),
+                        )
+                        .into());
+                    }
+                }
                 // Try to reuse a cached statement for this PC, otherwise create a new one.
                 // When we have triggers or fk-actions with multi-row inserts, we can re-use
                 // cached statements by storing them key'd by the state.pc if we are in a loop
@@ -5953,6 +5983,8 @@ pub fn op_program(
                 *state.active_op_state.program() = OpProgramState::Step {
                     is_trigger,
                     statement,
+                    step_result: None,
+                    needs_step: false,
                     saved_last_insert_rowid,
                     saved_changes_value: saved_last_changes_value,
                 };
@@ -5960,6 +5992,8 @@ pub fn op_program(
             OpProgramState::Step {
                 is_trigger,
                 mut statement,
+                mut step_result,
+                needs_step: _,
                 saved_last_insert_rowid,
                 saved_changes_value: saved_last_changes_value,
             } => {
@@ -5969,7 +6003,21 @@ pub fn op_program(
                 // so we must not call it again after the loop.
                 let mut subprogram_aborted = false;
                 loop {
-                    let res = statement.step_subprogram();
+                    let res = if let Some(result) = step_result.take() {
+                        result
+                    } else if program.is_subprogram {
+                        *state.active_op_state.program() = OpProgramState::Step {
+                            is_trigger,
+                            statement,
+                            step_result: None,
+                            needs_step: true,
+                            saved_last_insert_rowid,
+                            saved_changes_value: saved_last_changes_value,
+                        };
+                        return Ok(state.suspend_on_io(IOCompletions(Completion::new_yield())));
+                    } else {
+                        step_subprogram_iterative(&mut statement)
+                    };
                     match res {
                         Ok(step_result) => match step_result {
                             StepResult::Done => break,
@@ -5980,6 +6028,8 @@ pub fn op_program(
                                 *state.active_op_state.program() = OpProgramState::Step {
                                     is_trigger,
                                     statement,
+                                    step_result: None,
+                                    needs_step: false,
                                     saved_last_insert_rowid,
                                     saved_changes_value: saved_last_changes_value,
                                 };
@@ -5990,13 +6040,21 @@ pub fn op_program(
                                 *state.active_op_state.program() = OpProgramState::Step {
                                     is_trigger,
                                     statement,
+                                    step_result: None,
+                                    needs_step: false,
                                     saved_last_insert_rowid,
                                     saved_changes_value: saved_last_changes_value,
                                 };
                                 return Err(LimboError::Busy.into());
                             }
                         },
-                        Err(LimboError::Constraint(constraint_err)) => {
+                        Err(
+                            constraint_err @ (LimboError::Constraint(_)
+                            | LimboError::ConstraintWithCode {
+                                nested_fail: false,
+                                ..
+                            }),
+                        ) => {
                             if program.resolve_type != ResolveType::Ignore {
                                 subprogram_aborted = true;
                                 finish_subprogram(
@@ -6007,7 +6065,7 @@ pub fn op_program(
                                     saved_last_insert_rowid,
                                     saved_last_changes_value,
                                 );
-                                return Err(LimboError::Constraint(constraint_err).into());
+                                return Err(constraint_err.into());
                             }
                             subprogram_aborted = true;
                             break;
@@ -6058,6 +6116,109 @@ pub fn op_program(
                 return Ok(InsnFunctionStepResult::Step);
             }
         }
+    }
+}
+
+fn step_subprogram_iterative(statement: &mut Box<Statement>) -> crate::Result<StepResult> {
+    let mut parents = Vec::<OpProgramState>::new();
+    loop {
+        let result = statement.step_subprogram();
+        let pending = statement
+            .subprogram_state_mut()
+            .active_op_state
+            .program_mut();
+        if matches!(result, Ok(StepResult::IO | StepResult::Yield))
+            && matches!(
+                pending,
+                Some(OpProgramState::Step {
+                    needs_step: true,
+                    ..
+                })
+            )
+        {
+            let mut frame = std::mem::take(pending.unwrap());
+            statement.take_io_completions();
+            let OpProgramState::Step {
+                statement: child, ..
+            } = &mut frame
+            else {
+                unreachable!();
+            };
+            std::mem::swap(statement, child);
+            parents.push(frame);
+            continue;
+        }
+        let Some(mut frame) = parents.pop() else {
+            return result;
+        };
+        let OpProgramState::Step {
+            statement: parent,
+            step_result,
+            needs_step,
+            ..
+        } = &mut frame
+        else {
+            unreachable!();
+        };
+        std::mem::swap(statement, parent);
+        *step_result = Some(result);
+        *needs_step = false;
+        *statement.subprogram_state_mut().active_op_state.program() = frame;
+    }
+}
+
+pub(crate) fn reset_subprograms_iterative(state: &mut ProgramState) {
+    let mut pending = Vec::new();
+    take_subprograms_for_reset(state, &mut pending);
+    let mut detached = Vec::new();
+    while let Some(mut frame) = pending.pop() {
+        take_subprograms_for_reset(frame.statement.subprogram_state_mut(), &mut pending);
+        detached.push(frame);
+    }
+    for frame in detached.into_iter().rev() {
+        let connection = frame.statement.program.connection.clone();
+        drop(frame.statement);
+        if let Some(rowid) = frame.saved_last_insert_rowid {
+            connection.update_last_rowid(rowid);
+        }
+        if let Some(changes) = frame.saved_changes_value {
+            connection.set_changes(changes);
+        }
+    }
+}
+
+struct SubprogramReset {
+    statement: Box<Statement>,
+    saved_last_insert_rowid: Option<i64>,
+    saved_changes_value: Option<i64>,
+}
+
+fn take_subprograms_for_reset(state: &mut ProgramState, pending: &mut Vec<SubprogramReset>) {
+    pending.extend(
+        state
+            .subprogram_stmt_cache
+            .drain()
+            .map(|(_, statement)| SubprogramReset {
+                statement,
+                saved_last_insert_rowid: None,
+                saved_changes_value: None,
+            }),
+    );
+    if let Some(frame) = state.active_op_state.program_mut() {
+        if let OpProgramState::Step {
+            statement,
+            saved_last_insert_rowid,
+            saved_changes_value,
+            ..
+        } = std::mem::take(frame)
+        {
+            pending.push(SubprogramReset {
+                statement,
+                saved_last_insert_rowid,
+                saved_changes_value,
+            });
+        }
+        state.active_op_state.clear();
     }
 }
 
@@ -11609,18 +11770,24 @@ pub fn op_function(
                     };
                     let rename_to = normalize_ident(original_rename_to.as_str());
 
-                    let new_name = if let Some(column) =
-                        &name.strip_prefix(&format!("sqlite_autoindex_{rename_from}_"))
+                    let autoindex_prefix = format!("sqlite_autoindex_{rename_from}_");
+                    let new_name = if name
+                        .get(..autoindex_prefix.len())
+                        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(&autoindex_prefix))
                     {
-                        format!("sqlite_autoindex_{rename_to}_{column}")
-                    } else if name == rename_from {
-                        rename_to.clone()
+                        format!(
+                            "sqlite_autoindex_{}_{}",
+                            original_rename_to,
+                            &name[autoindex_prefix.len()..]
+                        )
+                    } else if name.eq_ignore_ascii_case(&rename_from) {
+                        original_rename_to.to_string()
                     } else {
                         name
                     };
 
-                    let new_tbl_name = if tbl_name == rename_from {
-                        rename_to.clone()
+                    let new_tbl_name = if tbl_name.eq_ignore_ascii_case(&rename_from) {
+                        original_rename_to.to_string()
                     } else {
                         tbl_name
                     };
@@ -12526,6 +12693,8 @@ pub fn op_insert(
         insn
     );
 
+    check_cursor_write(program, state, *cursor_id)?;
+
     loop {
         match state.active_op_state.insert().sub_state {
             OpInsertSubState::MaybeCaptureRecord => {
@@ -12893,6 +13062,8 @@ pub fn op_delete(
         insn
     );
 
+    check_cursor_write(program, state, *cursor_id)?;
+
     loop {
         match state.active_op_state.delete().sub_state {
             OpDeleteSubState::MaybeCaptureRecord => {
@@ -12999,6 +13170,8 @@ pub fn op_idx_delete(
         },
         insn
     );
+
+    check_cursor_write(program, state, *cursor_id)?;
 
     if let Some(Cursor::IndexMethod(cursor)) = &mut state.cursors[*cursor_id] {
         return_if_io!(
@@ -13123,6 +13296,8 @@ pub fn op_idx_insert(
         },
         *insn
     );
+
+    check_cursor_write(program, state, cursor_id)?;
 
     if let Some(Cursor::IndexMethod(cursor)) = &mut state.cursors[cursor_id] {
         let Some(start) = unpacked_start else {
@@ -14293,6 +14468,11 @@ fn op_clear_btree_inner(
     } else {
         pager.clone()
     };
+    program.connection.cursor_lock_registry.check(
+        Arc::as_ptr(&clear_pager) as usize,
+        *root,
+        None,
+    )?;
 
     loop {
         match state.active_op_state.clear_btree() {
@@ -15128,6 +15308,183 @@ pub fn op_drop_trigger(
     Ok(InsnFunctionStepResult::Step)
 }
 
+#[derive(Debug, Default)]
+pub(crate) struct CursorLockRegistry {
+    count: crate::sync::atomic::AtomicUsize,
+    entries: Mutex<Vec<CursorLockTarget>>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct CursorLockTarget {
+    pager: usize,
+    root: i64,
+    owner: usize,
+}
+
+impl CursorLockTarget {
+    fn from_cursor(cursor: &Cursor) -> Option<Self> {
+        let cursor: &dyn CursorTrait = match cursor {
+            Cursor::BTree(cursor, _) => cursor.as_ref(),
+            Cursor::Dyn(cursor, _) => cursor.as_ref(),
+            _ => return None,
+        };
+        Some(Self {
+            pager: Arc::as_ptr(&cursor.get_pager()) as usize,
+            root: cursor.root_page(),
+            owner: cursor as *const dyn CursorTrait as *const () as usize,
+        })
+    }
+}
+
+impl CursorLockRegistry {
+    fn check(&self, pager: usize, root: i64, owner: Option<usize>) -> crate::Result<()> {
+        if self.count.load(Ordering::Acquire) == 0 {
+            return Ok(());
+        }
+        if self
+            .entries
+            .lock()
+            .iter()
+            .any(|entry| entry.pager == pager && entry.root == root && Some(entry.owner) != owner)
+        {
+            return Err(LimboError::Raise(
+                ResolveType::Abort,
+                "constraint failed".to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Default)]
+pub(super) struct CursorLocks {
+    registry: Option<Arc<CursorLockRegistry>>,
+    owners: Vec<usize>,
+}
+
+impl CursorLocks {
+    pub(super) fn clear(&mut self) {
+        let Some(registry) = self.registry.take() else {
+            return;
+        };
+        let mut entries = registry.entries.lock();
+        entries.retain(|entry| !self.owners.contains(&entry.owner));
+        registry.count.store(entries.len(), Ordering::Release);
+        self.owners.clear();
+    }
+
+    fn unlock(&mut self, owner: usize) -> bool {
+        let Some(position) = self.owners.iter().position(|owned| *owned == owner) else {
+            return false;
+        };
+        self.owners.swap_remove(position);
+        let registry = self
+            .registry
+            .as_ref()
+            .expect("cursor lock registry missing");
+        let mut entries = registry.entries.lock();
+        entries.retain(|entry| entry.owner != owner);
+        registry.count.store(entries.len(), Ordering::Release);
+        true
+    }
+}
+
+impl Drop for CursorLocks {
+    fn drop(&mut self) {
+        self.clear();
+    }
+}
+
+pub fn op_cursor_lock(
+    program: &Program,
+    state: &mut ProgramState,
+    insn: &Insn,
+    _pager: &Arc<Pager>,
+) -> InsnResult {
+    load_insn!(CursorLock { cursor_id }, insn);
+    let target = CursorLockTarget::from_cursor(
+        state.cursors[*cursor_id]
+            .as_ref()
+            .expect("lock cursor missing"),
+    )
+    .expect("lock requires btree cursor");
+    let registry = program.connection.cursor_lock_registry.clone();
+    let mut entries = registry.entries.lock();
+    assert!(!entries.iter().any(|entry| entry.owner == target.owner));
+    entries.push(target);
+    registry.count.store(entries.len(), Ordering::Release);
+    drop(entries);
+    state.cursor_locks.registry = Some(registry);
+    state.cursor_locks.owners.push(target.owner);
+    state.pc += 1;
+    Ok(InsnFunctionStepResult::Step)
+}
+
+pub fn op_cursor_unlock(
+    _program: &Program,
+    state: &mut ProgramState,
+    insn: &Insn,
+    _pager: &Arc<Pager>,
+) -> InsnResult {
+    load_insn!(CursorUnlock { cursor_id }, insn);
+    let target = CursorLockTarget::from_cursor(
+        state.cursors[*cursor_id]
+            .as_ref()
+            .expect("unlock cursor missing"),
+    )
+    .expect("unlock requires btree cursor");
+    assert!(state.cursor_locks.unlock(target.owner));
+    state.pc += 1;
+    Ok(InsnFunctionStepResult::Step)
+}
+
+fn check_cursor_write(
+    program: &Program,
+    state: &ProgramState,
+    cursor_id: usize,
+) -> crate::Result<()> {
+    let registry = &program.connection.cursor_lock_registry;
+    if registry.count.load(Ordering::Acquire) == 0 {
+        return Ok(());
+    }
+    if let Some(target) = state.cursors[cursor_id]
+        .as_ref()
+        .and_then(CursorLockTarget::from_cursor)
+    {
+        registry.check(target.pager, target.root, Some(target.owner))?;
+        if let (_, CursorType::BTreeIndex(index)) = &program.cursor_ref[cursor_id] {
+            for (table_cursor_id, (_, cursor_type)) in program.cursor_ref.iter().enumerate() {
+                let CursorType::BTreeTable(table) = cursor_type else {
+                    continue;
+                };
+                if !table.name.eq_ignore_ascii_case(&index.table_name) {
+                    continue;
+                }
+                let Some(table_target) = state.cursors[table_cursor_id]
+                    .as_ref()
+                    .and_then(CursorLockTarget::from_cursor)
+                else {
+                    continue;
+                };
+                if table_target.pager == target.pager {
+                    let owner = registry.entries.lock().iter().find_map(|entry| {
+                        (entry.pager == table_target.pager
+                            && entry.root == table_target.root
+                            && state.cursor_locks.owners.contains(&entry.owner))
+                        .then_some(entry.owner)
+                    });
+                    registry.check(
+                        table_target.pager,
+                        table_target.root,
+                        owner.or(Some(table_target.owner)),
+                    )?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn op_close(
     _program: &Program,
     state: &mut ProgramState,
@@ -15135,6 +15492,12 @@ pub fn op_close(
     _pager: &Arc<Pager>,
 ) -> InsnResult {
     load_insn!(Close { cursor_id }, insn);
+    if let Some(target) = state.cursors[*cursor_id]
+        .as_ref()
+        .and_then(CursorLockTarget::from_cursor)
+    {
+        state.cursor_locks.unlock(target.owner);
+    }
     if let Some(Cursor::IndexMethod(cursor)) = state.cursors[*cursor_id].as_mut() {
         let context = state.index_method_contexts[*cursor_id]
             .as_ref()
@@ -15261,7 +15624,7 @@ pub fn op_parse_schema(
         let db_name = conn
             .get_database_name_by_index(*db)
             .unwrap_or_else(|| "main".to_string());
-        format!("{db_name}.sqlite_schema")
+        format!("\"{}\".sqlite_schema", db_name.replace('"', "\"\""))
     } else {
         SCHEMA_TABLE_NAME.to_string()
     };
@@ -16985,21 +17348,38 @@ pub fn op_rename_table(
     _pager: &Arc<Pager>,
 ) -> InsnResult {
     load_insn!(RenameTable { db, from, to }, insn);
+    let views = &to.views;
+    let to = &to.name;
 
     let normalized_from = normalize_ident(from.as_str());
     let normalized_to = normalize_ident(to.as_str());
 
     let conn = program.connection.clone();
 
-    conn.with_database_schema_mut(*db, |schema| -> crate::Result<()> {
+    let mut renamed_schema = conn.with_schema(*db, |schema| schema.try_clone())?;
+    let mut renamed_temp_schema = if *db != crate::TEMP_DB_ID && conn.temp.database.read().is_some()
+    {
+        Some(conn.with_schema(crate::TEMP_DB_ID, |schema| schema.try_clone())?)
+    } else {
+        None
+    };
+    {
+        let schema = &mut renamed_schema;
         if let Some(mut indexes) = schema.indexes.remove(&normalized_from) {
             let autoindex_prefix = format!("sqlite_autoindex_{normalized_from}_");
             indexes.iter_mut().for_each(|index| {
                 let index = Arc::make_mut(index);
                 normalized_to.clone_into(&mut index.table_name);
-                // Rename autoindexes to match the new table name
-                if let Some(suffix) = index.name.strip_prefix(&autoindex_prefix) {
-                    index.name = format!("sqlite_autoindex_{normalized_to}_{suffix}");
+                if index
+                    .name
+                    .get(..autoindex_prefix.len())
+                    .is_some_and(|prefix| prefix.eq_ignore_ascii_case(&autoindex_prefix))
+                {
+                    index.name = format!(
+                        "sqlite_autoindex_{}_{}",
+                        to,
+                        &index.name[autoindex_prefix.len()..]
+                    );
                 }
             });
 
@@ -17020,6 +17400,7 @@ pub fn op_rename_table(
                     let fk = Arc::make_mut(fk_arc);
                     if normalize_ident(&fk.parent_table) == normalized_from {
                         fk.parent_table.clone_from(&normalized_to);
+                        fk.parent_table_display_name.clone_from(to);
                     }
                 }
 
@@ -17058,6 +17439,7 @@ pub fn op_rename_table(
                     if normalize_ident(&fk_arc.parent_table) == normalized_from {
                         let fk = Arc::make_mut(fk_arc);
                         fk.parent_table.clone_from(&normalized_to);
+                        fk.parent_table_display_name.clone_from(to);
                     }
                 }
             }
@@ -17122,59 +17504,90 @@ pub fn op_rename_table(
             }
         }
 
-        Ok(())
-    })??;
-
-    if *db != crate::TEMP_DB_ID && conn.temp.database.read().is_some() {
-        conn.with_database_schema_mut(crate::TEMP_DB_ID, |schema| -> crate::Result<()> {
-            // A TEMP trigger may run on a table in another database. Triggers
-            // are found by the name of that table. When the table is renamed,
-            // move its TEMP triggers to the new name. Changing only the stored
-            // SQL would leave them under the old name, so they would no longer
-            // run.
-            let temp_shadows_old_name = schema.tables.contains_key(&normalized_from);
-            if let Some(triggers) = schema.triggers.remove(&normalized_from) {
-                let mut triggers_to_keep = std::collections::VecDeque::new();
-                let mut triggers_to_rename = std::collections::VecDeque::new();
-                for mut trigger_arc in triggers {
-                    let targets_renamed_database = match trigger_arc.target_database_id {
-                        Some(target_db) => target_db == *db,
-                        None => !temp_shadows_old_name,
-                    };
-                    if targets_renamed_database {
-                        let trigger = Arc::make_mut(&mut trigger_arc);
-                        normalized_to.clone_into(&mut trigger.table_name);
-                        rewrite_trigger_for_table_rename(trigger, &normalized_from, &normalized_to);
-                        triggers_to_rename.push_back(trigger_arc);
-                    } else {
-                        triggers_to_keep.push_back(trigger_arc);
-                    }
-                }
-                if !triggers_to_keep.is_empty() {
-                    schema
-                        .triggers
-                        .insert(normalized_from.to_owned(), triggers_to_keep);
-                }
-                schema
-                    .triggers
-                    .entry(normalized_to.to_owned())
-                    .or_default()
-                    .extend(triggers_to_rename);
-            }
-
-            for triggers in schema.triggers.values_mut() {
-                for trigger_arc in triggers.iter_mut() {
-                    if !sql_might_reference_identifier(&trigger_arc.sql, &normalized_from) {
-                        continue;
-                    }
-                    let trigger = Arc::make_mut(trigger_arc);
-                    rewrite_trigger_for_table_rename(trigger, &normalized_from, &normalized_to);
-                }
-            }
-            Ok(())
-        })??;
+        for (_, view) in views.iter().filter(|(view_db, _)| view_db == db) {
+            let cached = schema
+                .views
+                .get_mut(&normalize_ident(&view.name))
+                .expect("renamed view should be in schema");
+            *cached = view.clone();
+        }
     }
 
+    if let Some(schema) = &mut renamed_temp_schema {
+        // A TEMP trigger may run on a table in another database. Triggers
+        // are found by the name of that table. When the table is renamed,
+        // move its TEMP triggers to the new name. Changing only the stored
+        // SQL would leave them under the old name, so they would no longer
+        // run.
+        let temp_shadows_old_name = schema.tables.contains_key(&normalized_from);
+        if let Some(triggers) = schema.triggers.remove(&normalized_from) {
+            let mut triggers_to_keep = std::collections::VecDeque::new();
+            let mut triggers_to_rename = std::collections::VecDeque::new();
+            for mut trigger_arc in triggers {
+                let targets_renamed_database = match trigger_arc.target_database_id {
+                    Some(target_db) => target_db == *db,
+                    None => !temp_shadows_old_name,
+                };
+                if targets_renamed_database {
+                    let trigger = Arc::make_mut(&mut trigger_arc);
+                    normalized_to.clone_into(&mut trigger.table_name);
+                    rewrite_trigger_for_table_rename(trigger, &normalized_from, &normalized_to);
+                    triggers_to_rename.push_back(trigger_arc);
+                } else {
+                    triggers_to_keep.push_back(trigger_arc);
+                }
+            }
+            if !triggers_to_keep.is_empty() {
+                schema
+                    .triggers
+                    .insert(normalized_from.to_owned(), triggers_to_keep);
+            }
+            schema
+                .triggers
+                .entry(normalized_to.to_owned())
+                .or_default()
+                .extend(triggers_to_rename);
+        }
+
+        for triggers in schema.triggers.values_mut() {
+            for trigger_arc in triggers.iter_mut() {
+                if !sql_might_reference_identifier(&trigger_arc.sql, &normalized_from) {
+                    continue;
+                }
+                let trigger = Arc::make_mut(trigger_arc);
+                rewrite_trigger_for_table_rename(trigger, &normalized_from, &normalized_to);
+            }
+        }
+        for (_, view) in views
+            .iter()
+            .filter(|(view_db, _)| *view_db == crate::TEMP_DB_ID)
+        {
+            let cached = schema
+                .views
+                .get_mut(&normalize_ident(&view.name))
+                .expect("renamed temp view should be in schema");
+            *cached = view.clone();
+        }
+    }
+
+    let renamed_schema = Arc::new(renamed_schema);
+    let renamed_temp_schema = renamed_temp_schema.map(Arc::new);
+    conn.invalidate_internal_temp_execution();
+    let temp_database = conn.temp.database.read();
+    let mut temp_schema = temp_database
+        .as_ref()
+        .map(|database| database.db.schema.lock());
+    match *db {
+        crate::MAIN_DB_ID => *conn.schema.write() = renamed_schema,
+        crate::TEMP_DB_ID => **temp_schema.as_mut().expect("TEMP schema exists") = renamed_schema,
+        _ => {
+            conn.database_schemas.write().insert(*db, renamed_schema);
+        }
+    }
+    if let Some(renamed_temp_schema) = renamed_temp_schema {
+        **temp_schema.as_mut().expect("TEMP schema exists") = renamed_temp_schema;
+    }
+    conn.bump_prepare_context_generation();
     state.pc += 1;
     Ok(InsnFunctionStepResult::Step)
 }
@@ -17556,9 +17969,19 @@ pub fn op_alter_column(
                     cc.clone_from(&new_name);
                 }
             }
+            for cc in &mut fk.child_columns_display_names {
+                if cc.eq_ignore_ascii_case(&old_column_name) {
+                    cc.clone_from(&new_name);
+                }
+            }
             // parent side: if self-referencing, rename parent column too
             if normalize_ident(&fk.parent_table) == normalized_table_name {
                 for pc in &mut fk.parent_columns {
+                    if pc.eq_ignore_ascii_case(&old_column_name) {
+                        pc.clone_from(&new_name);
+                    }
+                }
+                for pc in &mut fk.parent_columns_display_names {
                     if pc.eq_ignore_ascii_case(&old_column_name) {
                         pc.clone_from(&new_name);
                     }
@@ -17579,6 +18002,11 @@ pub fn op_alter_column(
                     }
                     let fk = Arc::make_mut(fk_arc);
                     for pc in &mut fk.parent_columns {
+                        if pc.eq_ignore_ascii_case(&old_column_name) {
+                            pc.clone_from(&new_name);
+                        }
+                    }
+                    for pc in &mut fk.parent_columns_display_names {
                         if pc.eq_ignore_ascii_case(&old_column_name) {
                             pc.clone_from(&new_name);
                         }
@@ -19463,19 +19891,24 @@ fn cleanup_op_vacuum_into(
     state: &mut ProgramState,
     mut vacuum_state: Box<VacuumIntoOpContext>,
 ) -> Result<()> {
-    if let Some(target_build_context) = vacuum_state.target_build_context.as_mut() {
-        target_build_context.cleanup_after_error()?;
-    }
+    let mut cleanup_result =
+        if let Some(target_build_context) = vacuum_state.target_build_context.as_mut() {
+            target_build_context.cleanup_after_error()
+        } else {
+            Ok(())
+        };
 
     vacuum_state.target_build_context = None;
     vacuum_state._output_db = None;
 
     if state.auto_txn_cleanup == TxnCleanup::RollbackTxn {
         let pager = connection.pager.load();
-        connection.rollback_manual_txn_cleanup(&pager, true);
+        if let Err(error) = connection.rollback_manual_txn_cleanup(&pager, true) {
+            cleanup_result = Err(error);
+        }
         state.auto_txn_cleanup = TxnCleanup::None;
     }
-    Ok(())
+    cleanup_result
 }
 
 fn op_vacuum_into_inner(program: &Program, state: &mut ProgramState, insn: &Insn) -> InsnResult {

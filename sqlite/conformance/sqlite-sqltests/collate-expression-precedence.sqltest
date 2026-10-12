@@ -1,0 +1,303 @@
+@database :memory:
+
+test collate-original-3-2 {
+    SELECT 'abc'==('ABC'||max('' COLLATE nocase,'' COLLATE binary));
+}
+expect {
+    1
+}
+
+test collate-original-3-3 {
+    SELECT 'abc'==('ABC'||max('' COLLATE binary,'' COLLATE nocase));
+}
+expect {
+    0
+}
+
+test collate-original-3-4 {
+    SELECT 'abc'==('ABC'||CASE WHEN 1-1=2 THEN '' COLLATE nocase ELSE '' COLLATE binary END); SELECT 'abc'==('ABC'||CASE WHEN 1+1=2 THEN '' COLLATE nocase ELSE '' COLLATE binary END);
+}
+expect {
+    1
+    1
+}
+
+test collate-original-3-5 {
+    SELECT 'abc'==('ABC'||CASE WHEN 1=2 THEN '' COLLATE binary ELSE '' COLLATE nocase END);
+}
+expect {
+    0
+}
+
+test collate-reduced-function-nocase-first {
+    SELECT 'abc'=max('ABC' COLLATE nocase,'ABC' COLLATE binary);
+}
+expect {
+    1
+}
+
+test collate-reduced-function-binary-first {
+    SELECT 'abc'=max('ABC' COLLATE binary,'ABC' COLLATE nocase);
+}
+expect {
+    0
+}
+
+test collate-reduced-case-dead-nocase {
+    SELECT 'abc'=CASE WHEN 0 THEN 'ABC' COLLATE nocase ELSE 'ABC' COLLATE binary END;
+}
+expect {
+    1
+}
+
+test collate-reduced-case-dead-binary {
+    SELECT 'abc'=CASE WHEN 0 THEN 'ABC' COLLATE binary ELSE 'ABC' COLLATE nocase END;
+}
+expect {
+    0
+}
+
+test collate-explicit-left-priority {
+    SELECT 'abc' COLLATE binary=max('ABC' COLLATE nocase,'ABC' COLLATE nocase);
+}
+expect {
+    0
+}
+
+test collate-outer-collate-priority {
+    SELECT 'abc'=(max('ABC' COLLATE nocase,'ABC' COLLATE nocase) COLLATE binary);
+}
+expect {
+    0
+}
+
+test collate-function-right-literal {
+    SELECT 'abc'=max('ABC' COLLATE nocase,'ABC');
+}
+expect {
+    1
+}
+
+test collate-function-rtrim-first {
+    SELECT 'abc'=max('abc ' COLLATE rtrim,'abc ' COLLATE binary);
+}
+expect {
+    1
+}
+
+test collate-function-binary-before-rtrim {
+    SELECT 'abc'=max('abc ' COLLATE binary,'abc ' COLLATE rtrim);
+}
+expect {
+    0
+}
+
+test collate-case-when-before-then {
+    SELECT 'abc'=CASE WHEN ('x' COLLATE binary='y') THEN 'ABC' COLLATE nocase ELSE 'ABC' COLLATE nocase END;
+}
+expect {
+    0
+}
+
+test collate-case-base-before-then {
+    SELECT 'abc'=CASE 'x' COLLATE binary WHEN 'y' THEN 'ABC' COLLATE nocase ELSE 'ABC' COLLATE nocase END;
+}
+expect {
+    0
+}
+
+test collate-default-binary-left-column {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase); INSERT INTO t VALUES('abc','ABC'); SELECT b=n FROM t;
+}
+expect {
+    0
+}
+
+test collate-nocase-left-column {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase); INSERT INTO t VALUES('abc','ABC'); SELECT n=b FROM t;
+}
+expect {
+    1
+}
+
+test collate-explicit-right-over-column {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase); INSERT INTO t VALUES('abc','ABC'); SELECT b=(n COLLATE nocase) FROM t;
+}
+expect {
+    1
+}
+
+test collate-cast-column-inherits {
+    CREATE TABLE t(n TEXT COLLATE nocase); INSERT INTO t VALUES('ABC'); SELECT CAST(n AS TEXT)='abc' FROM t;
+}
+expect {
+    1
+}
+
+test collate-positive-column-inherits {
+    CREATE TABLE t(n TEXT COLLATE nocase); INSERT INTO t VALUES('ABC'); SELECT +n='abc' FROM t;
+}
+expect {
+    1
+}
+
+test collate-function-no-implicit-inheritance {
+    CREATE TABLE t(n TEXT COLLATE nocase); INSERT INTO t VALUES('ABC'); SELECT coalesce(n,'')='abc' FROM t;
+}
+expect {
+    0
+}
+
+test collate-concat-no-implicit-inheritance {
+    CREATE TABLE t(n TEXT COLLATE nocase); INSERT INTO t VALUES('ABC'); SELECT (n||'')='abc' FROM t;
+}
+expect {
+    0
+}
+
+test collate-case-no-implicit-inheritance {
+    CREATE TABLE t(n TEXT COLLATE nocase); INSERT INTO t VALUES('ABC'); SELECT (CASE WHEN 1 THEN n ELSE n END)='abc' FROM t;
+}
+expect {
+    0
+}
+
+test collate-rtrim-column-inherits {
+    CREATE TABLE t(r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc '); SELECT r='abc' FROM t;
+}
+expect {
+    1
+}
+
+test collate-where-function-first {
+    SELECT 1 WHERE 'abc'=max('ABC' COLLATE nocase,'ABC' COLLATE binary);
+}
+expect {
+    1
+}
+
+test collate-where-case-first {
+    SELECT 1 WHERE 'abc'=CASE WHEN 0 THEN 'ABC' COLLATE nocase ELSE 'ABC' COLLATE binary END;
+}
+expect {
+    1
+}
+
+test collate-row-value-comparison {
+    SELECT ('abc',1)=(max('ABC' COLLATE nocase,'ABC' COLLATE binary),1);
+}
+expect {
+    1
+}
+
+test collate-numeric-affinity-column {
+    CREATE TABLE t(a INTEGER,n TEXT COLLATE nocase); INSERT INTO t VALUES(1,'1'); SELECT a=n FROM t;
+}
+expect {
+    1
+}
+
+test collate-numeric-function-no-affinity {
+    CREATE TABLE t(a INTEGER); INSERT INTO t VALUES(1); SELECT coalesce(a,0)='1' FROM t;
+}
+expect {
+    0
+}
+
+test collate-cached-group-expression {
+    CREATE TABLE t(n TEXT); INSERT INTO t VALUES('ABC'),('ABC'); SELECT 'abc'=max(n COLLATE nocase,n COLLATE binary) FROM t GROUP BY max(n COLLATE nocase,n COLLATE binary);
+}
+expect {
+    1
+}
+
+test collate-upsert-register-nocase {
+    CREATE TABLE t(id INTEGER PRIMARY KEY,n TEXT COLLATE nocase,b TEXT); INSERT INTO t VALUES(1,'ABC','abc'); INSERT INTO t VALUES(1,'unused','unused') ON CONFLICT(id) DO UPDATE SET b='updated' WHERE n=b; SELECT b='updated' FROM t;
+}
+expect {
+    1
+}
+
+test collate-upsert-register-default-binary {
+    CREATE TABLE t(id INTEGER PRIMARY KEY,b TEXT,n TEXT COLLATE nocase); INSERT INTO t VALUES(1,'abc','ABC'); INSERT INTO t VALUES(1,'unused','unused') ON CONFLICT(id) DO UPDATE SET n='updated' WHERE b=n; SELECT n='ABC' COLLATE binary FROM t;
+}
+expect {
+    1
+}
+
+test collate-null-result-control {
+    SELECT ifnull((CASE WHEN 1 THEN NULL COLLATE nocase ELSE 'x' COLLATE binary END)='X',99);
+}
+expect {
+    99
+}
+
+test collate-row-default-binary-left {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase); INSERT INTO t VALUES('abc','ABC'); SELECT (b,1)=(n,1) FROM t;
+}
+expect {
+    0
+}
+
+test collate-row-nocase-left {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase); INSERT INTO t VALUES('abc','ABC'); SELECT (n,1)=(b,1) FROM t;
+}
+expect {
+    1
+}
+
+test collate-generated-default-binary-column {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,c INT AS (b=n)); INSERT INTO t(b,n) VALUES('abc','ABC'); SELECT c FROM t;
+}
+expect {
+    0
+}
+
+test collate-generated-nocase-column {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,c INT AS (n=b)); INSERT INTO t(b,n) VALUES('abc','ABC'); SELECT c FROM t;
+}
+expect {
+    1
+}
+
+test collate-is-function-first {
+    SELECT 'abc' IS max('ABC' COLLATE nocase,'ABC' COLLATE binary);
+}
+expect {
+    1
+}
+
+test collate-not-equal-function-first {
+    SELECT 'abc'!=max('ABC' COLLATE nocase,'ABC' COLLATE binary);
+}
+expect {
+    0
+}
+
+test collate-less-function-first {
+    SELECT 'abc'<max('ABC' COLLATE nocase,'ABC' COLLATE binary);
+}
+expect {
+    0
+}
+
+test collate-where-or-function-first {
+    SELECT 1 WHERE 0 OR 'abc'=max('ABC' COLLATE nocase,'ABC' COLLATE binary);
+}
+expect {
+    1
+}
+
+test collate-where-and-case-first {
+    SELECT 1 WHERE 1 AND 'abc'=CASE WHEN 0 THEN 'ABC' COLLATE nocase ELSE 'ABC' COLLATE binary END;
+}
+expect {
+    1
+}
+
+test collate-having-function-first {
+    CREATE TABLE t(n TEXT); INSERT INTO t VALUES('ABC'); SELECT count(*) FROM t HAVING 'abc'=max('ABC' COLLATE nocase,'ABC' COLLATE binary);
+}
+expect {
+    1
+}

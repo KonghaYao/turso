@@ -1,0 +1,103 @@
+@database :memory:
+
+test having-local-column-over-outer-result-alias {
+ CREATE TABLE t(a); INSERT INTO t VALUES(1),(2);
+ CREATE TABLE u(c); INSERT INTO u VALUES(3),(4);
+ SELECT (SELECT t.a AS c FROM u GROUP BY c HAVING c=4) FROM t;
+}
+expect {
+1
+2
+}
+
+test having-result-alias-without-local-column {
+ CREATE TABLE u(b); INSERT INTO u VALUES(3),(4);
+ SELECT sum(b) AS c FROM u HAVING c=7;
+}
+expect {7}
+
+test having-local-column-over-aggregate-alias {
+ CREATE TABLE u(c,b); INSERT INTO u VALUES(3,100),(4,200);
+ SELECT sum(b) AS c FROM u GROUP BY c HAVING c=4;
+}
+expect {200}
+
+test having-local-ambiguity-not-hidden-by-alias {
+ CREATE TABLE u(c,b); INSERT INTO u VALUES(3,100),(4,200);
+ CREATE TABLE v(c); INSERT INTO v VALUES(1);
+ SELECT count(*) AS c FROM u,v HAVING c=1;
+}
+expect error {ambiguous column name: c}
+
+test having-alias-before-outer-column {
+ CREATE TABLE t(c); INSERT INTO t VALUES(99);
+ CREATE TABLE u(b); INSERT INTO u VALUES(3),(4);
+ SELECT (SELECT sum(b) AS c FROM u HAVING c=7) FROM t;
+}
+expect {7}
+
+test having-outer-column-without-local-or-alias {
+ CREATE TABLE t(c); INSERT INTO t VALUES(99);
+ CREATE TABLE u(b); INSERT INTO u VALUES(3),(4);
+ SELECT (SELECT sum(b) FROM u HAVING c=99) FROM t;
+}
+expect {7}
+
+test having-local-and-alias-in-one-predicate {
+ CREATE TABLE u(c,b); INSERT INTO u VALUES(3,100),(4,200);
+ SELECT count(*) AS n,sum(b) AS c FROM u HAVING c=3 AND n=2;
+}
+expect {2|300}
+
+test having-aggregate-argument-local-not-aliased-aggregate {
+ CREATE TABLE u(c,b); INSERT INTO u VALUES(3,100),(4,200);
+ SELECT count(*) AS c FROM u HAVING max(c)=4;
+}
+expect {2}
+
+test having-reject-real-aliased-aggregate-argument {
+ CREATE TABLE u(c,b); INSERT INTO u VALUES(3,100),(4,200);
+ SELECT count(*) AS n FROM u HAVING max(n)=2;
+}
+expect error {misuse of aliased aggregate n}
+
+test having-implicit-local-rowid-over-alias {
+ CREATE TABLE u(b); INSERT INTO u VALUES(3),(4);
+ SELECT 99 AS rowid,count(*) FROM u HAVING rowid=1;
+}
+expect {99|2}
+
+test having-without-rowid-allows-result-alias {
+ CREATE TABLE u(a PRIMARY KEY) WITHOUT ROWID; INSERT INTO u VALUES(8);
+ SELECT 99 AS rowid,count(*) FROM u HAVING rowid=99;
+}
+expect {99|1}
+
+test having-case-folded-local-over-alias {
+ CREATE TABLE t(a); INSERT INTO t VALUES(1),(2);
+ CREATE TABLE u(c); INSERT INTO u VALUES(3),(4);
+ SELECT (SELECT t.a AS C FROM u GROUP BY c HAVING C=4) FROM t;
+}
+expect {
+1
+2
+}
+
+test having-alias-inside-scalar-expression {
+ CREATE TABLE u(b); INSERT INTO u VALUES(3),(4);
+ SELECT sum(b) AS chosen FROM u HAVING abs(chosen)=7;
+}
+expect {7}
+
+test having-qualified-outer-column-not-alias {
+ CREATE TABLE t(c); INSERT INTO t VALUES(99);
+ CREATE TABLE u(b); INSERT INTO u VALUES(3),(4);
+ SELECT (SELECT sum(b) AS c FROM u HAVING t.c=99) FROM t;
+}
+expect {7}
+
+test having-real-local-rowid-named-column-over-alias {
+ CREATE TABLE u(rowid); INSERT INTO u VALUES(7),(8);
+ SELECT 99 AS rowid,count(*) FROM u HAVING rowid=7;
+}
+expect {99|2}

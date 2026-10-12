@@ -627,6 +627,9 @@ trait WalCoordination: Debug + Send + Sync {
 /// Write-ahead log (WAL).
 #[aristo::intent("The WAL subsystem maintains LSN monotonicity, frame commitment ordering, recovery idempotency, checkpoint safety, and group commit atomicity.", id = "wal_protocol_correctness", verify = "neural")]
 pub trait Wal: Debug + Send + Sync {
+    /// Process-wide barrier after a written commit frame fails fsync.
+    fn mark_commit_uncertain(&self);
+    fn commit_is_uncertain(&self) -> bool;
     /// Begin a read transaction.
     /// Returns whether the database state has changed since the last read transaction.
     fn begin_read_tx(&self) -> Result<bool>;
@@ -2946,6 +2949,8 @@ pub struct WalSharedRuntime {
     /// `find_frame` can return a frame slot that now holds a different page).
     /// Only read/written while holding the `frame_cache` lock.
     pub frame_cache_high_water: AtomicU64,
+    /// Blocks this process from reading or writing an unverified commit.
+    pub commit_uncertain: AtomicBool,
     pub file: Option<Arc<dyn File>>,
     /// Read locks advertise the maximum WAL frame a reader may access.
     /// Slot 0 is special, when it is held (shared) the reader bypasses the WAL and uses the main DB file.
@@ -3449,6 +3454,24 @@ impl WalFile {
 }
 
 impl Wal for WalFile {
+    fn mark_commit_uncertain(&self) {
+        self.coordination
+            .shared_wal_state()
+            .read()
+            .runtime
+            .commit_uncertain
+            .store(true, Ordering::Release);
+    }
+
+    fn commit_is_uncertain(&self) -> bool {
+        self.coordination
+            .shared_wal_state()
+            .read()
+            .runtime
+            .commit_uncertain
+            .load(Ordering::Acquire)
+    }
+
     fn begin_read_tx(&self) -> Result<bool> {
         // Implement progressive backoff because transient lock contention
         // should resolve quickly, but under heavy contention busy-spinning wastes
@@ -3609,7 +3632,7 @@ impl Wal for WalFile {
     }
 
     fn should_checkpoint_on_close(&self) -> bool {
-        self.coordination.should_checkpoint_on_close()
+        !self.commit_is_uncertain() && self.coordination.should_checkpoint_on_close()
     }
 
     /// Find the latest frame containing a page.
@@ -5875,6 +5898,7 @@ impl WalFileShared {
             runtime: WalSharedRuntime {
                 frame_cache: Arc::new(SpinLock::new(FxHashMap::default())),
                 frame_cache_high_water: AtomicU64::new(0),
+                commit_uncertain: AtomicBool::new(false),
                 file: Some(file),
                 read_locks,
                 vacuum_lock: TursoRwLock::new(),
@@ -5951,6 +5975,7 @@ impl WalFileShared {
             runtime: WalSharedRuntime {
                 frame_cache: Arc::new(SpinLock::new(FxHashMap::default())),
                 frame_cache_high_water: AtomicU64::new(0),
+                commit_uncertain: AtomicBool::new(false),
                 file: None,
                 read_locks,
                 vacuum_lock: TursoRwLock::new(),
@@ -5993,6 +6018,7 @@ impl WalFileShared {
             runtime: WalSharedRuntime {
                 frame_cache: Arc::new(SpinLock::new(FxHashMap::default())),
                 frame_cache_high_water: AtomicU64::new(0),
+                commit_uncertain: AtomicBool::new(false),
                 file: Some(file),
                 read_locks,
                 vacuum_lock: TursoRwLock::new(),

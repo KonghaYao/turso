@@ -12,3 +12,18 @@ test analyze-indexed-table-does-not-insert-null-stat1-row {
 expect {
     t|i_t_a|3 2
 }
+
+@cross-check-integrity
+test analyze-mixed-case-index-name {
+    CREATE TABLE t(a, b);
+    CREATE INDEX "MiXeD_Index" ON t(a);
+    INSERT INTO t VALUES (1, 10), (2, 20), (2, 30);
+    ANALYZE "mixed_index";
+    SELECT tbl, idx, stat FROM sqlite_stat1;
+    SELECT b FROM t WHERE a = 2 ORDER BY b;
+}
+expect {
+    t|MiXeD_Index|3 2
+    20
+    30
+}

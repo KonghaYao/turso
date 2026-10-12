@@ -1,0 +1,443 @@
+@database :memory:
+
+test official-minmax4-2-1 {
+    CREATE TABLE t2(a,b,c); INSERT INTO t2 VALUES (1,null,2),(1,2,3),(1,1,4),(2,3,5); SELECT a, max(b), c FROM t2 GROUP BY a ORDER BY a;
+}
+expect {
+1|2|3
+2|3|5
+}
+
+test minimal-null-first {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES(1,NULL,2),(1,2,3); SELECT max(b), c FROM t GROUP BY a;
+}
+expect {
+2|3
+}
+
+test official-minmax4-2-2 {
+    CREATE TABLE t2(a,b,c); INSERT INTO t2 VALUES (1,null,2),(1,2,3),(1,1,4),(2,3,5); SELECT a, min(b), c FROM t2 GROUP BY a ORDER BY a;
+}
+expect {
+1|1|4
+2|3|5
+}
+
+test official-minmax4-2-3 {
+    CREATE TABLE t2(a,b,c); INSERT INTO t2 VALUES (1,null,2),(1,2,3),(1,1,4),(2,3,5); SELECT a, min(b), avg(b), count(b), c FROM t2 GROUP BY a ORDER BY a DESC;
+}
+expect {
+2|3|3.0|1|5
+1|1|1.5|2|4
+}
+
+test official-minmax4-2-4 {
+    CREATE TABLE t2(a,b,c); INSERT INTO t2 VALUES (1,null,2),(1,2,3),(1,1,4),(2,3,5); SELECT a, min(b), max(b), c FROM t2 GROUP BY a ORDER BY a;
+}
+expect {
+1|1|2|3
+2|3|3|5
+}
+
+test official-minmax4-2-5 {
+    CREATE TABLE t2(a,b,c); INSERT INTO t2 VALUES (1,null,2),(1,2,3),(1,1,4),(2,3,5); SELECT a, max(b), min(b), c FROM t2 GROUP BY a ORDER BY a;
+}
+expect {
+1|2|1|4
+2|3|3|5
+}
+
+test official-minmax4-2-6 {
+    CREATE TABLE t2(a,b,c); INSERT INTO t2 VALUES (1,null,2),(1,2,3),(1,1,4),(2,3,5); SELECT a, max(b), b, max(c), c FROM t2 GROUP BY a ORDER BY a;
+}
+expect {
+1|2|1|4|4
+2|3|3|5|5
+}
+
+test max-null-first-sorter {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,NULL,2),(1,2,3),(1,1,4),(2,NULL,5),(2,3,6); SELECT a,max(b),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|2|3|2
+2|3|6|5
+}
+
+test min-null-first-sorter {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,NULL,2),(1,2,3),(1,1,4),(2,NULL,5),(2,3,6); SELECT a,min(b),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|1|4|3
+2|3|6|5
+}
+
+test all-null-sorter {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,NULL,2),(1,NULL,3),(2,NULL,4),(2,NULL,5); SELECT a,max(b),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1||3|2
+2||5|4
+}
+
+test null-last-sorter {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,2,2),(1,NULL,3),(1,1,4); SELECT a,max(b),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|2|2|1
+}
+
+test ties-sorter {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,2,2),(1,2,3),(1,1,4); SELECT a,max(b),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|2|2|1
+}
+
+test multiple-min-max-sorter {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,NULL,2),(1,2,3),(1,1,4); SELECT a,min(b),max(b),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|1|2|3|2
+}
+
+test multiple-max-min-sorter {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,NULL,2),(1,2,3),(1,1,4); SELECT a,max(b),min(b),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|2|1|4|3
+}
+
+test multiple-different-args-sorter {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,NULL,2),(1,2,3),(1,1,4); SELECT a,max(b),b,max(c),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|2|1|4|4|3
+}
+
+test other-aggregates-sorter {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,NULL,2),(1,2,3),(1,1,4); SELECT a,min(b),sum(b),count(b),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|1|3|2|4|3
+}
+
+test filtered-sorter {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,NULL,2),(1,2,3),(1,1,4); SELECT a,max(b) FILTER(WHERE c>2),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|2|3|2
+}
+
+test filtered-all-excluded-sorter {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,NULL,2),(1,2,3),(1,1,4); SELECT a,max(b) FILTER(WHERE c>10),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1||2|1
+}
+
+test filtered-last-sorter {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,NULL,2),(1,2,3),(1,1,4); SELECT a,min(b),max(c) FILTER(WHERE c=3),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|1|3|3|2
+}
+
+test filtered-first-sorter {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,2,2),(1,1,3); SELECT a,max(b) FILTER(WHERE 0),min(b),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1||1|3|2
+}
+
+test unfiltered-then-filtered-sorter {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,2,2),(1,1,3); SELECT a,min(b),max(b) FILTER(WHERE 0),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|1||2|1
+}
+
+test both-filtered-sorter {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,2,2),(1,1,3),(1,3,4); SELECT a,min(b) FILTER(WHERE c>2),max(b) FILTER(WHERE c<4),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|1|2|2|1
+}
+
+test filtered-null-sorter {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,2,2),(1,1,3); SELECT a,max(b) FILTER(WHERE NULL),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1||2|1
+}
+
+test min-all-null-sorter {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,NULL,2),(1,NULL,3); SELECT a,min(b),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1||3|2
+}
+
+test distinct-sorter {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,NULL,2),(1,2,3),(1,2,4),(1,1,5); SELECT a,max(DISTINCT b),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|2|4|3
+}
+
+test distinct-all-null-sorter {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,NULL,2),(1,NULL,3),(1,NULL,4); SELECT a,max(DISTINCT b),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1||4|3
+}
+
+test distinct-filtered-sorter {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,NULL,2),(1,2,3),(1,2,4),(1,1,5); SELECT a,max(DISTINCT b) FILTER(WHERE c>2),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|2|3|2
+}
+
+test collation-sorter {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,'a',2),(1,'B',3),(1,'b',4); SELECT a,max(b COLLATE NOCASE),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|B|3|2
+}
+
+test mixed-types-sorter {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,2,2),(1,2.5,3),(1,'3',4),(1,X'33',5); SELECT a,typeof(max(b)),hex(max(b)),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|blob|33|5|4
+}
+
+test empty-groups-sorter {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,2,2); SELECT a,max(b),c,rowid FROM t WHERE c<0 GROUP BY a ORDER BY a;
+}
+expect {
+
+}
+
+test plain-count-sorter {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,2,2),(1,3,3); SELECT a,count(*),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|2|2|1
+}
+
+test no-bare-sorter {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,NULL,2),(1,2,3),(1,1,4); SELECT a,min(b),max(b) FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|1|2
+}
+
+test max-null-first-indexed {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,NULL,2),(1,2,3),(1,1,4),(2,NULL,5),(2,3,6); CREATE INDEX ta ON t(a); SELECT a,max(b),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|2|3|2
+2|3|6|5
+}
+
+test min-null-first-indexed {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,NULL,2),(1,2,3),(1,1,4),(2,NULL,5),(2,3,6); CREATE INDEX ta ON t(a); SELECT a,min(b),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|1|4|3
+2|3|6|5
+}
+
+test all-null-indexed {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,NULL,2),(1,NULL,3),(2,NULL,4),(2,NULL,5); CREATE INDEX ta ON t(a); SELECT a,max(b),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1||3|2
+2||5|4
+}
+
+test null-last-indexed {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,2,2),(1,NULL,3),(1,1,4); CREATE INDEX ta ON t(a); SELECT a,max(b),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|2|2|1
+}
+
+test ties-indexed {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,2,2),(1,2,3),(1,1,4); CREATE INDEX ta ON t(a); SELECT a,max(b),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|2|2|1
+}
+
+test multiple-min-max-indexed {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,NULL,2),(1,2,3),(1,1,4); CREATE INDEX ta ON t(a); SELECT a,min(b),max(b),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|1|2|3|2
+}
+
+test multiple-max-min-indexed {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,NULL,2),(1,2,3),(1,1,4); CREATE INDEX ta ON t(a); SELECT a,max(b),min(b),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|2|1|4|3
+}
+
+test multiple-different-args-indexed {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,NULL,2),(1,2,3),(1,1,4); CREATE INDEX ta ON t(a); SELECT a,max(b),b,max(c),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|2|1|4|4|3
+}
+
+test other-aggregates-indexed {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,NULL,2),(1,2,3),(1,1,4); CREATE INDEX ta ON t(a); SELECT a,min(b),sum(b),count(b),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|1|3|2|4|3
+}
+
+test filtered-indexed {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,NULL,2),(1,2,3),(1,1,4); CREATE INDEX ta ON t(a); SELECT a,max(b) FILTER(WHERE c>2),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|2|3|2
+}
+
+test filtered-all-excluded-indexed {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,NULL,2),(1,2,3),(1,1,4); CREATE INDEX ta ON t(a); SELECT a,max(b) FILTER(WHERE c>10),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1||2|1
+}
+
+test filtered-last-indexed {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,NULL,2),(1,2,3),(1,1,4); CREATE INDEX ta ON t(a); SELECT a,min(b),max(c) FILTER(WHERE c=3),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|1|3|3|2
+}
+
+test filtered-first-indexed {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,2,2),(1,1,3); CREATE INDEX ta ON t(a); SELECT a,max(b) FILTER(WHERE 0),min(b),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1||1|3|2
+}
+
+test unfiltered-then-filtered-indexed {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,2,2),(1,1,3); CREATE INDEX ta ON t(a); SELECT a,min(b),max(b) FILTER(WHERE 0),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|1||2|1
+}
+
+test both-filtered-indexed {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,2,2),(1,1,3),(1,3,4); CREATE INDEX ta ON t(a); SELECT a,min(b) FILTER(WHERE c>2),max(b) FILTER(WHERE c<4),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|1|2|2|1
+}
+
+test filtered-null-indexed {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,2,2),(1,1,3); CREATE INDEX ta ON t(a); SELECT a,max(b) FILTER(WHERE NULL),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1||2|1
+}
+
+test min-all-null-indexed {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,NULL,2),(1,NULL,3); CREATE INDEX ta ON t(a); SELECT a,min(b),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1||3|2
+}
+
+test distinct-indexed {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,NULL,2),(1,2,3),(1,2,4),(1,1,5); CREATE INDEX ta ON t(a); SELECT a,max(DISTINCT b),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|2|4|3
+}
+
+test distinct-all-null-indexed {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,NULL,2),(1,NULL,3),(1,NULL,4); CREATE INDEX ta ON t(a); SELECT a,max(DISTINCT b),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1||4|3
+}
+
+test distinct-filtered-indexed {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,NULL,2),(1,2,3),(1,2,4),(1,1,5); CREATE INDEX ta ON t(a); SELECT a,max(DISTINCT b) FILTER(WHERE c>2),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|2|3|2
+}
+
+test collation-indexed {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,'a',2),(1,'B',3),(1,'b',4); CREATE INDEX ta ON t(a); SELECT a,max(b COLLATE NOCASE),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|B|3|2
+}
+
+test mixed-types-indexed {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,2,2),(1,2.5,3),(1,'3',4),(1,X'33',5); CREATE INDEX ta ON t(a); SELECT a,typeof(max(b)),hex(max(b)),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|blob|33|5|4
+}
+
+test empty-groups-indexed {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,2,2); CREATE INDEX ta ON t(a); SELECT a,max(b),c,rowid FROM t WHERE c<0 GROUP BY a ORDER BY a;
+}
+expect {
+
+}
+
+test plain-count-indexed {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,2,2),(1,3,3); CREATE INDEX ta ON t(a); SELECT a,count(*),c,rowid FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|2|2|1
+}
+
+test no-bare-indexed {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES (1,NULL,2),(1,2,3),(1,1,4); CREATE INDEX ta ON t(a); SELECT a,min(b),max(b) FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|1|2
+}
+
+test having-bare {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES(1,NULL,2),(1,2,3),(1,1,4),(2,NULL,5),(2,3,6); SELECT a,max(b),c FROM t GROUP BY a HAVING c=3 ORDER BY a;
+}
+expect {
+1|2|3
+}
+
+test order-bare {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES(1,NULL,2),(1,2,3),(1,1,4),(2,NULL,5),(2,3,6); SELECT a,max(b) FROM t GROUP BY a ORDER BY c;
+}
+expect {
+1|2
+2|3
+}
+
+test mixed-result {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES(1,NULL,2),(1,2,3),(1,1,4),(2,NULL,5),(2,3,6); SELECT a,max(b)+c FROM t GROUP BY a ORDER BY a;
+}
+expect {
+1|5
+2|9
+}
+
+test group-expression {
+    CREATE TABLE t(a,b,c); INSERT INTO t VALUES(1,NULL,2),(1,2,3),(1,1,4),(2,NULL,5),(2,3,6); SELECT max(b),c,rowid FROM t GROUP BY a%2 ORDER BY a%2;
+}
+expect {
+3|6|5
+2|3|2
+}

@@ -1,0 +1,455 @@
+@database :memory:
+
+test derived-column-left {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');SELECT x='abc' FROM (SELECT n AS x FROM t) AS v;
+}
+expect {
+    1
+}
+
+test derived-column-right {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');SELECT 'abc'=x FROM (SELECT n AS x FROM t) AS v;
+}
+expect {
+    1
+}
+
+test derived-column-cast {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');SELECT +CAST(x AS TEXT)='abc' FROM (SELECT n AS x FROM t) AS v;
+}
+expect {
+    1
+}
+
+test derived-column-explicit-right {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');SELECT x='abc' COLLATE binary FROM (SELECT n AS x FROM t) AS v;
+}
+expect {
+    0
+}
+
+test view-column-left {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');CREATE VIEW v AS SELECT n AS x FROM t;SELECT x='abc' FROM v;
+}
+expect {
+    1
+}
+
+test view-column-right {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');CREATE VIEW v AS SELECT n AS x FROM t;SELECT 'abc'=x FROM v;
+}
+expect {
+    1
+}
+
+test view-column-cast {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');CREATE VIEW v AS SELECT n AS x FROM t;SELECT +CAST(x AS TEXT)='abc' FROM v;
+}
+expect {
+    1
+}
+
+test view-column-explicit-right {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');CREATE VIEW v AS SELECT n AS x FROM t;SELECT x='abc' COLLATE binary FROM v;
+}
+expect {
+    0
+}
+
+test derived-function-left {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');SELECT x='abc' FROM (SELECT coalesce(n,'') AS x FROM t) AS v;
+}
+expect {
+    0
+}
+
+test derived-function-right {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');SELECT 'abc'=x FROM (SELECT coalesce(n,'') AS x FROM t) AS v;
+}
+expect {
+    0
+}
+
+test derived-function-cast {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');SELECT +CAST(x AS TEXT)='abc' FROM (SELECT coalesce(n,'') AS x FROM t) AS v;
+}
+expect {
+    0
+}
+
+test derived-function-explicit-right {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');SELECT x='abc' COLLATE binary FROM (SELECT coalesce(n,'') AS x FROM t) AS v;
+}
+expect {
+    0
+}
+
+test view-function-left {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');CREATE VIEW v AS SELECT coalesce(n,'') AS x FROM t;SELECT x='abc' FROM v;
+}
+expect {
+    0
+}
+
+test view-function-right {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');CREATE VIEW v AS SELECT coalesce(n,'') AS x FROM t;SELECT 'abc'=x FROM v;
+}
+expect {
+    0
+}
+
+test view-function-cast {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');CREATE VIEW v AS SELECT coalesce(n,'') AS x FROM t;SELECT +CAST(x AS TEXT)='abc' FROM v;
+}
+expect {
+    0
+}
+
+test view-function-explicit-right {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');CREATE VIEW v AS SELECT coalesce(n,'') AS x FROM t;SELECT x='abc' COLLATE binary FROM v;
+}
+expect {
+    0
+}
+
+test derived-explicit-binary-left {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');SELECT x='abc' FROM (SELECT n COLLATE binary AS x FROM t) AS v;
+}
+expect {
+    0
+}
+
+test derived-explicit-binary-right {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');SELECT 'abc'=x FROM (SELECT n COLLATE binary AS x FROM t) AS v;
+}
+expect {
+    0
+}
+
+test derived-explicit-binary-cast {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');SELECT +CAST(x AS TEXT)='abc' FROM (SELECT n COLLATE binary AS x FROM t) AS v;
+}
+expect {
+    0
+}
+
+test derived-explicit-binary-explicit-right {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');SELECT x='abc' COLLATE binary FROM (SELECT n COLLATE binary AS x FROM t) AS v;
+}
+expect {
+    0
+}
+
+test view-explicit-binary-left {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');CREATE VIEW v AS SELECT n COLLATE binary AS x FROM t;SELECT x='abc' FROM v;
+}
+expect {
+    0
+}
+
+test view-explicit-binary-right {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');CREATE VIEW v AS SELECT n COLLATE binary AS x FROM t;SELECT 'abc'=x FROM v;
+}
+expect {
+    0
+}
+
+test view-explicit-binary-cast {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');CREATE VIEW v AS SELECT n COLLATE binary AS x FROM t;SELECT +CAST(x AS TEXT)='abc' FROM v;
+}
+expect {
+    0
+}
+
+test view-explicit-binary-explicit-right {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');CREATE VIEW v AS SELECT n COLLATE binary AS x FROM t;SELECT x='abc' COLLATE binary FROM v;
+}
+expect {
+    0
+}
+
+test derived-explicit-function-nocase-left {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');SELECT x='abc' FROM (SELECT coalesce(n,'') COLLATE nocase AS x FROM t) AS v;
+}
+expect {
+    1
+}
+
+test derived-explicit-function-nocase-right {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');SELECT 'abc'=x FROM (SELECT coalesce(n,'') COLLATE nocase AS x FROM t) AS v;
+}
+expect {
+    1
+}
+
+test derived-explicit-function-nocase-cast {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');SELECT +CAST(x AS TEXT)='abc' FROM (SELECT coalesce(n,'') COLLATE nocase AS x FROM t) AS v;
+}
+expect {
+    1
+}
+
+test derived-explicit-function-nocase-explicit-right {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');SELECT x='abc' COLLATE binary FROM (SELECT coalesce(n,'') COLLATE nocase AS x FROM t) AS v;
+}
+expect {
+    0
+}
+
+test view-explicit-function-nocase-left {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');CREATE VIEW v AS SELECT coalesce(n,'') COLLATE nocase AS x FROM t;SELECT x='abc' FROM v;
+}
+expect {
+    1
+}
+
+test view-explicit-function-nocase-right {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');CREATE VIEW v AS SELECT coalesce(n,'') COLLATE nocase AS x FROM t;SELECT 'abc'=x FROM v;
+}
+expect {
+    1
+}
+
+test view-explicit-function-nocase-cast {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');CREATE VIEW v AS SELECT coalesce(n,'') COLLATE nocase AS x FROM t;SELECT +CAST(x AS TEXT)='abc' FROM v;
+}
+expect {
+    1
+}
+
+test view-explicit-function-nocase-explicit-right {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');CREATE VIEW v AS SELECT coalesce(n,'') COLLATE nocase AS x FROM t;SELECT x='abc' COLLATE binary FROM v;
+}
+expect {
+    0
+}
+
+test alias-explicit-nocase-over-right-binary {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');SELECT n COLLATE nocase AS x FROM t WHERE x='abc' COLLATE binary;
+}
+expect {
+    ABC
+}
+
+test alias-explicit-binary-over-column {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');SELECT n COLLATE binary AS x FROM t WHERE x='abc';
+}
+expect {
+}
+
+test alias-function-no-implicit {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');SELECT coalesce(n,'') AS x FROM t WHERE x='abc';
+}
+expect {
+}
+
+test alias-function-explicit-nocase {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');SELECT coalesce(n,'') COLLATE nocase AS x FROM t WHERE 'abc'=x;
+}
+expect {
+    ABC
+}
+
+test indexed-nocase-result {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');CREATE INDEX idx_n ON t(n); SELECT n FROM t INDEXED BY idx_n WHERE n='abc';
+}
+expect {
+    ABC
+}
+
+test indexed-binary-negative {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');CREATE INDEX idx_n ON t(n); SELECT n FROM t INDEXED BY idx_n WHERE n COLLATE binary='abc';
+}
+expect {
+}
+
+test indexed-comparison-projection {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');CREATE INDEX idx_n ON t(n); SELECT n='abc',n COLLATE binary='abc' FROM t INDEXED BY idx_n;
+}
+expect {
+    1|0
+}
+
+test group-cache-function-binary-negative {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');SELECT coalesce(n,'')='abc' FROM t GROUP BY coalesce(n,'');
+}
+expect {
+    0
+}
+
+test group-cache-explicit-nocase-positive {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');SELECT (coalesce(n,'') COLLATE nocase)='abc' FROM t GROUP BY coalesce(n,'') COLLATE nocase;
+}
+expect {
+    1
+}
+
+test oracle9-derived-column {
+    CREATE TABLE t(n TEXT COLLATE nocase);INSERT INTO t VALUES('ABC');SELECT x='abc' FROM (SELECT n AS x FROM t);
+}
+expect {
+    1
+}
+
+test oracle9-derived-cast-column {
+    CREATE TABLE t(n TEXT COLLATE nocase);INSERT INTO t VALUES('ABC');SELECT x='abc' FROM (SELECT CAST(n AS TEXT) AS x FROM t);
+}
+expect {
+    1
+}
+
+test oracle9-derived-function {
+    CREATE TABLE t(n TEXT COLLATE nocase);INSERT INTO t VALUES('ABC');SELECT x='abc' FROM (SELECT coalesce(n,'') AS x FROM t);
+}
+expect {
+    0
+}
+
+test oracle9-derived-concat {
+    CREATE TABLE t(n TEXT COLLATE nocase);INSERT INTO t VALUES('ABC');SELECT x='abc' FROM (SELECT n||'' AS x FROM t);
+}
+expect {
+    0
+}
+
+test oracle9-derived-case {
+    CREATE TABLE t(n TEXT COLLATE nocase);INSERT INTO t VALUES('ABC');SELECT x='abc' FROM (SELECT CASE WHEN 1 THEN n ELSE '' END AS x FROM t);
+}
+expect {
+    0
+}
+
+test oracle9-derived-explicit-function {
+    CREATE TABLE t(n TEXT COLLATE nocase);INSERT INTO t VALUES('ABC');SELECT x='abc' FROM (SELECT coalesce(n COLLATE nocase,'') AS x FROM t);
+}
+expect {
+    1
+}
+
+test oracle9-derived-explicit-binary {
+    CREATE TABLE t(n TEXT COLLATE nocase);INSERT INTO t VALUES('ABC');SELECT x='abc' FROM (SELECT n COLLATE binary AS x FROM t);
+}
+expect {
+    0
+}
+
+test oracle9-view-function {
+    CREATE TABLE t(n TEXT COLLATE nocase);INSERT INTO t VALUES('ABC');CREATE VIEW v AS SELECT coalesce(n,'') AS x FROM t;SELECT x='abc' FROM v;
+}
+expect {
+    0
+}
+
+test oracle9-materialized-cte-function {
+    CREATE TABLE t(n TEXT COLLATE nocase);INSERT INTO t VALUES('ABC');WITH v AS MATERIALIZED (SELECT coalesce(n,'') AS x FROM t) SELECT x='abc' FROM v;
+}
+expect {
+    0
+}
+
+test metadata-concat-no-implicit {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('ABC','ABC','abc ');SELECT x='abc' FROM (SELECT n||'' AS x FROM t);
+}
+expect {
+    0
+}
+
+test metadata-concat-explicit {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('ABC','ABC','abc ');SELECT x='abc' FROM (SELECT (n COLLATE nocase)||'' AS x FROM t);
+}
+expect {
+    1
+}
+
+test metadata-case-no-implicit {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('ABC','ABC','abc ');SELECT x='abc' FROM (SELECT CASE WHEN 1 THEN n ELSE '' END AS x FROM t);
+}
+expect {
+    0
+}
+
+test metadata-case-dead-explicit {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('ABC','ABC','abc ');SELECT x='abc' FROM (SELECT CASE WHEN 1 THEN n ELSE '' COLLATE nocase END AS x FROM t);
+}
+expect {
+    1
+}
+
+test metadata-ordinary-upper-no-implicit {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('ABC','ABC','abc ');SELECT x='abc' FROM (SELECT upper(n) AS x FROM t);
+}
+expect {
+    0
+}
+
+test metadata-ordinary-upper-explicit {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('ABC','ABC','abc ');SELECT x='abc' FROM (SELECT upper(n COLLATE nocase) AS x FROM t);
+}
+expect {
+    1
+}
+
+test metadata-nested-explicit-left-binary {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('ABC','ABC','abc ');SELECT x='abc' FROM (SELECT coalesce(n COLLATE binary,'' COLLATE nocase) AS x FROM t);
+}
+expect {
+    0
+}
+
+test metadata-nested-explicit-left-nocase {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('ABC','ABC','abc ');SELECT x='abc' FROM (SELECT coalesce(n COLLATE nocase,'' COLLATE binary) AS x FROM t);
+}
+expect {
+    1
+}
+
+test metadata-left-default-binary-over-right-column {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('abc','ABC','abc ');SELECT x=n FROM (SELECT b AS x FROM t) AS v,t;
+}
+expect {
+    0
+}
+
+test metadata-left-default-binary-distinguishes {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('ABC','ABC','abc ');SELECT x=n FROM (SELECT 'abc' COLLATE binary AS x FROM t) AS v,t;
+}
+expect {
+    0
+}
+
+test metadata-rtrim-column {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('ABC','ABC','abc ');SELECT x='abc' FROM (SELECT +CAST(r AS TEXT) AS x FROM t);
+}
+expect {
+    1
+}
+
+test metadata-rtrim-function-no-implicit {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('ABC','ABC','abc ');SELECT x='abc' FROM (SELECT coalesce(r,'') AS x FROM t);
+}
+expect {
+    0
+}
+
+test metadata-compound-first-nocase {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('ABC','ABC','abc ');SELECT x='abc' FROM (SELECT n AS x FROM t UNION ALL SELECT b AS x FROM t);
+}
+expect {
+    1
+    1
+}
+
+test metadata-compound-first-binary {
+    CREATE TABLE t(b TEXT,n TEXT COLLATE nocase,r TEXT COLLATE rtrim); INSERT INTO t VALUES('ABC','ABC','abc ');SELECT x='abc' FROM (SELECT b AS x FROM t UNION ALL SELECT n AS x FROM t);
+}
+expect {
+    0
+    0
+}
+
+test metadata-affinity-preserved {
+    CREATE TABLE a(i INTEGER,n TEXT COLLATE nocase);INSERT INTO a VALUES(7,'ABC');SELECT x='7',typeof(x),y='abc' FROM (SELECT i AS x,coalesce(n,'') AS y FROM a);
+}
+expect {
+    1|integer|0
+}

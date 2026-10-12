@@ -1,0 +1,295 @@
+@database :memory:
+
+# 24 original window expansions, fixed independently from five frozen unique keys.
+setup anchored_small {
+    CREATE TABLE ts(k INT);
+    INSERT INTO ts VALUES (1),(2),(3),(4),(5);
+}
+
+@setup anchored_small
+test anchored-window-coerced-b0-m0-x0 {
+    SELECT k, row_number() OVER w, sum(k) OVER w FROM ts WINDOW w AS (ORDER BY k ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING ) ORDER BY k;
+}
+expect {
+    1|1|3
+    2|2|6
+    3|3|9
+    4|4|12
+    5|5|9
+}
+
+@setup anchored_small
+test anchored-window-coerced-b0-m0-x1 {
+    SELECT k, row_number() OVER w, sum(k) OVER w FROM ts WINDOW w AS (ORDER BY k ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY k;
+}
+expect {
+    1|1|3
+    2|2|6
+    3|3|9
+    4|4|12
+    5|5|9
+}
+
+@setup anchored_small
+test anchored-window-coerced-b0-m1-x0 {
+    SELECT k, row_number() OVER w, sum(k) OVER w FROM ts WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING ) ORDER BY k;
+}
+expect {
+    1|1|3
+    2|2|6
+    3|3|9
+    4|4|12
+    5|5|9
+}
+
+@setup anchored_small
+test anchored-window-coerced-b0-m1-x1 {
+    SELECT k, row_number() OVER w, sum(k) OVER w FROM ts WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY k;
+}
+expect {
+    1|1|3
+    2|2|6
+    3|3|9
+    4|4|12
+    5|5|9
+}
+
+@setup anchored_small
+test anchored-window-coerced-b0-m2-x0 {
+    SELECT k, row_number() OVER w, sum(k) OVER w FROM ts WINDOW w AS (ORDER BY k RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING ) ORDER BY k;
+}
+expect {
+    1|1|3
+    2|2|6
+    3|3|9
+    4|4|12
+    5|5|9
+}
+
+@setup anchored_small
+test anchored-window-coerced-b0-m2-x1 {
+    SELECT k, row_number() OVER w, sum(k) OVER w FROM ts WINDOW w AS (ORDER BY k RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY k;
+}
+expect {
+    1|1|3
+    2|2|6
+    3|3|9
+    4|4|12
+    5|5|9
+}
+
+@setup anchored_small
+test anchored-window-coerced-b1-m0-x0 {
+    SELECT k, rank() OVER w, sum(k) OVER w FROM ts WINDOW w AS (ORDER BY k ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING ) ORDER BY k;
+}
+expect {
+    1|1|3
+    2|2|6
+    3|3|9
+    4|4|12
+    5|5|9
+}
+
+@setup anchored_small
+test anchored-window-coerced-b1-m0-x1 {
+    SELECT k, rank() OVER w, sum(k) OVER w FROM ts WINDOW w AS (ORDER BY k ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY k;
+}
+expect {
+    1|1|3
+    2|2|6
+    3|3|9
+    4|4|12
+    5|5|9
+}
+
+@setup anchored_small
+test anchored-window-coerced-b1-m1-x0 {
+    SELECT k, rank() OVER w, sum(k) OVER w FROM ts WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING ) ORDER BY k;
+}
+expect {
+    1|1|3
+    2|2|6
+    3|3|9
+    4|4|12
+    5|5|9
+}
+
+@setup anchored_small
+test anchored-window-coerced-b1-m1-x1 {
+    SELECT k, rank() OVER w, sum(k) OVER w FROM ts WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY k;
+}
+expect {
+    1|1|3
+    2|2|6
+    3|3|9
+    4|4|12
+    5|5|9
+}
+
+@setup anchored_small
+test anchored-window-coerced-b1-m2-x0 {
+    SELECT k, rank() OVER w, sum(k) OVER w FROM ts WINDOW w AS (ORDER BY k RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING ) ORDER BY k;
+}
+expect {
+    1|1|3
+    2|2|6
+    3|3|9
+    4|4|12
+    5|5|9
+}
+
+@setup anchored_small
+test anchored-window-coerced-b1-m2-x1 {
+    SELECT k, rank() OVER w, sum(k) OVER w FROM ts WINDOW w AS (ORDER BY k RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY k;
+}
+expect {
+    1|1|3
+    2|2|6
+    3|3|9
+    4|4|12
+    5|5|9
+}
+
+@setup anchored_small
+test anchored-window-coerced-b2-m0-x0 {
+    SELECT k, dense_rank() OVER w, sum(k) OVER w FROM ts WINDOW w AS (ORDER BY k ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING ) ORDER BY k;
+}
+expect {
+    1|1|3
+    2|2|6
+    3|3|9
+    4|4|12
+    5|5|9
+}
+
+@setup anchored_small
+test anchored-window-coerced-b2-m0-x1 {
+    SELECT k, dense_rank() OVER w, sum(k) OVER w FROM ts WINDOW w AS (ORDER BY k ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY k;
+}
+expect {
+    1|1|3
+    2|2|6
+    3|3|9
+    4|4|12
+    5|5|9
+}
+
+@setup anchored_small
+test anchored-window-coerced-b2-m1-x0 {
+    SELECT k, dense_rank() OVER w, sum(k) OVER w FROM ts WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING ) ORDER BY k;
+}
+expect {
+    1|1|3
+    2|2|6
+    3|3|9
+    4|4|12
+    5|5|9
+}
+
+@setup anchored_small
+test anchored-window-coerced-b2-m1-x1 {
+    SELECT k, dense_rank() OVER w, sum(k) OVER w FROM ts WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY k;
+}
+expect {
+    1|1|3
+    2|2|6
+    3|3|9
+    4|4|12
+    5|5|9
+}
+
+@setup anchored_small
+test anchored-window-coerced-b2-m2-x0 {
+    SELECT k, dense_rank() OVER w, sum(k) OVER w FROM ts WINDOW w AS (ORDER BY k RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING ) ORDER BY k;
+}
+expect {
+    1|1|3
+    2|2|6
+    3|3|9
+    4|4|12
+    5|5|9
+}
+
+@setup anchored_small
+test anchored-window-coerced-b2-m2-x1 {
+    SELECT k, dense_rank() OVER w, sum(k) OVER w FROM ts WINDOW w AS (ORDER BY k RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY k;
+}
+expect {
+    1|1|3
+    2|2|6
+    3|3|9
+    4|4|12
+    5|5|9
+}
+
+@setup anchored_small
+test anchored-window-coerced-b3-m0-x0 {
+    SELECT k, ntile(2) OVER w, sum(k) OVER w FROM ts WINDOW w AS (ORDER BY k ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING ) ORDER BY k;
+}
+expect {
+    1|1|3
+    2|1|6
+    3|1|9
+    4|2|12
+    5|2|9
+}
+
+@setup anchored_small
+test anchored-window-coerced-b3-m0-x1 {
+    SELECT k, ntile(2) OVER w, sum(k) OVER w FROM ts WINDOW w AS (ORDER BY k ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY k;
+}
+expect {
+    1|1|3
+    2|1|6
+    3|1|9
+    4|2|12
+    5|2|9
+}
+
+@setup anchored_small
+test anchored-window-coerced-b3-m1-x0 {
+    SELECT k, ntile(2) OVER w, sum(k) OVER w FROM ts WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING ) ORDER BY k;
+}
+expect {
+    1|1|3
+    2|1|6
+    3|1|9
+    4|2|12
+    5|2|9
+}
+
+@setup anchored_small
+test anchored-window-coerced-b3-m1-x1 {
+    SELECT k, ntile(2) OVER w, sum(k) OVER w FROM ts WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY k;
+}
+expect {
+    1|1|3
+    2|1|6
+    3|1|9
+    4|2|12
+    5|2|9
+}
+
+@setup anchored_small
+test anchored-window-coerced-b3-m2-x0 {
+    SELECT k, ntile(2) OVER w, sum(k) OVER w FROM ts WINDOW w AS (ORDER BY k RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING ) ORDER BY k;
+}
+expect {
+    1|1|3
+    2|1|6
+    3|1|9
+    4|2|12
+    5|2|9
+}
+
+@setup anchored_small
+test anchored-window-coerced-b3-m2-x1 {
+    SELECT k, ntile(2) OVER w, sum(k) OVER w FROM ts WINDOW w AS (ORDER BY k RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY k;
+}
+expect {
+    1|1|3
+    2|1|6
+    3|1|9
+    4|2|12
+    5|2|9
+}

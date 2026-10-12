@@ -45,6 +45,14 @@ expect error {
     no such index: t_idx
 }
 
+@cross-check-integrity
+test drop-index-missing-preserves-name-case {
+    DROP INDEX "MiX_Index";
+}
+expect error {
+    no such index: (?-i:MiX_Index)
+}
+
 # Test dropping index after multiple inserts and deletes
 @cross-check-integrity
 test drop-index-after-ops-1 {
@@ -130,4 +138,3 @@ test drop-index-user-unique-composite {
 expect {
     0
 }
-

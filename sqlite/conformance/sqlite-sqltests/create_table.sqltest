@@ -1,5 +1,45 @@
 @database :memory:
 
+test create_table_preserves_schema_name_case {
+    CREATE TABLE "Mixed Child"(x INTEGER);
+    INSERT INTO "Mixed Child" VALUES(7);
+    SELECT name,tbl_name FROM sqlite_schema WHERE type='table';
+    SELECT x FROM "Mixed Child";
+}
+expect {
+    Mixed Child|Mixed Child
+    7
+}
+
+test create_temp_table_preserves_schema_name_with_quote {
+    CREATE TEMP TABLE "Mi'X"(x INTEGER);
+    INSERT INTO "Mi'X" VALUES(8);
+    SELECT name,tbl_name FROM temp.sqlite_schema WHERE type='table';
+    SELECT x FROM "Mi'X";
+}
+expect {
+    Mi'X|Mi'X
+    8
+}
+
+test create_table_preserves_autoindex_table_name_case {
+    CREATE TABLE "Mixed Child"(x UNIQUE);
+    SELECT name,tbl_name FROM sqlite_schema ORDER BY rowid;
+}
+expect {
+    Mixed Child|Mixed Child
+    sqlite_autoindex_Mixed Child_1|Mixed Child
+}
+
+test create_temp_table_preserves_autoindex_name_with_quote {
+    CREATE TEMP TABLE "Mi'X"(x UNIQUE);
+    SELECT name,tbl_name FROM temp.sqlite_schema ORDER BY rowid;
+}
+expect {
+    Mi'X|Mi'X
+    sqlite_autoindex_Mi'X_1|Mi'X
+}
+
 @cross-check-integrity
 test create_table_one_unique_set {
     CREATE TABLE t4 (a, unique(b));
@@ -276,4 +316,3 @@ expect {
     b
     C
 }
-

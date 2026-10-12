@@ -383,7 +383,7 @@ pub(crate) fn estimate_rows_per_seek(
         })
         .product();
 
-    (selectivity_multiplier * *base_row_count).max(1.0) * join_probe_constant_selectivity
+    (selectivity_multiplier * *base_row_count).max(join_probe_constant_selectivity)
 }
 
 fn join_probe_constant_selectivity(
@@ -445,7 +445,7 @@ fn estimate_rows_from_analyze_stats(
     let table_name = ctx.rhs_table.table.get_name();
 
     let table_stats = ctx.stats.table_stats(table_name)?;
-    let idx_stats = table_stats.index_stats.get(&index.name)?;
+    let idx_stats = table_stats.index_stat(&index.name)?;
 
     if eq_prefix_len <= idx_stats.avg_rows_per_distinct_prefix.len() {
         Some(idx_stats.avg_rows_per_distinct_prefix[eq_prefix_len - 1] as f64)
@@ -521,7 +521,241 @@ pub fn estimate_cost_for_scan_or_seek(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::translate::optimizer::constraints::{BinaryExprSide, EqConstraintRef};
     use crate::translate::optimizer::cost_params::DEFAULT_PARAMS;
+    use crate::translate::planner::TableMask;
+
+    #[test]
+    fn hash_join_alternative_counts_constant_selectivity_once_without_index_stats() {
+        let (constraints, constraint_refs) = hash_join_probe_constraints();
+        for base_rows in [100.0, 1_000.0, 10_000.0] {
+            for row_count in [
+                RowCountEstimate::AnalyzeStats(base_rows),
+                RowCountEstimate::HardcodedFallback(base_rows),
+            ] {
+                let estimated = estimate_rows_per_seek(
+                    covering_index(),
+                    &constraints,
+                    &constraint_refs,
+                    row_count,
+                    None,
+                );
+                let expected = base_rows * 0.1 * 0.1;
+                assert!(
+                    (estimated - expected).abs() < 1e-10,
+                    "{estimated} != {expected}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn hash_join_alternative_preserves_unique_and_single_constraint_estimates() {
+        let (constraints, constraint_refs) = hash_join_probe_constraints();
+        let base_rows = RowCountEstimate::AnalyzeStats(1_000.0);
+        for constraint_ref in &constraint_refs {
+            assert_eq!(
+                estimate_rows_per_seek(
+                    covering_index(),
+                    &constraints,
+                    std::slice::from_ref(constraint_ref),
+                    base_rows,
+                    None,
+                ),
+                100.0,
+            );
+        }
+        let unique_index = IndexInfo {
+            unique: true,
+            ..covering_index()
+        };
+        assert_eq!(
+            estimate_rows_per_seek(
+                unique_index,
+                &constraints,
+                &constraint_refs,
+                base_rows,
+                None
+            ),
+            0.1,
+        );
+        let estimated = estimate_rows_per_seek(
+            covering_index(),
+            &constraints,
+            &constraint_refs,
+            RowCountEstimate::AnalyzeStats(10.0),
+            None,
+        );
+        let expected = (10.0_f64 * 0.1).max(1.0) * 0.1;
+        assert!((estimated - expected).abs() <= 1e-12);
+    }
+
+    #[test]
+    fn filtered_join_probe_counts_constants_once_before_and_after_the_floor() {
+        for dynamic_selectivity in [0.01, 0.1, 1.0] {
+            for constant_selectivities in [
+                &[] as &[f64],
+                &[0.0],
+                &[0.1],
+                &[0.1, 0.2],
+                &[0.0, 0.2],
+                &[1.0, 1.0],
+            ] {
+                let (constraints, constraint_refs) =
+                    filtered_join_probe_constraints(dynamic_selectivity, constant_selectivities);
+                let constant_selectivity = constant_selectivities.iter().product::<f64>();
+                for base_rows in [1.0, 10.0, 100.0, 1_000.0, 10_000.0] {
+                    let expected =
+                        (base_rows * dynamic_selectivity).max(1.0) * constant_selectivity;
+                    for row_count in [
+                        RowCountEstimate::AnalyzeStats(base_rows),
+                        RowCountEstimate::HardcodedFallback(base_rows),
+                    ] {
+                        let estimated = estimate_rows_per_seek(
+                            covering_index(),
+                            &constraints,
+                            &constraint_refs,
+                            row_count,
+                            None,
+                        );
+                        assert!(
+                            (estimated - expected).abs() < 1e-10,
+                            "base={base_rows}, dynamic={dynamic_selectivity}, constants={constant_selectivities:?}: {estimated} != {expected}",
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn filtered_join_probe_keeps_constant_only_lookup_floor() {
+        let (mut constraints, mut constraint_refs) =
+            filtered_join_probe_constraints(0.01, &[0.1, 0.2]);
+        for constraint in &mut constraints {
+            constraint.lhs_mask = TableMask::default();
+        }
+        for constraint_ref in &mut constraint_refs {
+            constraint_ref.eq.as_mut().unwrap().is_const = true;
+        }
+        for base_rows in [100.0_f64, 10_000.0] {
+            let expected = (base_rows * 0.01 * 0.1 * 0.2).max(1.0);
+            let estimated = estimate_rows_per_seek(
+                covering_index(),
+                &constraints,
+                &constraint_refs,
+                RowCountEstimate::AnalyzeStats(base_rows),
+                None,
+            );
+            assert!((estimated - expected).abs() < 1e-10);
+        }
+    }
+
+    #[test]
+    fn filtered_join_probe_preserves_unique_estimates_and_nullable_key_matches() {
+        for constant_selectivities in [&[0.0][..], &[0.1], &[0.1, 0.2]] {
+            let (constraints, constraint_refs) =
+                filtered_join_probe_constraints(0.01, constant_selectivities);
+            let unique_index = IndexInfo {
+                unique: true,
+                column_count: constraint_refs.len(),
+                ..covering_index()
+            };
+            let estimated = estimate_rows_per_seek(
+                unique_index,
+                &constraints,
+                &constraint_refs,
+                RowCountEstimate::AnalyzeStats(100.0),
+                None,
+            );
+            assert!((estimated - constant_selectivities.iter().product::<f64>()).abs() < 1e-10);
+        }
+        for nullable_column in [0, 1] {
+            let (mut constraints, mut constraint_refs) =
+                filtered_join_probe_constraints(0.1, &[0.2]);
+            constraints[nullable_column].operator = ast::Operator::Is.into();
+            constraints[nullable_column].null_matching = true;
+            constraint_refs[nullable_column]
+                .eq
+                .as_mut()
+                .unwrap()
+                .null_matching = true;
+            let unique_index = IndexInfo {
+                unique: true,
+                ..covering_index()
+            };
+            let estimated = estimate_rows_per_seek(
+                unique_index,
+                &constraints,
+                &constraint_refs,
+                RowCountEstimate::AnalyzeStats(1_000.0),
+                None,
+            );
+            assert!((estimated - 20.0).abs() < 1e-10);
+        }
+    }
+
+    fn filtered_join_probe_constraints(
+        dynamic_selectivity: f64,
+        constant_selectivities: &[f64],
+    ) -> (Vec<Constraint>, Vec<RangeConstraintRef>) {
+        let (mut constraints, mut constraint_refs) = hash_join_probe_constraints();
+        let constant_constraint = constraints.pop().unwrap();
+        let constant_ref = constraint_refs.pop().unwrap();
+        constraints[0].selectivity = dynamic_selectivity;
+        for (offset, selectivity) in constant_selectivities.iter().enumerate() {
+            let position = offset + 1;
+            let mut constraint = constant_constraint.clone();
+            constraint.where_clause_pos.0 = position;
+            constraint.table_col_pos = Some(position);
+            constraint.selectivity = *selectivity;
+            constraints.push(constraint);
+            let mut constraint_ref = constant_ref.clone();
+            constraint_ref.table_col_pos = Some(position);
+            constraint_ref.index_col_pos = position;
+            constraint_ref.eq.as_mut().unwrap().constraint_pos = position;
+            constraint_refs.push(constraint_ref);
+        }
+        (constraints, constraint_refs)
+    }
+
+    fn hash_join_probe_constraints() -> (Vec<Constraint>, Vec<RangeConstraintRef>) {
+        let constraints: Vec<_> = [TableMask::try_from(1u128).unwrap(), TableMask::default()]
+            .into_iter()
+            .enumerate()
+            .map(|(position, lhs_mask)| Constraint {
+                where_clause_pos: (position, BinaryExprSide::Rhs),
+                operator: ast::Operator::Equals.into(),
+                table_col_pos: Some(position),
+                expr: None,
+                constraining_expr: None,
+                lhs_mask,
+                selectivity: 0.1,
+                usable: true,
+                is_rowid: false,
+                comparison_affinity: None,
+                null_matching: false,
+            })
+            .collect();
+        let constraint_refs = constraints
+            .iter()
+            .enumerate()
+            .map(|(position, constraint)| RangeConstraintRef {
+                table_col_pos: Some(position),
+                index_col_pos: position,
+                sort_order: ast::SortOrder::Asc,
+                nulls_order: ast::NullsOrder::First,
+                eq: Some(EqConstraintRef {
+                    constraint_pos: position,
+                    is_const: constraint.lhs_mask.is_empty(),
+                    null_matching: false,
+                }),
+                lower_bound: None,
+                upper_bound: None,
+            })
+            .collect();
+        (constraints, constraint_refs)
+    }
 
     fn covering_index() -> IndexInfo {
         IndexInfo {

@@ -41,6 +41,7 @@ pub struct RustBackend {
     default_db_resolver: Option<Arc<dyn DefaultDatabaseResolver>>,
     /// Enable MVCC mode
     mvcc: bool,
+    hash_join_memory_budget: Option<usize>,
 }
 
 impl RustBackend {
@@ -48,6 +49,7 @@ impl RustBackend {
         Self {
             default_db_resolver: None,
             mvcc: false,
+            hash_join_memory_budget: None,
         }
     }
 
@@ -60,6 +62,11 @@ impl RustBackend {
     /// Enable MVCC mode (experimental journal mode)
     pub fn with_mvcc(mut self, mvcc: bool) -> Self {
         self.mvcc = mvcc;
+        self
+    }
+
+    pub fn with_hash_join_memory_budget(mut self, bytes: usize) -> Self {
+        self.hash_join_memory_budget = Some(bytes);
         self
     }
 }
@@ -82,6 +89,7 @@ impl SqlBackend for RustBackend {
 
     fn capabilities(&self) -> HashSet<Capability> {
         HashSet::from_iter([
+            Capability::Strict,
             Capability::Trigger,
             Capability::MaterializedViews,
             Capability::CustomTypes,
@@ -130,6 +138,11 @@ impl SqlBackend for RustBackend {
         let conn = db
             .connect()
             .map_err(|e| BackendError::CreateDatabase(e.to_string()))?;
+
+        if let Some(bytes) = self.hash_join_memory_budget {
+            conn.set_hash_join_memory_budget(bytes)
+                .map_err(|e| BackendError::CreateDatabase(e.to_string()))?;
+        }
 
         // Prepend MVCC pragma if enabled (skip for readonly databases; the generated readonly DBs are already in MVCC mode).
         if self.mvcc && !config.readonly {
@@ -359,6 +372,63 @@ fn clean_exponential(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn test_strict_capability_rejects_text_and_coerces_numeric_text() {
+        let backend = RustBackend::new();
+        assert!(backend.capabilities().contains(&Capability::Strict));
+        let config = DatabaseConfig {
+            location: DatabaseLocation::Memory,
+            readonly: false,
+        };
+        let mut instance = backend.create_database(&config).await.unwrap();
+        instance
+            .execute_setup("CREATE TABLE strict_values(value INTEGER) STRICT;")
+            .await
+            .unwrap();
+        let rejected = instance
+            .execute("INSERT INTO strict_values VALUES('invalid');")
+            .await
+            .unwrap();
+        assert!(rejected.is_error());
+        assert!(
+            rejected
+                .error
+                .unwrap()
+                .contains("cannot store TEXT value in INTEGER column")
+        );
+        let accepted = instance.execute("INSERT INTO strict_values VALUES('42'); SELECT value, typeof(value) FROM strict_values;").await.unwrap();
+        assert!(!accepted.is_error());
+        assert_eq!(accepted.rows, vec![vec!["42", "integer"]]);
+    }
+
+    #[tokio::test]
+    async fn test_hash_join_budget_is_applied_to_native_connections() {
+        let config = DatabaseConfig {
+            location: DatabaseLocation::Memory,
+            readonly: false,
+        };
+        for budget in [32 * 1024, 64 * 1024 * 1024] {
+            let backend = RustBackend::new().with_hash_join_memory_budget(budget);
+            let mut instance = backend.create_database(&config).await.unwrap();
+            instance
+                .execute_setup("CREATE TABLE build(key INTEGER); CREATE TABLE probe(key INTEGER);")
+                .await
+                .unwrap();
+            let explain = instance.execute("EXPLAIN SELECT count(*) FROM build FULL OUTER JOIN probe ON build.key=probe.key;").await.unwrap();
+            assert!(!explain.is_error());
+            let hash_build = explain
+                .rows
+                .iter()
+                .find(|row| row[1] == "HashBuild")
+                .unwrap();
+            assert!(hash_build[5].contains(&format!("budget={budget}")));
+        }
+        for budget in [0, 1023, usize::MAX] {
+            let backend = RustBackend::new().with_hash_join_memory_budget(budget);
+            assert!(backend.create_database(&config).await.is_err());
+        }
+    }
 
     #[test]
     fn test_value_to_string_null() {

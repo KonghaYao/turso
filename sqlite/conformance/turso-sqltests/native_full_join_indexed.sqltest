@@ -1,0 +1,181 @@
+@database :memory:
+
+setup rows {
+    CREATE TABLE l(id INTEGER PRIMARY KEY,k INTEGER,flag INTEGER);
+    CREATE TABLE r(id INTEGER PRIMARY KEY,k INTEGER,flag INTEGER);
+    CREATE INDEX l_k ON l(k);
+    CREATE INDEX r_k ON r(k);
+    INSERT INTO l VALUES (1,1,1),(2,2,0),(3,NULL,1),(4,1,0);
+    INSERT INTO r VALUES (10,1,1),(11,1,0),(12,3,1),(13,NULL,0);
+}
+
+@setup rows
+test full-duplicate-and-unmatched {
+    SELECT l.id,r.id FROM l FULL OUTER JOIN r ON l.k=r.k
+    ORDER BY coalesce(l.id,1000),r.id;
+}
+expect {
+    1|10
+    1|11
+    2|
+    3|
+    4|10
+    4|11
+    |12
+    |13
+}
+
+@setup rows
+test full-on-right-residual-preserves-unmatched {
+    SELECT l.id,r.id FROM l FULL OUTER JOIN r ON l.k=r.k AND r.flag=1
+    ORDER BY coalesce(l.id,1000),r.id;
+}
+expect {
+    1|10
+    2|
+    3|
+    4|10
+    |11
+    |12
+    |13
+}
+
+@setup rows
+test full-composite-equality-preserves-unmatched {
+    SELECT l.id,r.id FROM l FULL OUTER JOIN r ON l.k=r.k AND l.flag=r.flag
+    ORDER BY coalesce(l.id,1000),r.id;
+}
+expect {
+    1|10
+    2|
+    3|
+    4|11
+    |12
+    |13
+}
+
+@setup rows
+test full-where-probe-filter {
+    SELECT l.id,r.id FROM l FULL OUTER JOIN r ON l.k=r.k
+    WHERE r.flag=1
+    ORDER BY coalesce(l.id,1000),r.id;
+}
+expect {
+    1|10
+    4|10
+    |12
+}
+
+@setup rows
+test full-where-unmatched-build {
+    SELECT l.id,r.id FROM l FULL OUTER JOIN r ON l.k=r.k
+    WHERE r.id IS NULL
+    ORDER BY l.id;
+}
+expect {
+    2|
+    3|
+}
+
+@setup rows
+test full-or-across-sides {
+    SELECT l.id,r.id FROM l FULL OUTER JOIN r ON l.k=r.k
+    WHERE l.flag=1 OR r.flag=1
+    ORDER BY coalesce(l.id,1000),r.id;
+}
+expect {
+    1|10
+    1|11
+    3|
+    4|10
+    |12
+}
+
+@setup rows
+test full-reversed-key-direction {
+    SELECT l.id,r.id FROM l FULL OUTER JOIN r ON r.k=l.k
+    ORDER BY coalesce(l.id,1000),r.id;
+}
+expect {
+    1|10
+    1|11
+    2|
+    3|
+    4|10
+    4|11
+    |12
+    |13
+}
+
+@setup rows
+test full-ordered-limit-offset {
+    SELECT l.id,r.id FROM l FULL OUTER JOIN r ON l.k=r.k
+    ORDER BY coalesce(l.id,1000),r.id LIMIT 3 OFFSET 3;
+}
+expect {
+    3|
+    4|10
+    4|11
+}
+
+@setup rows
+test left-residual-no-regression {
+    SELECT l.id,r.id FROM l LEFT JOIN r ON l.k=r.k AND r.flag=1
+    ORDER BY l.id,r.id;
+}
+expect {
+    1|10
+    2|
+    3|
+    4|10
+}
+
+@setup rows
+test inner-index-seek-no-regression {
+    SELECT l.id,r.id FROM l JOIN r ON l.k=r.k
+    ORDER BY l.id,r.id;
+}
+expect {
+    1|10
+    1|11
+    4|10
+    4|11
+}
+
+@setup rows
+test indexed-full-plan-hash-required {
+    EXPLAIN QUERY PLAN SELECT l.id,r.id FROM l FULL OUTER JOIN r ON l.k=r.k;
+}
+expect pattern {
+    HASH JOIN
+}
+
+@setup rows
+test right-indexed-outer-no-regression {
+    SELECT l.id,r.id FROM l RIGHT JOIN r ON l.k=r.k
+    ORDER BY coalesce(l.id,1000),r.id;
+}
+expect {
+    1|10
+    1|11
+    4|10
+    4|11
+    |12
+    |13
+}
+
+@setup rows
+test full-unique-lookup-on-id {
+    SELECT l.id,r.id FROM l FULL OUTER JOIN r ON l.id=r.id
+    ORDER BY coalesce(l.id,1000),r.id;
+}
+expect {
+    1|
+    2|
+    3|
+    4|
+    |10
+    |11
+    |12
+    |13
+}

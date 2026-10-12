@@ -1,0 +1,32 @@
+@database :memory:
+
+setup correlated_comparison_errors {
+    CREATE TABLE error_outer(id INTEGER, wanted INTEGER, limit_value INTEGER, text_value TEXT);
+    CREATE TABLE error_inner(value INTEGER, json_value TEXT);
+    INSERT INTO error_outer VALUES (1, 1, 10, '1'), (2, 1, 0, 'bad JSON');
+    INSERT INTO error_inner VALUES (1, '1'), (2, 'bad JSON');
+}
+
+# Non-original safe-row discriminators; safe CASE branch must avoid malformed row.
+@setup correlated_comparison_errors
+test discriminator-inline-case-safe-row {
+    SELECT o.id FROM error_outer o WHERE o.id=1 AND EXISTS (
+        SELECT 1 FROM error_inner i WHERE
+        CASE WHEN i.value=o.wanted
+          THEN json_extract(i.json_value,'$')<o.limit_value ELSE 0 END
+    );
+}
+expect {
+    1
+}
+
+@setup correlated_comparison_errors
+test discriminator-unsafe-row-actually-needed {
+    SELECT o.id FROM error_outer o WHERE o.id=2 AND EXISTS (
+        SELECT 1 FROM error_inner i WHERE i.value=o.wanted
+          AND i.value < json_extract(o.text_value,'$')
+    );
+}
+expect error {
+    .*malformed JSON.*
+}

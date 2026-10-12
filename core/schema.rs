@@ -1089,10 +1089,11 @@ impl Schema {
     }
 
     pub fn is_unique_idx_name(&self, name: &str) -> bool {
-        !self
-            .indexes
-            .iter()
-            .any(|idx| idx.1.iter().any(|i| i.name == name))
+        !self.indexes.iter().any(|idx| {
+            idx.1
+                .iter()
+                .any(|index| index.name.eq_ignore_ascii_case(name))
+        })
     }
 
     pub fn add_materialized_view(&mut self, view: IncrementalView, table: Arc<Table>, sql: String) {
@@ -1472,7 +1473,7 @@ impl Schema {
         self.indexes
             .get(&name)?
             .iter()
-            .find(|index| index.name == index_name)
+            .find(|index| index.name.eq_ignore_ascii_case(index_name))
     }
 
     pub fn remove_indices_for_table(&mut self, table_name: &str) {
@@ -1948,6 +1949,7 @@ impl Schema {
                 BTreeTable::build_logical_to_physical_map(&cols, &[], true);
             let table = Arc::new(Table::BTree(Arc::new(BTreeTable {
                 name: view_name.clone(),
+                display_name: view_name.clone(),
                 root_page: main_root,
                 columns: cols,
                 primary_key_columns: vec![],
@@ -2432,7 +2434,7 @@ impl Schema {
     /// Resolve a single FK declared on `child` referencing `parent_tbl`.
     /// When `require_unique` is set, a non-rowid parent key must be backed by
     /// a non-partial UNIQUE index on exactly those columns.
-    fn resolve_fk(
+    pub(crate) fn resolve_fk(
         &self,
         fk: &Arc<ForeignKey>,
         child: &Arc<BTreeTable>,
@@ -2512,11 +2514,13 @@ impl Schema {
                     idx.unique
                         && idx.where_clause.is_none()
                         && idx.columns.len() == parent_cols.len()
-                        && idx
-                            .columns
-                            .iter()
-                            .zip(parent_cols.iter())
-                            .all(|(ic, pc)| ic.name.eq_ignore_ascii_case(pc))
+                        && idx.columns.iter().zip(parent_cols.iter()).all(|(ic, pc)| {
+                            parent_tbl.get_column(pc).is_some_and(|(pos, column)| {
+                                ic.pos_in_table == pos
+                                    && ic.collation.unwrap_or(column.collation())
+                                        == column.collation()
+                            })
+                        })
                 })
                 .cloned();
             if require_unique && found.is_none() {
@@ -2682,6 +2686,7 @@ impl TryClone for BTreeTable {
         Ok(Self {
             root_page: self.root_page,
             name: self.name.clone(),
+            display_name: self.display_name.clone(),
             primary_key_columns: self.primary_key_columns.try_clone()?,
             columns: self.columns.try_clone()?,
             has_rowid: self.has_rowid,
@@ -3280,6 +3285,7 @@ impl GeneratedColGraph {
 pub struct BTreeTable {
     pub root_page: i64,
     pub name: String,
+    pub display_name: String,
     pub primary_key_columns: Vec<(String, SortOrder)>,
     columns: Vec<Column>,
     pub has_rowid: bool,
@@ -3345,6 +3351,7 @@ impl BTreeTable {
             Self::build_logical_to_physical_map(&columns, &primary_key_columns, has_rowid);
         Self {
             root_page,
+            display_name: name.clone(),
             name,
             primary_key_columns,
             columns,
@@ -3567,7 +3574,15 @@ impl BTreeTable {
     /// `CREATE TABLE t (x)`, whereas sqlite stores it with the original extra whitespace.
     pub fn to_sql(&self) -> String {
         let mut sql = format!("CREATE TABLE {} (", quote_ident(&self.name));
-        let needs_pk_inline = self.primary_key_columns.len() == 1;
+        let primary_key_constraint = self.unique_sets.iter().find(|set| set.is_primary_key);
+        let needs_pk_inline = self.primary_key_columns.len() == 1
+            && primary_key_constraint
+                .and_then(|set| set.columns.first())
+                .and_then(|column| column.collation)
+                .is_none_or(|collation| {
+                    self.get_column(&self.primary_key_columns[0].0)
+                        .is_some_and(|(_, column)| column.collation() == collation)
+                });
         // Add columns
         for (i, column) in self.columns.iter().enumerate() {
             if i > 0 {
@@ -3670,6 +3685,13 @@ impl BTreeTable {
                     sql.push_str(", ");
                 }
                 sql.push_str(&quote_ident(&col.0));
+                if let Some(collation) = primary_key_constraint
+                    .and_then(|set| set.columns.get(i))
+                    .and_then(|column| column.collation)
+                {
+                    sql.push_str(" COLLATE ");
+                    sql.push_str(&quote_ident(&collation.name()));
+                }
                 if col.1 == SortOrder::Desc {
                     sql.push_str(" DESC");
                 }
@@ -3680,17 +3702,17 @@ impl BTreeTable {
 
         for fk in &self.foreign_keys {
             sql.push_str(", FOREIGN KEY (");
-            for (i, col) in fk.child_columns.iter().enumerate() {
+            for (i, col) in fk.child_columns_display_names.iter().enumerate() {
                 if i > 0 {
                     sql.push_str(", ");
                 }
                 sql.push_str(&quote_ident(col));
             }
             sql.push_str(") REFERENCES ");
-            sql.push_str(&quote_ident(&fk.parent_table));
-            if !fk.parent_columns.is_empty() {
+            sql.push_str(&quote_ident(&fk.parent_table_display_name));
+            if !fk.parent_columns_display_names.is_empty() {
                 sql.push('(');
-                for (i, col) in fk.parent_columns.iter().enumerate() {
+                for (i, col) in fk.parent_columns_display_names.iter().enumerate() {
                     if i > 0 {
                         sql.push_str(", ");
                     }
@@ -3749,7 +3771,11 @@ impl BTreeTable {
             if unique_set.columns.len() == 1 {
                 let col_name = &unique_set.columns[0].name;
                 if let Some((_, col)) = self.get_column(col_name) {
-                    if col.unique() {
+                    if col.unique()
+                        && unique_set.columns[0]
+                            .collation
+                            .is_none_or(|collation| collation == col.collation())
+                    {
                         continue;
                     }
                 }
@@ -3760,6 +3786,13 @@ impl BTreeTable {
                     sql.push_str(", ");
                 }
                 sql.push_str(&quote_ident(&unique_column.name));
+                if let Some(collation) = unique_column.collation {
+                    sql.push_str(" COLLATE ");
+                    sql.push_str(&quote_ident(&collation.name()));
+                }
+                if unique_column.sort_order == SortOrder::Desc {
+                    sql.push_str(" DESC");
+                }
             }
             sql.push(')');
             push_on_conflict_clause(&mut sql, unique_set.conflict_clause);
@@ -4606,8 +4639,18 @@ pub fn create_table(tbl_name: &str, body: &CreateTableBody, root_page: i64) -> R
                     };
                     let fk = ForeignKey {
                         parent_table,
+                        parent_table_display_name: clause.tbl_name.as_str().to_string(),
                         parent_columns,
                         child_columns,
+                        child_columns_display_names: columns
+                            .iter()
+                            .map(|column| column.col_name.as_str().to_string())
+                            .try_collect()?,
+                        parent_columns_display_names: clause
+                            .columns
+                            .iter()
+                            .map(|column| column.col_name.as_str().to_string())
+                            .try_collect()?,
                         on_delete: clause
                             .args
                             .iter()
@@ -4803,10 +4846,16 @@ pub fn create_table(tbl_name: &str, body: &CreateTableBody, root_page: i64) -> R
                             }
                             let fk = ForeignKey {
                                 parent_table: normalize_ident(clause.tbl_name.as_str()),
+                                parent_table_display_name: clause.tbl_name.as_str().to_string(),
                                 parent_columns: clause
                                     .columns
                                     .iter()
                                     .map(|c| normalize_ident(c.col_name.as_str()))
+                                    .try_collect()?,
+                                parent_columns_display_names: clause
+                                    .columns
+                                    .iter()
+                                    .map(|column| column.col_name.as_str().to_string())
                                     .try_collect()?,
                                 on_delete: clause
                                     .args
@@ -4831,6 +4880,7 @@ pub fn create_table(tbl_name: &str, body: &CreateTableBody, root_page: i64) -> R
                                     })
                                     .unwrap_or(RefAct::NoAction),
                                 child_columns: Box::from([name.clone()]),
+                                child_columns_display_names: Box::from([name.clone()]),
                                 deferred: match defer_clause {
                                     Some(d) => {
                                         d.deferrable
@@ -4998,19 +5048,13 @@ pub fn create_table(tbl_name: &str, body: &CreateTableBody, root_page: i64) -> R
     let mut table = BTreeTable {
         root_page,
         name: table_name,
+        display_name: tbl_name.to_string(),
         has_rowid,
         primary_key_columns,
         has_autoincrement,
-        columns: cols,
         is_strict,
         foreign_keys,
         unique_sets: {
-            // If there are any unique sets that have identical column names in the same order (even if they are PRIMARY KEY and UNIQUE and have different sort orders), remove the duplicates.
-            // Examples:
-            // PRIMARY KEY (a, b) and UNIQUE (a desc, b) are the same
-            // PRIMARY KEY (a, b) and UNIQUE (b, a) are not the same
-            // Using a n^2 monkey algorithm here because n is small, CPUs are fast, life is short, and most importantly:
-            // we want to preserve the order of the sets -- automatic index names in sqlite_schema must be in definition order.
             let mut i = 0;
             while i < unique_sets.len() {
                 let mut j = i + 1;
@@ -5022,7 +5066,22 @@ pub fn create_table(tbl_name: &str, body: &CreateTableBody, root_page: i64) -> R
                             .columns
                             .iter()
                             .zip(unique_sets[j].columns.iter())
-                            .all(|(a, b)| a.name.eq_ignore_ascii_case(&b.name))
+                            .all(|(left, right)| {
+                                if !left.name.eq_ignore_ascii_case(&right.name) {
+                                    return false;
+                                }
+                                let column_collation = cols
+                                    .iter()
+                                    .find(|column| {
+                                        column.name.as_deref().is_some_and(|name| {
+                                            name.eq_ignore_ascii_case(&left.name)
+                                        })
+                                    })
+                                    .and_then(|column| column.collation_opt())
+                                    .unwrap_or_default();
+                                left.collation.unwrap_or(column_collation)
+                                    == right.collation.unwrap_or(column_collation)
+                            })
                     {
                         // SQLite rejects duplicate constraints on the same columns when both
                         // specify ON CONFLICT with different resolve types.
@@ -5036,6 +5095,7 @@ pub fn create_table(tbl_name: &str, body: &CreateTableBody, root_page: i64) -> R
                                 );
                             }
                         }
+                        unique_sets[i].is_primary_key |= unique_sets[j].is_primary_key;
                         unique_sets.remove(j);
                     } else {
                         j += 1;
@@ -5045,6 +5105,7 @@ pub fn create_table(tbl_name: &str, body: &CreateTableBody, root_page: i64) -> R
             }
             unique_sets
         },
+        columns: cols,
         check_constraints,
         rowid_alias_conflict_clause,
         has_virtual_columns: false,
@@ -5112,10 +5173,13 @@ pub fn _build_pseudo_table(columns: &[ResultColumn]) -> PseudoCursorType {
 pub struct ForeignKey {
     /// Columns in this table (child side). Never empty (validated at parse time).
     pub child_columns: Box<[String]>,
+    pub child_columns_display_names: Box<[String]>,
     /// Referenced (parent) table
     pub parent_table: String,
+    pub parent_table_display_name: String,
     /// Parent-side referenced columns. Empty means "use parent's PRIMARY KEY".
     pub parent_columns: Box<[String]>,
+    pub parent_columns_display_names: Box<[String]>,
     pub on_delete: RefAct,
     pub on_update: RefAct,
     /// DEFERRABLE INITIALLY DEFERRED
@@ -5716,6 +5780,7 @@ pub fn sqlite_schema_table() -> Result<BTreeTable> {
     Ok(BTreeTable {
         root_page: 1,
         name: "sqlite_schema".to_string(),
+        display_name: "sqlite_schema".to_string(),
         has_rowid: true,
         is_strict: false,
         has_autoincrement: false,
@@ -5858,7 +5923,7 @@ impl Index {
                 with_clause,
                 ..
             })) => {
-                let index_name = normalize_ident(idx_name.name.as_str());
+                let index_name = idx_name.name.as_str().to_string();
                 let index_columns = resolve_sorted_columns(table, &columns)?;
                 if let Some(using) = using {
                     if where_clause.is_some() {
@@ -5950,7 +6015,9 @@ impl Index {
             primary_keys
                 .push_within_capacity(IndexColumn {
                     name: normalize_ident(col_name),
-                    order: *order,
+                    order: constraint_columns
+                        .get(i)
+                        .map_or(*order, |column| column.sort_order),
                     nulls_order: constraint_columns.get(i).and_then(|c| c.nulls_order),
                     pos_in_table,
                     collation: constraint_columns
@@ -5966,7 +6033,7 @@ impl Index {
         assert!(primary_keys.len() == column_count);
 
         Ok(Index {
-            name: normalize_ident(index_name.as_str()),
+            name: index_name,
             table_name: table.name.clone(),
             root_page,
             columns: primary_keys,
@@ -6018,7 +6085,7 @@ impl Index {
         }
 
         Ok(Index {
-            name: normalize_ident(index_name.as_str()),
+            name: index_name,
             table_name: table.name.clone(),
             root_page,
             columns: unique_cols,
@@ -6848,6 +6915,7 @@ mod tests {
         let table = BTreeTable {
             root_page: 0,
             name: "t1".to_string(),
+            display_name: "t1".to_string(),
             has_rowid: true,
             is_strict: false,
             has_autoincrement: false,

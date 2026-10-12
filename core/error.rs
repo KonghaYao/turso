@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use thiserror::Error;
 
 use crate::storage::page_cache::CacheError;
@@ -57,6 +59,12 @@ pub enum LimboError {
     InvalidFormatter(String),
     #[error("{0}")]
     Constraint(String),
+    #[error("{message}")]
+    ConstraintWithCode {
+        code: usize,
+        message: String,
+        nested_fail: bool,
+    },
     #[error("{0}")]
     /// We need to specify for ROLLBACK|FAIL resolve types when to roll the tx back
     /// so instead of matching on the string, we introduce a specific ForeignKeyConstraint error
@@ -125,6 +133,10 @@ pub enum LimboError {
     PlanningError(String),
     #[error("Checkpoint failed: {0}")]
     CheckpointFailed(String),
+    /// Commit frame reached the WAL but fsync failed: durability cannot be established.
+    /// Close every connection to this database and reopen it to inspect recovered state.
+    #[error("Commit outcome uncertain after WAL sync failure; close and reopen database")]
+    CommitUncertain,
     #[error("Unsupported text encoding: {0}. Only UTF-8 is supported.")]
     UnsupportedEncoding(String),
     #[error("Out of memory")]
@@ -165,11 +177,25 @@ impl From<turso_parser::error::Error> for LimboError {
 }
 
 impl LimboError {
+    pub fn sql_error_message(&self) -> Cow<'_, str> {
+        match self {
+            Self::ParseError(message) => Cow::Borrowed(message),
+            Self::LexerError(error) => match error.as_ref() {
+                turso_parser::error::Error::ParseError(message) => Cow::Borrowed(message),
+                _ => Cow::Owned(self.to_string()),
+            },
+            _ => Cow::Owned(self.to_string()),
+        }
+    }
+
     /// The primary SQLite result code for this error, e.g. what the sqlite3
     /// shell appends after a runtime error message ("... (19)").
     pub fn sqlite_result_code(&self) -> i32 {
         match self {
-            Self::Constraint(_) | Self::ForeignKeyConstraint(_) | Self::Raise(..) => 19,
+            Self::Constraint(_)
+            | Self::ConstraintWithCode { .. }
+            | Self::ForeignKeyConstraint(_)
+            | Self::Raise(..) => 19,
             Self::Busy | Self::BusySnapshot | Self::StatementsInProgress(_) => 5,
             Self::TableLocked => 6,
             Self::ReadOnly => 8,
@@ -181,6 +207,27 @@ impl LimboError {
             Self::NotADB => 26,
             Self::BlobHandleExpired => 4,
             _ => 1,
+        }
+    }
+
+    pub fn sqlite_extended_result_code(&self) -> i32 {
+        match self {
+            Self::ConstraintWithCode { code, .. } => *code as i32,
+            _ => self.sqlite_result_code(),
+        }
+    }
+
+    pub(crate) fn is_fail_constraint(&self, resolve_type: turso_parser::ast::ResolveType) -> bool {
+        use turso_parser::ast::ResolveType;
+        match self {
+            Self::ConstraintWithCode {
+                nested_fail: true, ..
+            }
+            | Self::Raise(ResolveType::Fail, _) => true,
+            Self::Constraint(_) | Self::ConstraintWithCode { .. } => {
+                resolve_type == ResolveType::Fail
+            }
+            _ => false,
         }
     }
 }

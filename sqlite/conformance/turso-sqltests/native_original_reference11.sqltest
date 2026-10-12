@@ -1,0 +1,192 @@
+@database :memory:
+
+# 8 original infinite-window SQL and 3 original scalar SQL; results anchored to SQLite 3.51.0; runtime sqltest uses only Rust backend.
+# These 11 reference-derived expectations are distinct from the three source-only scalar fixture cases.
+
+# Original 8 SQL expansions; expectations below are SQLite 3.51.0 reference results, NOT source-only oracle-free expectations.
+
+setup inf_keys {
+    CREATE TABLE ti(k REAL);
+    INSERT INTO ti VALUES (-9e999),(-1.0),(0.0),(2.5),(9e999),(9e999);
+}
+
+
+@setup inf_keys
+test fixed-original-infinite-range-s0-e0-d0 {
+    SELECT k, count(*) OVER w, sum(k) OVER w
+    FROM ti
+    WINDOW w AS (ORDER BY k ASC RANGE BETWEEN 0.5 PRECEDING AND 0.5 FOLLOWING)
+    ORDER BY k ASC;
+}
+expect unordered {
+    -Inf|1|-Inf
+    -1.0|1|
+    0.0|1|
+    2.5|1|
+    Inf|2|
+    Inf|2|
+}
+
+@setup inf_keys
+test fixed-original-infinite-range-s0-e0-d1 {
+    SELECT k, count(*) OVER w, sum(k) OVER w
+    FROM ti
+    WINDOW w AS (ORDER BY k DESC RANGE BETWEEN 0.5 PRECEDING AND 0.5 FOLLOWING)
+    ORDER BY k DESC;
+}
+expect unordered {
+    Inf|2|Inf
+    Inf|2|Inf
+    2.5|1|
+    0.0|1|
+    -1.0|1|
+    -Inf|1|
+}
+
+@setup inf_keys
+test fixed-original-infinite-range-s0-e1-d0 {
+    SELECT k, count(*) OVER w, sum(k) OVER w
+    FROM ti
+    WINDOW w AS (ORDER BY k ASC RANGE BETWEEN 0.5 PRECEDING AND 1e308 FOLLOWING)
+    ORDER BY k ASC;
+}
+expect unordered {
+    -Inf|1|-Inf
+    -1.0|3|
+    0.0|2|
+    2.5|1|
+    Inf|2|
+    Inf|2|
+}
+
+@setup inf_keys
+test fixed-original-infinite-range-s0-e1-d1 {
+    SELECT k, count(*) OVER w, sum(k) OVER w
+    FROM ti
+    WINDOW w AS (ORDER BY k DESC RANGE BETWEEN 0.5 PRECEDING AND 1e308 FOLLOWING)
+    ORDER BY k DESC;
+}
+expect unordered {
+    Inf|2|Inf
+    Inf|2|Inf
+    2.5|3|
+    0.0|2|
+    -1.0|1|
+    -Inf|1|
+}
+
+@setup inf_keys
+test fixed-original-infinite-range-s1-e0-d0 {
+    SELECT k, count(*) OVER w, sum(k) OVER w
+    FROM ti
+    WINDOW w AS (ORDER BY k ASC RANGE BETWEEN 1e308 PRECEDING AND 0.5 FOLLOWING)
+    ORDER BY k ASC;
+}
+expect unordered {
+    -Inf|1|-Inf
+    -1.0|1|
+    0.0|2|
+    2.5|3|
+    Inf|2|
+    Inf|2|
+}
+
+@setup inf_keys
+test fixed-original-infinite-range-s1-e0-d1 {
+    SELECT k, count(*) OVER w, sum(k) OVER w
+    FROM ti
+    WINDOW w AS (ORDER BY k DESC RANGE BETWEEN 1e308 PRECEDING AND 0.5 FOLLOWING)
+    ORDER BY k DESC;
+}
+expect unordered {
+    Inf|2|Inf
+    Inf|2|Inf
+    2.5|1|
+    0.0|2|
+    -1.0|3|
+    -Inf|1|
+}
+
+@setup inf_keys
+test fixed-original-infinite-range-s1-e1-d0 {
+    SELECT k, count(*) OVER w, sum(k) OVER w
+    FROM ti
+    WINDOW w AS (ORDER BY k ASC RANGE BETWEEN 1e308 PRECEDING AND 1e308 FOLLOWING)
+    ORDER BY k ASC;
+}
+expect unordered {
+    -Inf|1|-Inf
+    -1.0|3|
+    0.0|3|
+    2.5|3|
+    Inf|2|
+    Inf|2|
+}
+
+@setup inf_keys
+test fixed-original-infinite-range-s1-e1-d1 {
+    SELECT k, count(*) OVER w, sum(k) OVER w
+    FROM ti
+    WINDOW w AS (ORDER BY k DESC RANGE BETWEEN 1e308 PRECEDING AND 1e308 FOLLOWING)
+    ORDER BY k DESC;
+}
+expect unordered {
+    Inf|2|Inf
+    Inf|2|Inf
+    2.5|3|
+    0.0|3|
+    -1.0|3|
+    -Inf|1|
+}
+
+setup correlated_comparison_errors {
+    CREATE TABLE error_outer(id INTEGER, wanted INTEGER, limit_value INTEGER, text_value TEXT);
+    CREATE TABLE error_inner(value INTEGER, json_value TEXT);
+    INSERT INTO error_outer VALUES (1, 1, 10, '1'), (2, 1, 0, 'bad JSON');
+    INSERT INTO error_inner VALUES (1, '1'), (2, 'bad JSON');
+}
+
+@setup correlated_comparison_errors
+test fixed-original-in-left-subquery-1-1 {
+    SELECT o.id
+    FROM error_outer AS o
+    WHERE (SELECT json_extract(o.text_value, '$')) IN (
+        SELECT i.value FROM error_inner AS i WHERE i.value < o.limit_value
+    )
+    ORDER BY o.id;
+}
+expect error {
+    .*malformed JSON.*
+}
+
+@setup correlated_comparison_errors
+test fixed-original-in-nested-error-1 {
+    SELECT o.id
+    FROM error_outer AS o
+    WHERE o.wanted IN (
+        SELECT CASE WHEN i.value = 1 THEN 1
+                    ELSE (SELECT json_extract('bad JSON', '$')) END
+        FROM error_inner AS i
+        WHERE i.value < o.limit_value
+    )
+    ORDER BY o.id;
+}
+expect error {
+    .*malformed JSON.*
+}
+
+@setup correlated_comparison_errors
+test fixed-original-in-nested-error-2 {
+    SELECT o.id
+    FROM error_outer AS o
+    WHERE o.wanted IN (
+        SELECT CASE WHEN i.value = 1 THEN 1
+                    ELSE (SELECT json_extract('bad JSON', '$')) END
+        FROM error_inner AS i
+        WHERE o.limit_value > i.value
+    )
+    ORDER BY o.id;
+}
+expect error {
+    .*malformed JSON.*
+}

@@ -1,4 +1,4 @@
-use crate::alloc::TursoIteratorExt;
+use crate::alloc::{TryClone, TursoIteratorExt};
 use crate::sync::Arc;
 use crate::{bail_parse_error, turso_assert_eq, turso_assert_ne};
 use turso_parser::{
@@ -16,7 +16,7 @@ use crate::{
     function::{AlterTableFunc, Func},
     schema::{
         collect_column_dependencies_of_expr, BTreeTable, CheckConstraint, Column, ColumnLayout,
-        ForeignKey, FromDefinitionFlags, Index, Table, EXPR_INDEX_SENTINEL,
+        ForeignKey, FromDefinitionFlags, Index, Table, View, EXPR_INDEX_SENTINEL,
         RESERVED_TABLE_PREFIXES,
     },
     translate::{
@@ -29,6 +29,7 @@ use crate::{
         check_expr_references_column, escape_sql_string_literal, normalize_ident,
         parse_numeric_literal, rename_identifiers, rewrite_check_expr_table_refs,
         rewrite_trigger_cmd_table_refs, rewrite_view_sql_for_column_rename,
+        rewrite_view_sql_for_table_rename,
     },
     vdbe::{
         affinity::Affinity,
@@ -74,7 +75,63 @@ fn schema_table_name_for_db(resolver: &Resolver, database_id: usize) -> String {
         let db_name = resolver
             .get_database_name_by_index(database_id)
             .unwrap_or_else(|| "main".to_string());
-        format!("{db_name}.{SQLITE_TABLEID}")
+        format!("\"{}\".{SQLITE_TABLEID}", db_name.replace('"', "\"\""))
+    }
+}
+
+struct RenamedViewColumns<'a, 'schema> {
+    schemas: &'a rustc_hash::FxHashMap<usize, crate::schema::Schema>,
+    search_order: &'a [usize],
+    resolver: &'a Resolver<'schema>,
+    visiting: std::cell::RefCell<HashSet<(usize, String)>>,
+    columns: std::cell::RefCell<rustc_hash::FxHashMap<(usize, String), Vec<Column>>>,
+}
+
+impl RenamedViewColumns<'_, '_> {
+    fn view(&self, database: usize, name: &str) -> Result<Vec<Column>> {
+        let key = (database, normalize_ident(name));
+        if let Some(columns) = self.columns.borrow().get(&key) {
+            return Ok(columns.clone());
+        }
+        if !self.visiting.borrow_mut().insert(key.clone()) {
+            return Err(LimboError::ParseError(format!(
+                "view {name} is circularly defined"
+            )));
+        }
+        let view = &self.schemas[&database].views[&key.1];
+        let result = crate::util::extract_view_columns_with_sources(&view.select_stmt, &|source| {
+            let source_name = normalize_ident(source.name.as_str());
+            let source_database = if source.db_name.is_some() {
+                self.resolver.resolve_database_id(source)?
+            } else if database != crate::TEMP_DB_ID {
+                database
+            } else {
+                self.search_order
+                    .iter()
+                    .copied()
+                    .find(|database| {
+                        let schema = &self.schemas[database];
+                        schema.get_table(&source_name).is_some()
+                            || schema.views.contains_key(&source_name)
+                    })
+                    .unwrap_or(crate::MAIN_DB_ID)
+            };
+            let schema = &self.schemas[&source_database];
+            if let Some(table) = schema.get_table(&source_name) {
+                Ok(table.columns().to_vec())
+            } else if schema.views.contains_key(&source_name) {
+                self.view(source_database, &source_name)
+            } else {
+                Err(LimboError::ParseError(format!(
+                    "no such table: {source_name}"
+                )))
+            }
+        });
+        self.visiting.borrow_mut().remove(&key);
+        let mut columns = result?.flat_columns();
+        crate::util::apply_view_explicit_columns(&view.sql, &mut columns)?;
+        self.columns.borrow_mut().insert(key, columns.clone());
+        Ok(columns)
     }
 }
 
@@ -1365,10 +1422,17 @@ pub fn translate_alter_table(
                             .map_or(0, |order| order + 1);
                         let fk = ForeignKey {
                             parent_table: normalize_ident(clause.tbl_name.as_str()),
+                            parent_table_display_name: clause.tbl_name.as_str().to_string(),
                             parent_columns: clause
                                 .columns
                                 .iter()
                                 .map(|c| normalize_ident(c.col_name.as_str()))
+                                .collect::<Vec<_>>()
+                                .into_boxed_slice(),
+                            parent_columns_display_names: clause
+                                .columns
+                                .iter()
+                                .map(|column| column.col_name.as_str().to_string())
                                 .collect::<Vec<_>>()
                                 .into_boxed_slice(),
                             on_delete: clause
@@ -1394,6 +1458,10 @@ pub fn translate_alter_table(
                                 })
                                 .unwrap_or(ast::RefAct::NoAction),
                             child_columns: Box::from([new_column_name.to_string()]),
+                            child_columns_display_names: Box::from([col_def
+                                .col_name
+                                .as_str()
+                                .to_string()]),
                             deferred: match defer_clause {
                                 Some(d) => {
                                     d.deferrable
@@ -1568,6 +1636,93 @@ pub fn translate_alter_table(
             let normalized_old_name = normalize_ident(table_name);
             let normalized_new_name = normalize_ident(new_name);
             let mut temp_triggers_to_rewrite: Vec<(String, String, bool)> = Vec::new();
+            let mut views_to_rewrite = Vec::new();
+            let mut changed_views: HashSet<(usize, String)> = HashSet::default();
+            let mut view_schemas = rustc_hash::FxHashMap::default();
+            let search_order: Vec<_> = std::iter::once(crate::TEMP_DB_ID)
+                .filter(|_| resolver.has_temp_database())
+                .chain(std::iter::once(crate::MAIN_DB_ID))
+                .chain(resolver.attached_database_ids_in_search_order()?)
+                .collect();
+            for &view_db in &search_order {
+                view_schemas.insert(
+                    view_db,
+                    resolver.with_schema(view_db, |schema| schema.try_clone())?,
+                );
+            }
+            let target_schema = view_schemas
+                .get_mut(&database_id)
+                .expect("rename database exists");
+            let table = target_schema
+                .tables
+                .remove(&normalized_old_name)
+                .expect("rename table exists");
+            target_schema
+                .tables
+                .insert(normalized_new_name.clone(), table);
+            let view_databases = std::iter::once(database_id).chain(
+                (database_id != crate::TEMP_DB_ID && resolver.has_temp_database())
+                    .then_some(crate::TEMP_DB_ID),
+            );
+            for view_database_id in view_databases {
+                let rewrites = resolver.with_schema(view_database_id, |schema| -> Result<_> {
+                    let mut rewrites = Vec::new();
+                    for (view_name, view) in &schema.views {
+                        let resolve_database = |name: &ast::QualifiedName| -> Result<usize> {
+                            let referenced_database = if name.db_name.is_some() {
+                                resolver.resolve_database_id(name)?
+                            } else if view_database_id == crate::TEMP_DB_ID {
+                                resolver.resolve_existing_table_database_id_qualified(name)?
+                            } else {
+                                view_database_id
+                            };
+                            Ok(referenced_database)
+                        };
+                        if let Some(rewritten) = rewrite_view_sql_for_table_rename(
+                            &view.sql,
+                            table_name,
+                            new_name,
+                            database_id,
+                            &resolve_database,
+                        )? {
+                            changed_views.insert((view_database_id, view_name.clone()));
+                            rewrites.push((
+                                view_database_id,
+                                Arc::new(View {
+                                    name: view_name.clone(),
+                                    sql: rewritten.sql,
+                                    select_stmt: rewritten.select_stmt,
+                                    columns: rewritten.columns,
+                                }),
+                            ));
+                        } else {
+                            rewrites.push((view_database_id, view.clone()));
+                        }
+                    }
+                    Ok(rewrites)
+                })?;
+                views_to_rewrite.extend(rewrites);
+            }
+            for (view_db, view) in &views_to_rewrite {
+                view_schemas
+                    .get_mut(view_db)
+                    .expect("view database exists")
+                    .views
+                    .insert(normalize_ident(&view.name), view.clone());
+            }
+            let metadata = RenamedViewColumns {
+                schemas: &view_schemas,
+                search_order: &search_order,
+                resolver,
+                visiting: Default::default(),
+                columns: Default::default(),
+            };
+            for (view_db, view) in &mut views_to_rewrite {
+                let columns = metadata.view(*view_db, &view.name)?;
+                Arc::make_mut(view).columns = columns;
+            }
+            views_to_rewrite
+                .sort_by(|left, right| (left.0, &left.1.name).cmp(&(right.0, &right.1.name)));
 
             // Views whose SQL failed to load are absent from the schema maps
             // but their rows are still in sqlite_schema, so the name is taken.
@@ -1629,7 +1784,10 @@ pub fn translate_alter_table(
                 }
             }
 
-            let temp_schema_version = if !temp_triggers_to_rewrite.is_empty() {
+            let temp_schema_version = if !temp_triggers_to_rewrite.is_empty()
+                || changed_views.iter().any(|(db, _)| *db == crate::TEMP_DB_ID)
+                    && database_id != crate::TEMP_DB_ID
+            {
                 let schema_cookie = resolver.with_schema(crate::TEMP_DB_ID, |s| s.schema_version);
                 program.begin_write_on_database(crate::TEMP_DB_ID, schema_cookie)?;
                 Some(schema_cookie)
@@ -1781,6 +1939,32 @@ pub fn translate_alter_table(
                 )?;
             }
 
+            for (view_database_id, view) in &views_to_rewrite {
+                if !changed_views.contains(&(*view_database_id, normalize_ident(&view.name))) {
+                    continue;
+                }
+                let schema_table = schema_table_name_for_db(resolver, *view_database_id);
+                let update_sql = format!(
+                    "UPDATE {schema_table} SET sql = '{}' WHERE name = '{}' COLLATE NOCASE AND type = 'view'",
+                    escape_sql_string_literal(&view.sql),
+                    escape_sql_string_literal(&view.name),
+                );
+                let mut parser = Parser::new(update_sql.as_bytes());
+                let Some(ast::Cmd::Stmt(ast::Stmt::Update(update))) = parser.next_cmd()? else {
+                    return Err(LimboError::InternalError(
+                        "invalid view rename update".to_owned(),
+                    ));
+                };
+                translate_update_for_schema_change(
+                    update,
+                    resolver,
+                    program,
+                    connection,
+                    input,
+                    |_program| {},
+                )?;
+            }
+
             if let Some(temp_schema_version) = temp_schema_version {
                 program.emit_insn(Insn::SetCookie {
                     db: crate::TEMP_DB_ID,
@@ -1800,7 +1984,10 @@ pub fn translate_alter_table(
             program.emit_insn(Insn::RenameTable {
                 db: database_id,
                 from: table_name.to_owned(),
-                to: new_name.to_owned(),
+                to: crate::vdbe::insn::RenameTableTarget {
+                    name: new_name.to_owned(),
+                    views: views_to_rewrite,
+                },
             });
         }
         body @ (ast::AlterTableBody::AlterColumn { .. }
@@ -2734,7 +2921,10 @@ fn translate_rename_virtual_table(
     program.emit_insn(Insn::RenameTable {
         db: database_id,
         from: old_name.to_owned(),
-        to: new_name_norm,
+        to: crate::vdbe::insn::RenameTableTarget {
+            name: new_name_norm,
+            views: Vec::new(),
+        },
     });
 
     program.emit_insn(Insn::Close {

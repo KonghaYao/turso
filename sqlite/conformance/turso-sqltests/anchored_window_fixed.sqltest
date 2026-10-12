@@ -1,0 +1,600 @@
+@database :memory:
+
+# Two setup blocks copied from original frame_matrix / frame_matrix_edge templates.
+setup shapes {
+    CREATE TABLE t(p INT, k INT);
+    INSERT INTO t VALUES (1,NULL),(1,1),(1,1),(1,3),(1,4),(1,4),(2,7);
+}
+
+setup filtered {
+    CREATE TABLE tf(k INT, v INT);
+    INSERT INTO tf VALUES (1,10),(2,20),(3,30),(4,40),(5,50),(6,60),(7,70);
+}
+
+@setup shapes
+test fixed-shapes-groups-preceding-current-none {
+    SELECT p,k,sum(k) OVER w,count(*) OVER w FROM t
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW )
+    ORDER BY p,k;
+}
+expect {
+    1|||1
+    1|1|2|3
+    1|1|2|3
+    1|3|5|3
+    1|4|11|3
+    1|4|11|3
+    2|7|7|1
+}
+
+@setup shapes
+test fixed-shapes-groups-preceding-current-current-row {
+    SELECT p,k,sum(k) OVER w,count(*) OVER w FROM t
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE CURRENT ROW)
+    ORDER BY p,k;
+}
+expect {
+    1|||0
+    1|1|1|2
+    1|1|1|2
+    1|3|2|2
+    1|4|7|2
+    1|4|7|2
+    2|7||0
+}
+
+@setup shapes
+test fixed-shapes-groups-preceding-current-group {
+    SELECT p,k,sum(k) OVER w,count(*) OVER w FROM t
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE GROUP)
+    ORDER BY p,k;
+}
+expect {
+    1|||0
+    1|1||1
+    1|1||1
+    1|3|2|2
+    1|4|3|1
+    1|4|3|1
+    2|7||0
+}
+
+@setup shapes
+test fixed-shapes-groups-preceding-current-ties {
+    SELECT p,k,sum(k) OVER w,count(*) OVER w FROM t
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY p,k;
+}
+expect {
+    1|||1
+    1|1|1|2
+    1|1|1|2
+    1|3|5|3
+    1|4|7|2
+    1|4|7|2
+    2|7|7|1
+}
+
+@setup shapes
+test fixed-shapes-groups-current-following-none {
+    SELECT p,k,sum(k) OVER w,count(*) OVER w FROM t
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING )
+    ORDER BY p,k;
+}
+expect {
+    1||2|3
+    1|1|5|3
+    1|1|5|3
+    1|3|11|3
+    1|4|8|2
+    1|4|8|2
+    2|7|7|1
+}
+
+@setup shapes
+test fixed-shapes-groups-current-following-current-row {
+    SELECT p,k,sum(k) OVER w,count(*) OVER w FROM t
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE CURRENT ROW)
+    ORDER BY p,k;
+}
+expect {
+    1||2|2
+    1|1|4|2
+    1|1|4|2
+    1|3|8|2
+    1|4|4|1
+    1|4|4|1
+    2|7||0
+}
+
+@setup shapes
+test fixed-shapes-groups-current-following-group {
+    SELECT p,k,sum(k) OVER w,count(*) OVER w FROM t
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE GROUP)
+    ORDER BY p,k;
+}
+expect {
+    1||2|2
+    1|1|3|1
+    1|1|3|1
+    1|3|8|2
+    1|4||0
+    1|4||0
+    2|7||0
+}
+
+@setup shapes
+test fixed-shapes-groups-current-following-ties {
+    SELECT p,k,sum(k) OVER w,count(*) OVER w FROM t
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY p,k;
+}
+expect {
+    1||2|3
+    1|1|4|2
+    1|1|4|2
+    1|3|11|3
+    1|4|4|1
+    1|4|4|1
+    2|7|7|1
+}
+
+@setup shapes
+test fixed-shapes-groups-unbounded-current-none {
+    SELECT p,k,sum(k) OVER w,count(*) OVER w FROM t
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW )
+    ORDER BY p,k;
+}
+expect {
+    1|||1
+    1|1|2|3
+    1|1|2|3
+    1|3|5|4
+    1|4|13|6
+    1|4|13|6
+    2|7|7|1
+}
+
+@setup shapes
+test fixed-shapes-groups-unbounded-current-current-row {
+    SELECT p,k,sum(k) OVER w,count(*) OVER w FROM t
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE CURRENT ROW)
+    ORDER BY p,k;
+}
+expect {
+    1|||0
+    1|1|1|2
+    1|1|1|2
+    1|3|2|3
+    1|4|9|5
+    1|4|9|5
+    2|7||0
+}
+
+@setup shapes
+test fixed-shapes-groups-unbounded-current-group {
+    SELECT p,k,sum(k) OVER w,count(*) OVER w FROM t
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE GROUP)
+    ORDER BY p,k;
+}
+expect {
+    1|||0
+    1|1||1
+    1|1||1
+    1|3|2|3
+    1|4|5|4
+    1|4|5|4
+    2|7||0
+}
+
+@setup shapes
+test fixed-shapes-groups-unbounded-current-ties {
+    SELECT p,k,sum(k) OVER w,count(*) OVER w FROM t
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY p,k;
+}
+expect {
+    1|||1
+    1|1|1|2
+    1|1|1|2
+    1|3|5|4
+    1|4|9|5
+    1|4|9|5
+    2|7|7|1
+}
+
+@setup shapes
+test fixed-shapes-range-preceding-current-none {
+    SELECT p,k,sum(k) OVER w,count(*) OVER w FROM t
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 PRECEDING AND CURRENT ROW )
+    ORDER BY p,k;
+}
+expect {
+    1|||1
+    1|1|2|2
+    1|1|2|2
+    1|3|3|1
+    1|4|11|3
+    1|4|11|3
+    2|7|7|1
+}
+
+@setup shapes
+test fixed-shapes-range-preceding-current-current-row {
+    SELECT p,k,sum(k) OVER w,count(*) OVER w FROM t
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE CURRENT ROW)
+    ORDER BY p,k;
+}
+expect {
+    1|||0
+    1|1|1|1
+    1|1|1|1
+    1|3||0
+    1|4|7|2
+    1|4|7|2
+    2|7||0
+}
+
+@setup shapes
+test fixed-shapes-range-preceding-current-group {
+    SELECT p,k,sum(k) OVER w,count(*) OVER w FROM t
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE GROUP)
+    ORDER BY p,k;
+}
+expect {
+    1|||0
+    1|1||0
+    1|1||0
+    1|3||0
+    1|4|3|1
+    1|4|3|1
+    2|7||0
+}
+
+@setup shapes
+test fixed-shapes-range-preceding-current-ties {
+    SELECT p,k,sum(k) OVER w,count(*) OVER w FROM t
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY p,k;
+}
+expect {
+    1|||1
+    1|1|1|1
+    1|1|1|1
+    1|3|3|1
+    1|4|7|2
+    1|4|7|2
+    2|7|7|1
+}
+
+@setup shapes
+test fixed-shapes-range-current-following-none {
+    SELECT p,k,sum(k) OVER w,count(*) OVER w FROM t
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN CURRENT ROW AND 1 FOLLOWING )
+    ORDER BY p,k;
+}
+expect {
+    1|||1
+    1|1|2|2
+    1|1|2|2
+    1|3|11|3
+    1|4|8|2
+    1|4|8|2
+    2|7|7|1
+}
+
+@setup shapes
+test fixed-shapes-range-current-following-current-row {
+    SELECT p,k,sum(k) OVER w,count(*) OVER w FROM t
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE CURRENT ROW)
+    ORDER BY p,k;
+}
+expect {
+    1|||0
+    1|1|1|1
+    1|1|1|1
+    1|3|8|2
+    1|4|4|1
+    1|4|4|1
+    2|7||0
+}
+
+@setup shapes
+test fixed-shapes-range-current-following-group {
+    SELECT p,k,sum(k) OVER w,count(*) OVER w FROM t
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE GROUP)
+    ORDER BY p,k;
+}
+expect {
+    1|||0
+    1|1||0
+    1|1||0
+    1|3|8|2
+    1|4||0
+    1|4||0
+    2|7||0
+}
+
+@setup shapes
+test fixed-shapes-range-current-following-ties {
+    SELECT p,k,sum(k) OVER w,count(*) OVER w FROM t
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY p,k;
+}
+expect {
+    1|||1
+    1|1|1|1
+    1|1|1|1
+    1|3|11|3
+    1|4|4|1
+    1|4|4|1
+    2|7|7|1
+}
+
+@setup shapes
+test fixed-shapes-range-unbounded-current-none {
+    SELECT p,k,sum(k) OVER w,count(*) OVER w FROM t
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW )
+    ORDER BY p,k;
+}
+expect {
+    1|||1
+    1|1|2|3
+    1|1|2|3
+    1|3|5|4
+    1|4|13|6
+    1|4|13|6
+    2|7|7|1
+}
+
+@setup shapes
+test fixed-shapes-range-unbounded-current-current-row {
+    SELECT p,k,sum(k) OVER w,count(*) OVER w FROM t
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE CURRENT ROW)
+    ORDER BY p,k;
+}
+expect {
+    1|||0
+    1|1|1|2
+    1|1|1|2
+    1|3|2|3
+    1|4|9|5
+    1|4|9|5
+    2|7||0
+}
+
+@setup shapes
+test fixed-shapes-range-unbounded-current-group {
+    SELECT p,k,sum(k) OVER w,count(*) OVER w FROM t
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE GROUP)
+    ORDER BY p,k;
+}
+expect {
+    1|||0
+    1|1||1
+    1|1||1
+    1|3|2|3
+    1|4|5|4
+    1|4|5|4
+    2|7||0
+}
+
+@setup shapes
+test fixed-shapes-range-unbounded-current-ties {
+    SELECT p,k,sum(k) OVER w,count(*) OVER w FROM t
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY p,k;
+}
+expect {
+    1|||1
+    1|1|1|2
+    1|1|1|2
+    1|3|5|4
+    1|4|9|5
+    1|4|9|5
+    2|7|7|1
+}
+
+@setup filtered
+test fixed-filter-rows-2-preceding-1-following-none {
+    SELECT k,sum(v) FILTER (WHERE k%2=0) OVER w,
+           count(v) FILTER (WHERE k%2=0) OVER w FROM tf
+    WINDOW w AS (ORDER BY k ROWS BETWEEN 2 PRECEDING AND 1 FOLLOWING )
+    ORDER BY k;
+}
+expect {
+    1|20|1
+    2|20|1
+    3|60|2
+    4|60|2
+    5|100|2
+    6|100|2
+    7|60|1
+}
+
+@setup filtered
+test fixed-filter-rows-2-preceding-1-following-current-row {
+    SELECT k,sum(v) FILTER (WHERE k%2=0) OVER w,
+           count(v) FILTER (WHERE k%2=0) OVER w FROM tf
+    WINDOW w AS (ORDER BY k ROWS BETWEEN 2 PRECEDING AND 1 FOLLOWING EXCLUDE CURRENT ROW)
+    ORDER BY k;
+}
+expect {
+    1|20|1
+    2||0
+    3|60|2
+    4|20|1
+    5|100|2
+    6|40|1
+    7|60|1
+}
+
+@setup filtered
+test fixed-filter-rows-2-preceding-1-following-group {
+    SELECT k,sum(v) FILTER (WHERE k%2=0) OVER w,
+           count(v) FILTER (WHERE k%2=0) OVER w FROM tf
+    WINDOW w AS (ORDER BY k ROWS BETWEEN 2 PRECEDING AND 1 FOLLOWING EXCLUDE GROUP)
+    ORDER BY k;
+}
+expect {
+    1|20|1
+    2||0
+    3|60|2
+    4|20|1
+    5|100|2
+    6|40|1
+    7|60|1
+}
+
+@setup filtered
+test fixed-filter-rows-2-preceding-1-following-ties {
+    SELECT k,sum(v) FILTER (WHERE k%2=0) OVER w,
+           count(v) FILTER (WHERE k%2=0) OVER w FROM tf
+    WINDOW w AS (ORDER BY k ROWS BETWEEN 2 PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY k;
+}
+expect {
+    1|20|1
+    2|20|1
+    3|60|2
+    4|60|2
+    5|100|2
+    6|100|2
+    7|60|1
+}
+
+@setup filtered
+test fixed-filter-groups-2-preceding-1-following-none {
+    SELECT k,sum(v) FILTER (WHERE k%2=0) OVER w,
+           count(v) FILTER (WHERE k%2=0) OVER w FROM tf
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN 2 PRECEDING AND 1 FOLLOWING )
+    ORDER BY k;
+}
+expect {
+    1|20|1
+    2|20|1
+    3|60|2
+    4|60|2
+    5|100|2
+    6|100|2
+    7|60|1
+}
+
+@setup filtered
+test fixed-filter-groups-2-preceding-1-following-current-row {
+    SELECT k,sum(v) FILTER (WHERE k%2=0) OVER w,
+           count(v) FILTER (WHERE k%2=0) OVER w FROM tf
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN 2 PRECEDING AND 1 FOLLOWING EXCLUDE CURRENT ROW)
+    ORDER BY k;
+}
+expect {
+    1|20|1
+    2||0
+    3|60|2
+    4|20|1
+    5|100|2
+    6|40|1
+    7|60|1
+}
+
+@setup filtered
+test fixed-filter-groups-2-preceding-1-following-group {
+    SELECT k,sum(v) FILTER (WHERE k%2=0) OVER w,
+           count(v) FILTER (WHERE k%2=0) OVER w FROM tf
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN 2 PRECEDING AND 1 FOLLOWING EXCLUDE GROUP)
+    ORDER BY k;
+}
+expect {
+    1|20|1
+    2||0
+    3|60|2
+    4|20|1
+    5|100|2
+    6|40|1
+    7|60|1
+}
+
+@setup filtered
+test fixed-filter-groups-2-preceding-1-following-ties {
+    SELECT k,sum(v) FILTER (WHERE k%2=0) OVER w,
+           count(v) FILTER (WHERE k%2=0) OVER w FROM tf
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN 2 PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY k;
+}
+expect {
+    1|20|1
+    2|20|1
+    3|60|2
+    4|60|2
+    5|100|2
+    6|100|2
+    7|60|1
+}
+
+@setup filtered
+test fixed-filter-range-2-preceding-1-following-none {
+    SELECT k,sum(v) FILTER (WHERE k%2=0) OVER w,
+           count(v) FILTER (WHERE k%2=0) OVER w FROM tf
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 2 PRECEDING AND 1 FOLLOWING )
+    ORDER BY k;
+}
+expect {
+    1|20|1
+    2|20|1
+    3|60|2
+    4|60|2
+    5|100|2
+    6|100|2
+    7|60|1
+}
+
+@setup filtered
+test fixed-filter-range-2-preceding-1-following-current-row {
+    SELECT k,sum(v) FILTER (WHERE k%2=0) OVER w,
+           count(v) FILTER (WHERE k%2=0) OVER w FROM tf
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 2 PRECEDING AND 1 FOLLOWING EXCLUDE CURRENT ROW)
+    ORDER BY k;
+}
+expect {
+    1|20|1
+    2||0
+    3|60|2
+    4|20|1
+    5|100|2
+    6|40|1
+    7|60|1
+}
+
+@setup filtered
+test fixed-filter-range-2-preceding-1-following-group {
+    SELECT k,sum(v) FILTER (WHERE k%2=0) OVER w,
+           count(v) FILTER (WHERE k%2=0) OVER w FROM tf
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 2 PRECEDING AND 1 FOLLOWING EXCLUDE GROUP)
+    ORDER BY k;
+}
+expect {
+    1|20|1
+    2||0
+    3|60|2
+    4|20|1
+    5|100|2
+    6|40|1
+    7|60|1
+}
+
+@setup filtered
+test fixed-filter-range-2-preceding-1-following-ties {
+    SELECT k,sum(v) FILTER (WHERE k%2=0) OVER w,
+           count(v) FILTER (WHERE k%2=0) OVER w FROM tf
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 2 PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY k;
+}
+expect {
+    1|20|1
+    2|20|1
+    3|60|2
+    4|60|2
+    5|100|2
+    6|100|2
+    7|60|1
+}

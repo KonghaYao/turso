@@ -1,0 +1,29 @@
+@database :memory:
+@database :temp:
+
+@skip-if mvcc "plain VACUUM requires PRAGMA wal_checkpoint(TRUNCATE) first on an MVCC database"
+test vacuum_generated_column_reclaims_pages {
+    CREATE TABLE t1(id INTEGER PRIMARY KEY, doubled AS (id * 2) VIRTUAL, payload BLOB);
+    CREATE INDEX idx_doubled ON t1(doubled);
+    WITH RECURSIVE ids(id) AS (VALUES(1) UNION ALL SELECT id + 1 FROM ids WHERE id < 80)
+    INSERT INTO t1(id, payload) SELECT id, zeroblob(3500) FROM ids;
+    DELETE FROM t1 WHERE id > 1;
+    VACUUM;
+    PRAGMA page_count;
+    PRAGMA freelist_count;
+    PRAGMA integrity_check;
+    SELECT id, doubled, length(payload) FROM t1 INDEXED BY idx_doubled WHERE doubled = 2;
+    INSERT INTO t1(id, payload) VALUES(81, zeroblob(3500));
+    VACUUM;
+    PRAGMA integrity_check;
+    SELECT id, doubled, length(payload) FROM t1 INDEXED BY idx_doubled ORDER BY doubled;
+}
+expect {
+    3
+    0
+    ok
+    1|2|3500
+    ok
+    1|2|3500
+    81|162|3500
+}

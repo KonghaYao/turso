@@ -1,0 +1,19 @@
+@database :memory:
+setup rows {
+    CREATE TABLE l(k INTEGER PRIMARY KEY,v TEXT);
+    CREATE TABLE r(k INTEGER PRIMARY KEY,v TEXT);
+    WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<300)
+      INSERT INTO l SELECT x,printf('%080d',x) FROM n;
+    WITH RECURSIVE n(x) AS (VALUES(101) UNION ALL SELECT x+1 FROM n WHERE x<400)
+      INSERT INTO r SELECT x,printf('%080d',x) FROM n;
+}
+@setup rows
+test full-indexed-disjoint-prefix-suffix {
+    SELECT count(*),count(l.k),count(r.k),
+           sum(CASE WHEN l.k IS NULL THEN 1 ELSE 0 END),
+           sum(CASE WHEN r.k IS NULL THEN 1 ELSE 0 END)
+    FROM l FULL OUTER JOIN r ON l.k=r.k;
+}
+expect {
+    400|300|300|100|100
+}

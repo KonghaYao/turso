@@ -1,0 +1,32 @@
+@database :memory:
+
+test cursor-lock-allows-trigger-noop-mutations {
+    CREATE TABLE t(a INTEGER PRIMARY KEY, b UNIQUE);
+    INSERT INTO t VALUES(1,1),(2,2);
+    PRAGMA recursive_triggers=ON;
+    CREATE TRIGGER tr BEFORE DELETE ON t BEGIN
+        SELECT * FROM t;
+        UPDATE t SET b=3 WHERE 0;
+        DELETE FROM t WHERE 0;
+        INSERT INTO t SELECT 3,3 WHERE 0;
+    END;
+    UPDATE OR REPLACE t SET b=2 WHERE a=1;
+    SELECT a,b FROM t;
+}
+expect {
+    1|2
+}
+
+test cursor-lock-allows-false-trigger-when {
+    CREATE TABLE t(a INTEGER PRIMARY KEY, b UNIQUE);
+    INSERT INTO t VALUES(1,1),(2,2);
+    PRAGMA recursive_triggers=ON;
+    CREATE TRIGGER tr BEFORE DELETE ON t WHEN 0 BEGIN
+        UPDATE t SET b=3 WHERE a=1;
+    END;
+    UPDATE OR REPLACE t SET b=2 WHERE a=1;
+    PRAGMA integrity_check;
+}
+expect {
+    ok
+}

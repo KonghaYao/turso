@@ -1,0 +1,105 @@
+@database :memory:
+
+# Exact SQL of original matrix; expected IDs from frozen rows and Python NOCASE comparison.
+setup anchored_keys {
+    CREATE TABLE number_outer(id INTEGER PRIMARY KEY, key1 INTEGER);
+    CREATE TABLE text_inner(key1 TEXT, amount INTEGER, group_id INTEGER);
+    INSERT INTO number_outer VALUES (1, 1);
+    INSERT INTO text_inner VALUES ('1', 10, 1), ('01', 20, 1);
+
+    CREATE TABLE nocase_outer(id INTEGER PRIMARY KEY, key1 TEXT COLLATE NOCASE);
+    CREATE TABLE binary_inner(key1 TEXT COLLATE BINARY, amount INTEGER);
+    CREATE TABLE nocase_inner(key1 TEXT COLLATE NOCASE, amount INTEGER);
+    INSERT INTO nocase_outer VALUES (1, 'a');
+    INSERT INTO binary_inner VALUES ('a', 10), ('A', 20);
+    INSERT INTO nocase_inner VALUES ('a', 10), ('A', 20);
+}
+setup anchored_indexes {
+    CREATE INDEX text_inner_key_amount ON text_inner(key1, amount);
+    CREATE INDEX binary_inner_key_amount ON binary_inner(key1, amount);
+    CREATE INDEX nocase_inner_key_amount ON nocase_inner(key1, amount);
+}
+
+@setup anchored_keys
+@setup anchored_indexes
+test anchored-in-text-order-t0-c0 {
+    SELECT o.id
+    FROM nocase_outer AS o
+    WHERE o.key1 IN (
+        SELECT i.key1 FROM binary_inner AS i WHERE i.amount > o.id
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+}
+
+@setup anchored_keys
+@setup anchored_indexes
+test anchored-in-text-order-t0-c1 {
+    SELECT o.id
+    FROM nocase_outer AS o
+    WHERE o.key1 IN (
+        SELECT i.key1 FROM binary_inner AS i WHERE o.id < i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+}
+
+@setup anchored_keys
+@setup anchored_indexes
+test anchored-in-text-order-t0-c2 {
+    SELECT o.id
+    FROM nocase_outer AS o
+    WHERE o.key1 IN (
+        SELECT i.key1 FROM binary_inner AS i WHERE i.amount IS NOT o.id
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+}
+
+@setup anchored_keys
+@setup anchored_indexes
+test anchored-in-text-order-t1-c0 {
+    SELECT o.id
+    FROM nocase_outer AS o
+    WHERE o.key1 IN (
+        SELECT i.key1 FROM nocase_inner AS i WHERE i.amount > o.id
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+}
+
+@setup anchored_keys
+@setup anchored_indexes
+test anchored-in-text-order-t1-c1 {
+    SELECT o.id
+    FROM nocase_outer AS o
+    WHERE o.key1 IN (
+        SELECT i.key1 FROM nocase_inner AS i WHERE o.id < i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+}
+
+@setup anchored_keys
+@setup anchored_indexes
+test anchored-in-text-order-t1-c2 {
+    SELECT o.id
+    FROM nocase_outer AS o
+    WHERE o.key1 IN (
+        SELECT i.key1 FROM nocase_inner AS i WHERE i.amount IS NOT o.id
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+}

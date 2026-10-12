@@ -1,0 +1,218 @@
+@database :memory:
+@database :temp:
+
+test insert-replace-after-delete-unique-recheck {
+    PRAGMA recursive_triggers = true;
+    CREATE TABLE t0(c0,c1);
+    CREATE UNIQUE INDEX i0 ON t0(c0);
+    INSERT INTO t0(c0,c1) VALUES(123,1);
+    CREATE TRIGGER tr0 AFTER DELETE ON t0 BEGIN INSERT INTO t0 VALUES(123,2); END;
+    PRAGMA integrity_check;
+    REPLACE INTO t0(c0,c1) VALUES(123,3);
+}
+expect error { UNIQUE constraint failed: t0.c0 }
+
+test insert-replace-after-delete-rowid-recheck {
+    PRAGMA recursive_triggers = true;
+    CREATE TABLE t1(a INTEGER PRIMARY KEY, b);
+    CREATE INDEX t1b ON t1(b);
+    INSERT INTO t1 VALUES(1, 'one');
+    CREATE TRIGGER tr3 AFTER DELETE ON t1 BEGIN INSERT INTO t1 VALUES(1, 'three'); END;
+    REPLACE INTO t1 VALUES(1, 'two');
+}
+expect error { UNIQUE constraint failed: t1.a }
+
+test insert-replace-fk-cascade-rechecks-with-recursive-triggers-off {
+    PRAGMA recursive_triggers = false;
+    PRAGMA foreign_keys = 1;
+    CREATE TABLE p1(a, b UNIQUE);
+    CREATE TABLE c1(c, d REFERENCES p1(b) ON DELETE CASCADE);
+    CREATE TRIGGER tr6 AFTER DELETE ON c1 BEGIN INSERT INTO p1 VALUES(4, 1); END;
+    INSERT INTO p1 VALUES(1, 1);
+    INSERT INTO c1 VALUES(2, 1);
+    REPLACE INTO p1 VALUES(3, 1);2
+}
+expect error { UNIQUE constraint failed: p1.b }
+
+test insert-replace-before-delete-does-not-regenerate-rowid {
+    PRAGMA temp.recursive_triggers = true;
+    CREATE TABLE t0(aa, bb);
+    CREATE UNIQUE INDEX t0bb ON t0(bb);
+    CREATE TRIGGER "r17.1" BEFORE DELETE ON t0 BEGIN INSERT INTO t0(aa,bb) VALUES(99,1); END;
+    INSERT INTO t0(aa,bb) VALUES(10,20);
+    REPLACE INTO t0(aa,bb) VALUES(30,20);
+}
+expect error { UNIQUE constraint failed: t0.rowid }
+
+test insert-replace-after-delete-rechecks-all-unique-indexes {
+    PRAGMA recursive_triggers = true;
+    CREATE TABLE t1(a, b UNIQUE, c UNIQUE);
+    INSERT INTO t1(a,b,c) VALUES(1,1,1),(2,2,2),(3,3,3),(4,4,4);
+    CREATE TRIGGER "r17.3" AFTER DELETE ON t1 WHEN OLD.c<>3 BEGIN INSERT INTO t1(rowid,a,b,c) VALUES(100,100,100,3); END;
+    REPLACE INTO t1(rowid,a,b,c) VALUES(200,1,2,3);
+}
+expect error { UNIQUE constraint failed: t1.c }
+
+test insert-replace-partial-index-trigger-recheck {
+    PRAGMA recursive_triggers = true;
+    CREATE TABLE t3(a INTEGER PRIMARY KEY, b INT, c INT, d INT);
+    CREATE UNIQUE INDEX t3bpi ON t3(b) WHERE c<=d;
+    CREATE UNIQUE INDEX t3d ON t3(d);
+    INSERT INTO t3(a,b,c,d) VALUES(1,1,1,1),(2,1,3,2),(3,4,5,6);
+    CREATE TRIGGER t3r1 AFTER DELETE ON t3 BEGIN INSERT INTO t3(b,c,d) VALUES(old.b,old.c,old.d); END;
+    REPLACE INTO t3(a,b,c,d) VALUES(4,4,8,9);
+}
+expect error { UNIQUE constraint failed: t3.b }
+
+test insert-replace-nonpartial-index-trigger-recheck {
+    PRAGMA recursive_triggers = true;
+    CREATE TABLE t3(a INTEGER PRIMARY KEY, b INT, c INT, d INT);
+    CREATE UNIQUE INDEX t3bpi ON t3(b) WHERE c<=d;
+    CREATE UNIQUE INDEX t3d ON t3(d);
+    INSERT INTO t3(a,b,c,d) VALUES(1,1,1,1),(2,1,3,2),(3,4,5,6);
+    CREATE TRIGGER t3r1 AFTER DELETE ON t3 BEGIN INSERT INTO t3(b,c,d) VALUES(old.b,old.c,old.d); END;
+    REPLACE INTO t3(a,b,c,d) VALUES(5,1,11,2);
+}
+expect error { UNIQUE constraint failed: t3.d }
+
+@cross-check-integrity
+test insert-replace-delete-trigger-pragma-default-and-toggle {
+    PRAGMA recursive_triggers;
+    CREATE TABLE t(a INTEGER PRIMARY KEY, b UNIQUE);
+    CREATE TABLE log(a);
+    CREATE TRIGGER tr AFTER DELETE ON t BEGIN INSERT INTO log VALUES(old.a); END;
+    INSERT INTO t VALUES(1,1);
+    REPLACE INTO t VALUES(2,1);
+    SELECT count(*) FROM log;
+    PRAGMA integrity_check;
+    PRAGMA recursive_triggers=ON;
+    PRAGMA recursive_triggers;
+    REPLACE INTO t VALUES(3,1);
+    SELECT a FROM log ORDER BY a;
+    PRAGMA integrity_check;
+    PRAGMA recursive_triggers=OFF;
+    PRAGMA temp.recursive_triggers;
+    REPLACE INTO t VALUES(4,1);
+    SELECT a FROM log ORDER BY a;
+    SELECT * FROM t;
+    PRAGMA integrity_check;
+}
+expect {
+    0
+    0
+    ok
+    1
+    2
+    ok
+    0
+    2
+    4|1
+    ok
+}
+
+@cross-check-integrity
+test insert-replace-two-indexes-delete-same-victim-once {
+    PRAGMA recursive_triggers=ON;
+    CREATE TABLE t(a INTEGER PRIMARY KEY, b UNIQUE, c UNIQUE);
+    CREATE TABLE log(a);
+    CREATE TRIGGER tr AFTER DELETE ON t BEGIN INSERT INTO log VALUES(old.a); END;
+    INSERT INTO t VALUES(1,1,1);
+    REPLACE INTO t VALUES(2,1,1);
+    SELECT * FROM t;
+    SELECT * FROM log;
+    PRAGMA integrity_check;
+}
+expect {
+    2|1|1
+    1
+    ok
+}
+
+@cross-check-integrity
+test insert-replace-before-delete-removes-current-index-key {
+    PRAGMA recursive_triggers=ON;
+    CREATE TABLE t(a INTEGER PRIMARY KEY, b UNIQUE);
+    CREATE TABLE log(a,b);
+    CREATE TRIGGER tr BEFORE DELETE ON t BEGIN
+        INSERT INTO log VALUES(old.a,old.b);
+        UPDATE t SET b=9 WHERE a=old.a;
+    END;
+    INSERT INTO t VALUES(1,1);
+    REPLACE INTO t VALUES(2,1);
+    SELECT * FROM log;
+    SELECT * FROM t;
+    SELECT count(*) FROM t WHERE b=9;
+    PRAGMA integrity_check;
+}
+expect {
+    1|1
+    2|1
+    0
+    ok
+}
+
+@cross-check-integrity
+test insert-replace-partial-index-affinity-and-null {
+    PRAGMA recursive_triggers=ON;
+    CREATE TABLE t(id INTEGER PRIMARY KEY, a INT, b INT);
+    CREATE UNIQUE INDEX ti ON t(a) WHERE b<'2';
+    CREATE TABLE log(id);
+    CREATE TRIGGER tr AFTER DELETE ON t BEGIN INSERT INTO log VALUES(old.id); END;
+    INSERT INTO t VALUES(1,'7','1'),(2,NULL,'1'),(3,NULL,'1'),(4,'7','3');
+    REPLACE INTO t VALUES(5,'7','1');
+    SELECT * FROM t ORDER BY id;
+    SELECT * FROM log;
+    SELECT count(*) FROM t INDEXED BY ti WHERE b<'2';
+    PRAGMA integrity_check;
+}
+expect {
+    2||1
+    3||1
+    4|7|3
+    5|7|1
+    1
+    3
+    ok
+}
+
+@cross-check-integrity
+test insert-replace-before-delete-removes-victim-no-second-after {
+    PRAGMA recursive_triggers=ON;
+    CREATE TABLE t(id INTEGER PRIMARY KEY, a UNIQUE);
+    CREATE TABLE log(event,id);
+    CREATE TRIGGER tr_before BEFORE DELETE ON t WHEN NOT EXISTS(SELECT 1 FROM log) BEGIN
+        INSERT INTO log VALUES('before',old.id);
+        DELETE FROM t WHERE id=old.id;
+    END;
+    CREATE TRIGGER tr_after AFTER DELETE ON t BEGIN INSERT INTO log VALUES('after',old.id); END;
+    INSERT INTO t VALUES(1,1);
+    REPLACE INTO t VALUES(2,1);
+    SELECT * FROM log ORDER BY rowid;
+    SELECT * FROM t;
+    PRAGMA integrity_check;
+}
+expect {
+    before|1
+    after|1
+    2|1
+    ok
+}
+
+@cross-check-integrity
+test insert-replace-delete-trigger-inherits-replace {
+    PRAGMA recursive_triggers=ON;
+    CREATE TABLE t(id INTEGER PRIMARY KEY, a UNIQUE);
+    CREATE TABLE other(a UNIQUE,b);
+    INSERT INTO other VALUES(1,'original');
+    CREATE TRIGGER tr AFTER DELETE ON t BEGIN INSERT INTO other VALUES(1,'replacement'); END;
+    INSERT INTO t VALUES(1,1);
+    REPLACE INTO t VALUES(2,1);
+    SELECT * FROM t;
+    SELECT * FROM other;
+    PRAGMA integrity_check;
+}
+expect {
+    2|1
+    1|replacement
+    ok
+}

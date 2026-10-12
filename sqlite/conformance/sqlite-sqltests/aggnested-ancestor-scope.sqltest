@@ -1,0 +1,204 @@
+@database :memory:
+
+test grandparent-from-derived-sum-minimal {
+    CREATE TABLE t(a);
+    INSERT INTO t VALUES(1),(2);
+    SELECT (SELECT s FROM (SELECT sum(a) AS s)) FROM t;
+}
+expect {3}
+
+test outer-max-in-correlated-where-minimal {
+    CREATE TABLE t(a);
+    INSERT INTO t VALUES(1),(2);
+    CREATE TABLE u(b);
+    INSERT INTO u VALUES(2);
+    SELECT max(a),(SELECT count(*) FROM u WHERE b=max(a)) FROM t;
+}
+expect {2|1}
+
+test reject-inner-aggregate-containing-outer-max {
+    CREATE TABLE t(a);
+    INSERT INTO t VALUES(1),(2);
+    CREATE TABLE u(b);
+    INSERT INTO u VALUES(2);
+    SELECT max(a),(SELECT sum(b=max(a)) FROM u) FROM t;
+}
+expect error {misuse of aggregate function max\(\)}
+
+test grandparent-from-derived-two-levels {
+    CREATE TABLE t1(x INT);
+    INSERT INTO t1 VALUES(100),(20),(3);
+    SELECT (SELECT y FROM (SELECT z AS y FROM (SELECT sum(x) AS z) AS t2)) FROM t1;
+}
+expect {123}
+
+test grandparent-from-derived-mixed-tables {
+    CREATE TABLE t1(a);
+    CREATE TABLE t2(b);
+    INSERT INTO t1 VALUES(1),(2),(3);
+    INSERT INTO t2 VALUES(4),(5),(6);
+    SELECT (SELECT min(y)+(SELECT x) FROM (SELECT sum(a) AS x,b AS y FROM t2)) FROM t1;
+}
+expect {10}
+
+test outer-column-in-grouped-derived {
+    CREATE TABLE t1(a);
+    CREATE TABLE t2(b);
+    INSERT INTO t1 VALUES('x');
+    INSERT INTO t2 VALUES(1);
+    SELECT (SELECT t2.b FROM (SELECT t2.b AS c FROM t1) GROUP BY 1 HAVING t2.b)
+    FROM t2 GROUP BY 'constant_string';
+}
+expect {1}
+
+test ancestor-mixed-scalar-aggregate {
+    CREATE TABLE t(a);
+    INSERT INTO t VALUES(1),(2);
+    CREATE TABLE u(b);
+    INSERT INTO u VALUES(3);
+    SELECT (SELECT (SELECT group_concat(a)||':'||group_concat(b) FROM u)) FROM t;
+}
+expect {1,2:3}
+
+test derived-same-column-name-local-owner {
+    CREATE TABLE t(a);
+    INSERT INTO t VALUES(1),(2);
+    CREATE TABLE u(a);
+    INSERT INTO u VALUES(3),(4);
+    SELECT a,(SELECT s FROM (SELECT sum(a) AS s FROM u)) FROM t ORDER BY a;
+}
+expect {
+    1|7
+    2|7
+}
+
+test ancestor-mixed-argument-stays-local {
+    CREATE TABLE t(a);
+    INSERT INTO t VALUES(1),(2);
+    CREATE TABLE u(b);
+    INSERT INTO u VALUES(3),(4);
+    SELECT a,(SELECT sum(a+b) FROM u) FROM t ORDER BY a;
+}
+expect {
+    1|9
+    2|11
+}
+
+test ancestor-empty-input {
+    CREATE TABLE t(a);
+    SELECT quote((SELECT s FROM (SELECT sum(a) AS s))) FROM t;
+}
+expect {NULL}
+
+test ancestor-null-input {
+    CREATE TABLE t(a);
+    INSERT INTO t VALUES(NULL),(1),(2);
+    SELECT (SELECT s FROM (SELECT sum(a) AS s)) FROM t;
+}
+expect {3}
+
+test ancestor-outer-filter {
+    CREATE TABLE t(a);
+    INSERT INTO t VALUES(1),(2),(3);
+    SELECT (SELECT s FROM (SELECT sum(a) AS s)) FROM t WHERE a>1;
+}
+expect {5}
+
+test reject-nonaggregate-query-where-aggregate {
+    CREATE TABLE t(a);
+    INSERT INTO t VALUES(1),(2);
+    CREATE TABLE u(b);
+    INSERT INTO u VALUES(2);
+    SELECT (SELECT 1 FROM u WHERE b=max(a)) FROM t;
+}
+expect error {misuse of aggregate function max\(\)}
+
+test reject-local-aggregate-in-where {
+    CREATE TABLE t(a);
+    INSERT INTO t VALUES(1),(2);
+    CREATE TABLE u(b);
+    INSERT INTO u VALUES(2);
+    SELECT max(a),(SELECT count(*) FROM u WHERE b=max(b)) FROM t;
+}
+expect error {misuse of aggregate.*max}
+
+test group-ordinal-outer-result-column {
+    CREATE TABLE t(a); INSERT INTO t VALUES(1),(2);
+    CREATE TABLE u(b); INSERT INTO u VALUES(3),(4);
+    SELECT (SELECT t.a FROM u GROUP BY 1) FROM t;
+}
+expect {
+    1
+    2
+}
+
+test group-alias-outer-result-column {
+    CREATE TABLE t(a); INSERT INTO t VALUES(1),(2);
+    CREATE TABLE u(b); INSERT INTO u VALUES(3),(4);
+    SELECT (SELECT t.a AS c FROM u GROUP BY c) FROM t;
+}
+expect {
+    1
+    2
+}
+
+test reject-group-explicit-outer-column {
+    CREATE TABLE t(a); INSERT INTO t VALUES(1),(2);
+    CREATE TABLE u(b); INSERT INTO u VALUES(3),(4);
+    SELECT (SELECT t.a FROM u GROUP BY t.a) FROM t;
+}
+expect error {no such column: t\.a}
+
+test reject-group-function-outer-column {
+    CREATE TABLE t(a); INSERT INTO t VALUES(1),(2);
+    CREATE TABLE u(b); INSERT INTO u VALUES(3),(4);
+    SELECT (SELECT t.a FROM u GROUP BY abs(t.a)) FROM t;
+}
+expect error {no such column: t\.a}
+
+test reject-group-subselect-outer-column {
+    CREATE TABLE t(a); INSERT INTO t VALUES(1),(2);
+    CREATE TABLE u(b); INSERT INTO u VALUES(3),(4);
+    SELECT (SELECT t.a FROM u GROUP BY (SELECT t.a)) FROM t;
+}
+expect error {no such column: t\.a}
+
+test group-alias-local-canonical-precedence {
+    CREATE TABLE t(a); INSERT INTO t VALUES(1),(2);
+    CREATE TABLE u(c); INSERT INTO u VALUES(3),(4);
+    SELECT (SELECT t.a AS c FROM u GROUP BY c HAVING c=4) FROM t;
+}
+expect {
+    1
+    2
+}
+
+test independent-subquery-aggregate-inside-local-aggregate {
+    CREATE TABLE t(a);
+    INSERT INTO t VALUES(1),(2);
+    CREATE TABLE u(b);
+    INSERT INTO u VALUES(3),(4);
+    SELECT sum((SELECT max(b) FROM u)) FROM t;
+}
+expect {8}
+
+test nearest-ancestor-with-mixed-ancestor-arguments {
+    CREATE TABLE t(a);
+    INSERT INTO t VALUES(1),(2);
+    CREATE TABLE u(b);
+    INSERT INTO u VALUES(3),(4);
+    SELECT a,(SELECT (SELECT sum(a+b)) FROM u) FROM t ORDER BY a;
+}
+expect {
+    1|9
+    2|11
+}
+
+test reject-same-owner-aggregate-through-subquery-argument {
+    CREATE TABLE t(a);
+    INSERT INTO t VALUES(1),(2);
+    CREATE TABLE u(b);
+    INSERT INTO u VALUES(2);
+    SELECT max(a),(SELECT sum((SELECT max(a))) FROM u) FROM t;
+}
+expect error {misuse of aggregate.*max}

@@ -22,7 +22,10 @@ use crate::storage::sqlite3_ondisk::CacheSize;
 use crate::storage::wal::CheckpointMode;
 use crate::translate::emitter::{Resolver, TransactionMode};
 use crate::translate::plan::BitSet;
-use crate::util::{normalize_ident, parse_signed_number, parse_string, IOExt as _};
+use crate::util::{
+    escape_sql_string_literal, normalize_ident, parse_signed_number, parse_string,
+    quote_identifier, IOExt as _,
+};
 use crate::vdbe::builder::{ProgramBuilder, ProgramBuilderOpts};
 use crate::vdbe::insn::{Cookie, Insn};
 use crate::{
@@ -30,6 +33,7 @@ use crate::{
 };
 use std::str::FromStr;
 use strum::IntoEnumIterator;
+use turso_parser::parser::Parser;
 
 fn list_pragmas(program: &mut ProgramBuilder) {
     for x in PragmaName::iter() {
@@ -161,18 +165,11 @@ fn emit_table_list_rows_for_schema(
     if let Some(filter_name) = filter_name {
         let lookup_name = normalize_table_pragma_lookup_name(database_id, filter_name);
         if let Some(table) = schema.get_table(&lookup_name) {
-            let (wr, strict) = match table.btree() {
-                Some(bt) => (!bt.has_rowid, bt.is_strict),
-                None => (false, false),
+            let (name, wr, strict) = match table.btree() {
+                Some(bt) => (bt.display_name.clone(), !bt.has_rowid, bt.is_strict),
+                None => (table.get_name().to_string(), false, false),
             };
-            emit_table_row(
-                program,
-                table.get_name(),
-                "table",
-                table.columns().len(),
-                wr,
-                strict,
-            );
+            emit_table_row(program, &name, "table", table.columns().len(), wr, strict);
         } else if let Some(view) = schema.get_view(&lookup_name) {
             emit_table_row(
                 program,
@@ -192,7 +189,7 @@ fn emit_table_list_rows_for_schema(
         };
         emit_table_row(
             program,
-            &bt.name,
+            &bt.display_name,
             "table",
             bt.columns().len(),
             !bt.has_rowid,
@@ -220,6 +217,176 @@ fn parse_pragma_name(name: &str) -> Option<PragmaName> {
         return PragmaName::from_str(&name.to_ascii_lowercase()).ok();
     }
     None
+}
+
+fn translate_foreign_key_check(
+    resolver: &Resolver,
+    connection: &Arc<crate::Connection>,
+    program: &mut ProgramBuilder,
+    database_id: usize,
+    table_filter: Option<&str>,
+    schema_was_explicit: bool,
+) -> crate::Result<()> {
+    let database_name = resolver
+        .get_database_name_by_index(database_id)
+        .ok_or_else(|| LimboError::ParseError("unknown database for foreign_key_check".into()))?;
+    let database_label = database_name.clone();
+    let database_name = quote_identifier(&database_name);
+    let queries = resolver.with_schema(database_id, |schema| -> crate::Result<Vec<String>> {
+        if let Some(filter) = table_filter {
+            if schema.get_table(filter).is_none() && schema.get_view(filter).is_none() {
+                if schema_was_explicit {
+                    bail_parse_error!("no such table: {database_label}.{filter}");
+                }
+                bail_parse_error!("no such table: {filter}");
+            }
+        }
+        let mut tables = schema
+            .tables
+            .values()
+            .filter_map(|table| table.btree())
+            .filter(|table| {
+                table_filter.is_none_or(|filter| table.name.eq_ignore_ascii_case(filter))
+            })
+            .collect::<Vec<_>>();
+        tables.sort_by(|left, right| {
+            left.root_page
+                .cmp(&right.root_page)
+                .then_with(|| left.name.cmp(&right.name))
+        });
+
+        let mut queries = Vec::new();
+        for table in tables {
+            if table.foreign_keys.is_empty() {
+                continue;
+            }
+            let rowid = if table.has_rowid {
+                ["rowid", "_rowid_", "oid"]
+                    .into_iter()
+                    .find(|name| table.get_column(name).is_none())
+                    .map(|name| format!("child.{}", quote_identifier(name)))
+                    .ok_or_else(|| {
+                        LimboError::ParseError(format!(
+                            "foreign_key_check cannot access rowid of {}",
+                            table.name
+                        ))
+                    })?
+            } else {
+                "NULL".to_string()
+            };
+            let table_name = format!(
+                "(SELECT name FROM {database_name}.sqlite_schema WHERE type = 'table' AND rootpage = {})",
+                table.root_page
+            );
+            let mut foreign_keys = table.foreign_keys.iter().collect::<Vec<_>>();
+            foreign_keys.sort_by_key(|fk| std::cmp::Reverse(fk.decl_order));
+            let mut checks = Vec::new();
+            for (fk_id, fk) in foreign_keys.into_iter().enumerate() {
+                let not_null = fk
+                    .child_columns
+                    .iter()
+                    .map(|column| format!("child.{} IS NOT NULL", quote_identifier(column)))
+                    .collect::<Vec<_>>()
+                    .join(" AND ");
+                let parent_check = if let Some(parent) = schema.get_btree_table(&fk.parent_table) {
+                    schema.resolve_fk(fk, &table, &parent, true)?;
+                    let parent_columns = if fk.parent_columns.is_empty() {
+                        parent
+                            .primary_key_columns
+                            .iter()
+                            .map(|(name, _)| name.as_str())
+                            .collect::<Vec<_>>()
+                    } else {
+                        fk.parent_columns.iter().map(String::as_str).collect()
+                    };
+                    if parent_columns.len() != fk.child_columns.len() {
+                        bail_parse_error!(
+                            "foreign key mismatch - \"{}\" referencing \"{}\"",
+                            table.name,
+                            fk.parent_table
+                        );
+                    }
+                    let matches = parent_columns
+                        .iter()
+                        .zip(fk.child_columns.iter())
+                        .map(|(parent_column, child_column)| {
+                            format!(
+                                "parent.{} = child.{}",
+                                quote_identifier(parent_column),
+                                quote_identifier(child_column)
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" AND ");
+                    format!(
+                        " AND NOT EXISTS (SELECT 1 FROM {}.{} AS parent WHERE {matches})",
+                        database_name,
+                        quote_identifier(&parent.name)
+                    )
+                } else {
+                    String::new()
+                };
+                checks.push((
+                    fk_id,
+                    fk.parent_table_display_name.as_str(),
+                    format!("{not_null}{parent_check}"),
+                ));
+            }
+            if checks.len() == 1 {
+                let (fk_id, parent, condition) = &checks[0];
+                queries.push(format!(
+                    "SELECT {table_name} AS \"table\", {rowid} AS \"rowid\", '{}' AS \"parent\", {fk_id} AS \"fkid\" FROM {}.{} AS child WHERE {condition}",
+                    escape_sql_string_literal(parent),
+                    database_name,
+                    quote_identifier(&table.name)
+                ));
+            } else {
+                let foreign_key_rows = checks
+                    .iter()
+                    .map(|(fk_id, parent, _)| {
+                        format!(
+                            "SELECT {fk_id} AS fkid, '{}' AS parent",
+                            escape_sql_string_literal(parent)
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" UNION ALL ");
+                let conditions = checks
+                    .iter()
+                    .map(|(fk_id, _, condition)| format!("(fk.fkid = {fk_id} AND {condition})"))
+                    .collect::<Vec<_>>()
+                    .join(" OR ");
+                queries.push(format!(
+                    "SELECT {table_name} AS \"table\", {rowid} AS \"rowid\", fk.parent AS \"parent\", fk.fkid AS \"fkid\" FROM {}.{} AS child CROSS JOIN ({foreign_key_rows}) AS fk WHERE {conditions}",
+                    database_name,
+                    quote_identifier(&table.name)
+                ));
+            }
+        }
+        Ok(queries)
+    })?;
+
+    let sql = if queries.is_empty() {
+        "SELECT NULL AS \"table\", NULL AS \"rowid\", NULL AS \"parent\", NULL AS \"fkid\" WHERE 0"
+            .to_string()
+    } else {
+        queries.join(" UNION ALL ")
+    };
+    let mut parser = Parser::new(sql.as_bytes());
+    let statement = parser.next_cmd().map_err(|error| {
+        LimboError::ParseError(format!("invalid foreign_key_check query: {error}"))
+    })?;
+    let Some(ast::Cmd::Stmt(ast::Stmt::Select(select))) = statement else {
+        bail_parse_error!("invalid foreign_key_check query")
+    };
+    super::select::translate_select(
+        select,
+        resolver,
+        program,
+        super::plan::QueryDestination::ResultRows,
+        connection,
+    )?;
+    Ok(())
 }
 
 pub fn translate_pragma(
@@ -264,6 +431,7 @@ pub fn translate_pragma(
             | PragmaName::IndexXinfo
             | PragmaName::IndexList
             | PragmaName::ForeignKeyList
+            | PragmaName::ForeignKeyCheck
             | PragmaName::TableList
             | PragmaName::TableInfo
             | PragmaName::TableXinfo
@@ -620,6 +788,7 @@ fn update_pragma(
         PragmaName::IndexXinfo => unreachable!("index_xinfo cannot be set"),
         PragmaName::IndexList => unreachable!("index_list cannot be set"),
         PragmaName::ForeignKeyList => unreachable!("foreign_key_list cannot be set"),
+        PragmaName::ForeignKeyCheck => unreachable!("foreign_key_check cannot be set"),
         PragmaName::TableList => unreachable!("table_list cannot be set"),
         PragmaName::QueryOnly => query_pragma(
             PragmaName::QueryOnly,
@@ -726,6 +895,11 @@ fn update_pragma(
             connection.set_foreign_keys_enabled(enabled);
             Ok(TransactionMode::None)
         }
+        PragmaName::RecursiveTriggers => {
+            let enabled = parse_pragma_enabled(&value);
+            connection.set_recursive_triggers_enabled(enabled);
+            Ok(TransactionMode::None)
+        }
         PragmaName::IAmADummy | PragmaName::RequireWhere => {
             let enabled = parse_pragma_enabled(&value);
             connection.set_dml_require_where(enabled);
@@ -791,7 +965,7 @@ fn update_pragma(
             if !connection.get_auto_commit() && connection.temp.database.read().is_some() {
                 bail_parse_error!("temporary storage cannot be changed from within a transaction");
             }
-            connection.set_temp_store(temp_store);
+            connection.set_temp_store(temp_store)?;
             Ok(TransactionMode::None)
         }
         PragmaName::VdbeTrace => {
@@ -827,6 +1001,45 @@ fn query_pragma(
     let schema = resolver.schema();
     let register = program.alloc_register();
     match pragma {
+        PragmaName::ForeignKeyCheck => {
+            let table_filter = match value {
+                Some(ast::Expr::Name(name) | ast::Expr::Id(name)) => {
+                    Some(name.as_str().to_string())
+                }
+                Some(ast::Expr::Literal(Literal::String(name) | Literal::Numeric(name))) => {
+                    Some(name)
+                }
+                Some(ast::Expr::Unary(operator, expression)) => match (operator, *expression) {
+                    (ast::UnaryOperator::Negative, ast::Expr::Literal(Literal::Numeric(name))) => {
+                        Some(format!("-{name}"))
+                    }
+                    (ast::UnaryOperator::Positive, ast::Expr::Literal(Literal::Numeric(name))) => {
+                        Some(name)
+                    }
+                    _ => None,
+                },
+                _ => None,
+            };
+            let table_database_id = if let Some(table_name) = &table_filter {
+                resolve_table_pragma_database_id(
+                    resolver,
+                    database_id,
+                    schema_was_explicit,
+                    table_name,
+                )?
+            } else {
+                database_id
+            };
+            translate_foreign_key_check(
+                resolver,
+                &connection,
+                program,
+                table_database_id,
+                table_filter.as_deref(),
+                schema_was_explicit,
+            )?;
+            Ok(TransactionMode::None)
+        }
         PragmaName::ApplicationId => {
             program.emit_insn(Insn::ReadCookie {
                 db: database_id,
@@ -1243,16 +1456,18 @@ fn query_pragma(
                             fk.parent_columns.is_empty()
                                 || fk.parent_columns.len() == fk.child_columns.len()
                         );
-                        for (idx, child_column) in fk.child_columns.iter().enumerate() {
+                        for (idx, child_column) in fk.child_columns_display_names.iter().enumerate()
+                        {
                             let parent_column = fk
-                                .parent_columns
+                                .parent_columns_display_names
                                 .get(idx)
                                 .map(String::as_str)
                                 .unwrap_or_default();
 
                             program.emit_int(id as i64, base_reg);
                             program.emit_int(idx as i64, base_reg + 1);
-                            program.emit_string8(fk.parent_table.clone(), base_reg + 2);
+                            program
+                                .emit_string8(fk.parent_table_display_name.clone(), base_reg + 2);
                             program.emit_string8(child_column.clone(), base_reg + 3);
                             program.emit_string8(parent_column.to_string(), base_reg + 4);
                             program.emit_string8(
@@ -1664,6 +1879,13 @@ fn query_pragma(
             let enabled = connection.foreign_keys_enabled();
             let register = program.alloc_register();
             program.emit_int(enabled as i64, register);
+            program.emit_result_row(register, 1);
+            program.add_pragma_result_column(pragma.to_string());
+            Ok(TransactionMode::None)
+        }
+        PragmaName::RecursiveTriggers => {
+            let register = program.alloc_register();
+            program.emit_int(connection.recursive_triggers_enabled() as i64, register);
             program.emit_result_row(register, 1);
             program.add_pragma_result_column(pragma.to_string());
             Ok(TransactionMode::None)

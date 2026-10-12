@@ -1,0 +1,185 @@
+@database :memory:
+
+# Data shapes copied from frame_matrix.sqltest and frame_matrix_edge.sqltest.
+setup shapes {
+    CREATE TABLE t(p INT, k INT);
+    INSERT INTO t VALUES (1,NULL),(1,1),(1,1),(1,3),(1,4),(1,4),(2,7);
+}
+
+setup shapes3 {
+    CREATE TABLE t3(p INT, k INT, v TEXT);
+    INSERT INTO t3 VALUES (1,NULL,'q'),(1,1,'m'),(1,1,'c'),(1,3,'z'),(1,4,'a'),(2,7,'k');
+}
+
+setup two_parts {
+    CREATE TABLE tnp(p INT, v INT);
+    INSERT INTO tnp VALUES (1,10),(1,20),(1,30),(2,40),(2,50);
+}
+
+setup reals {
+    CREATE TABLE tr(k REAL);
+    INSERT INTO tr VALUES (0.5),(1.0),(1.5),(3.25),(4.0),(100.0);
+}
+
+setup two_col_key {
+    CREATE TABLE tmc(a TEXT, b TEXT, c INT);
+    INSERT INTO tmc VALUES
+        ('AA','x',5),('AA','x',5),('AA','y',3),
+        ('BB','x',9),('BB','y',1),('BB','y',1),('CC','x',7);
+}
+
+# New peer/non-key shape magnifies FILTER + EXCLUDE interactions.
+setup filtered_peers {
+    CREATE TABLE tf(id INTEGER PRIMARY KEY,k INT,v INT);
+    INSERT INTO tf VALUES (1,1,10),(2,1,20),(3,2,30),
+                          (4,3,40),(5,3,50),(6,4,60);
+}
+
+# GROUPS advances by peers; EXCLUDE TIES retains the current row only.
+@setup shapes
+test fixed-groups-peer-ties-next-group {
+    SELECT p,k,sum(k) OVER w,count(*) OVER w FROM t
+    WINDOW w AS (PARTITION BY p ORDER BY k
+                 GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY p,k;
+}
+expect {
+    1||2|3
+    1|1|4|2
+    1|1|4|2
+    1|3|11|3
+    1|4|4|1
+    1|4|4|1
+    2|7|7|1
+}
+
+# ORDER BY a window value must use the single already-calculated window.
+@setup shapes3
+test fixed-groups-nonkey-order-by-window-result {
+    SELECT p,k,min(v) OVER w AS wv FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k
+                 GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW)
+    ORDER BY wv,p,k;
+}
+expect {
+    1|4|a
+    1|1|c
+    1|1|c
+    1|3|c
+    2|7|k
+    1||q
+}
+
+# Inverse removes even-ID rows when a whole peer group is evicted.
+@setup filtered_peers
+test fixed-filter-groups-rolling-peers {
+    SELECT id,sum(v) FILTER (WHERE id%2=0) OVER
+      (ORDER BY k GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW)
+    FROM tf ORDER BY id;
+}
+expect {
+    1|20
+    2|20
+    3|20
+    4|40
+    5|40
+    6|100
+}
+
+# RANGE is key-based and excludes the current row, not its other peers.
+@setup filtered_peers
+test fixed-filter-range-exclude-current {
+    SELECT id,sum(v) FILTER (WHERE id%2=0) OVER
+      (ORDER BY k RANGE BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE CURRENT ROW)
+    FROM tf ORDER BY id;
+}
+expect {
+    1|20
+    2|
+    3|40
+    4|60
+    5|100
+    6|
+}
+
+# Without window ORDER BY every partition row belongs to the same peer group.
+@setup two_parts
+test fixed-range-no-order-peer-partition {
+    SELECT p,v,sum(v) OVER w,count(*) OVER w FROM tnp
+    WINDOW w AS (PARTITION BY p RANGE BETWEEN CURRENT ROW AND CURRENT ROW)
+    ORDER BY p,v;
+}
+expect {
+    1|10|60|3
+    1|20|60|3
+    1|30|60|3
+    2|40|90|2
+    2|50|90|2
+}
+
+# The original no-ORDER offset query from the first RED must reject the
+# offset: bounded RANGE requires exactly one ORDER BY expression.
+@setup two_parts
+test fixed-range-no-order-offset-error {
+    SELECT p,v,sum(v) OVER
+      (PARTITION BY p RANGE BETWEEN 1 PRECEDING AND CURRENT ROW)
+    FROM tnp ORDER BY p,v;
+}
+expect error {
+    RANGE with offset PRECEDING/FOLLOWING requires one ORDER BY expression
+}
+
+# DESC RANGE checks reversed fractional comparison without decimal sum rounding.
+@setup reals
+test fixed-range-real-desc-fractional-bounds {
+    SELECT k,count(*) OVER
+      (ORDER BY k DESC RANGE BETWEEN 0.5 PRECEDING AND 1.5 FOLLOWING)
+    FROM tr ORDER BY k DESC;
+}
+expect {
+    100.0|1
+    4.0|2
+    3.25|1
+    1.5|3
+    1.0|3
+    0.5|2
+}
+
+# Two columns jointly define peers; group boundaries differ from the first key.
+@setup two_col_key
+test fixed-groups-two-column-order-peers {
+    SELECT a,b,count(*) OVER
+      (ORDER BY a,b GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING)
+    FROM tmc ORDER BY a,b,c;
+}
+expect {
+    AA|x|3
+    AA|x|3
+    AA|y|2
+    BB|x|3
+    BB|y|3
+    BB|y|3
+    CC|x|1
+}
+
+# A bounded RANGE may use only one window ORDER BY expression.
+@setup two_col_key
+test fixed-range-two-column-order-error {
+    SELECT a,b,count(*) OVER
+      (ORDER BY a,b RANGE BETWEEN 1 PRECEDING AND CURRENT ROW)
+    FROM tmc ORDER BY a,b;
+}
+expect error {
+    RANGE with offset PRECEDING/FOLLOWING requires one ORDER BY expression
+}
+
+# RANGE offsets are numbers; negative values are invalid before window output.
+@setup reals
+test fixed-range-negative-offset-error {
+    SELECT k,sum(k) OVER
+      (ORDER BY k RANGE BETWEEN -0.5 PRECEDING AND CURRENT ROW)
+    FROM tr ORDER BY k;
+}
+expect error {
+    frame starting offset must be a non-negative number
+}

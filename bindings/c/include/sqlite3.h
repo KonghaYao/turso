@@ -58,6 +58,7 @@ typedef struct sqlite3 sqlite3;
 
 typedef struct sqlite3_stmt sqlite3_stmt;
 typedef int64_t sqlite3_int64;
+typedef uint64_t sqlite3_uint64;
 typedef sqlite3_int64 sqlite_int64;
 
 typedef int (*exec_callback)(void *context, int n_column, char **argv, char **colv);
@@ -223,7 +224,9 @@ void sqlite3_sleep(int _ms);
 
 int sqlite3_limit(sqlite3 *_db, int _id, int _new_value);
 
-void *sqlite3_malloc64(int _n);
+void *sqlite3_malloc(int _n);
+
+void *sqlite3_malloc64(sqlite3_uint64 _n);
 
 void sqlite3_free(void *_ptr);
 

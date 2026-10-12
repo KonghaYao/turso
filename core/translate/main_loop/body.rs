@@ -288,11 +288,51 @@ fn emit_loop_source<'a>(
             // a more complex expression. Some examples: length(sum(x)), sum(x) + avg(y), sum(x) + 1, etc.
             // The result of those more complex expressions depends on the final result of the aggregate, so we don't translate the complete expressions here.
             // Instead, we accumulate the intermediate results of all aggreagates, and evaluate any expressions that do not contain aggregates.
+            let bare_columns =
+                crate::translate::emitter::select::collect_ungrouped_bare_columns(plan)?;
+            let min_max_skip_flag = t_ctx.reg_nonagg_emit_once_flag.and_then(|_| {
+                (!bare_columns.is_empty()
+                    && plan.aggregates.iter().any(|agg| {
+                        matches!(
+                            agg.func,
+                            crate::function::AggFunc::Min | crate::function::AggFunc::Max
+                        )
+                    }))
+                .then(|| program.alloc_register())
+            });
+            let use_filter_fallback = !plan.aggregates.iter().any(|agg| {
+                matches!(
+                    agg.func,
+                    crate::function::AggFunc::Min | crate::function::AggFunc::Max
+                ) && agg.filter_expr.is_none()
+            });
             for (i, agg) in plan.aggregates.iter().enumerate() {
                 let reg = start_reg + i;
+                let previous_extremum = min_max_skip_flag.and_then(|flag| {
+                    matches!(
+                        agg.func,
+                        crate::function::AggFunc::Min | crate::function::AggFunc::Max
+                    )
+                    .then(|| {
+                        let previous = program.alloc_register();
+                        program.emit_insn(Insn::AggValue {
+                            acc_reg: reg,
+                            dest_reg: previous,
+                            func: crate::function::AccumulatorFunc::Agg(agg.func.clone()),
+                        });
+                        (previous, flag)
+                    })
+                });
 
                 // FILTER: skip AggStep if filter condition is false
                 let filter_skip_label = if let Some(filter_expr) = &agg.filter_expr {
+                    if let Some((_, flag)) = previous_extremum.filter(|_| use_filter_fallback) {
+                        program.emit_insn(Insn::Copy {
+                            src_reg: t_ctx.reg_nonagg_emit_once_flag.unwrap(),
+                            dst_reg: flag,
+                            extra_amount: 0,
+                        });
+                    }
                     let label = program.allocate_label();
                     let filter_reg = program.alloc_register();
                     translate_expr(
@@ -320,6 +360,37 @@ fn emit_loop_source<'a>(
                     &t_ctx.resolver,
                     agg.fraction_reg,
                 )?;
+                if let Some((previous, flag)) = previous_extremum {
+                    let current = program.alloc_register();
+                    let unchanged = program.allocate_label();
+                    let changed = program.allocate_label();
+                    let after_comparison = program.allocate_label();
+                    program.emit_insn(Insn::AggValue {
+                        acc_reg: reg,
+                        dest_reg: current,
+                        func: crate::function::AccumulatorFunc::Agg(agg.func.clone()),
+                    });
+                    program.emit_insn(Insn::IsNull {
+                        reg: previous,
+                        target_pc: changed,
+                    });
+                    program.emit_insn(Insn::Eq {
+                        lhs: previous,
+                        rhs: current,
+                        target_pc: unchanged,
+                        flags: CmpInsFlags::default().null_eq(),
+                        collation: None,
+                    });
+                    program.preassign_label_to_next_insn(changed);
+                    program.emit_int(0, flag);
+                    program.emit_insn(Insn::Goto {
+                        target_pc: after_comparison,
+                    });
+                    program.preassign_label_to_next_insn(unchanged);
+                    program.emit_int(1, flag);
+                    program.preassign_label_to_next_insn(after_comparison);
+                }
+
                 if let Distinctness::Distinct { ctx } = &agg.distinctness {
                     let ctx = ctx
                         .as_ref()
@@ -335,7 +406,7 @@ fn emit_loop_source<'a>(
             let label_emit_nonagg_only_once = if let Some(flag) = t_ctx.reg_nonagg_emit_once_flag {
                 let if_label = program.allocate_label();
                 program.emit_insn(Insn::If {
-                    reg: flag,
+                    reg: min_max_skip_flag.unwrap_or(flag),
                     target_pc: if_label,
                     jump_if_null: false,
                 });
@@ -375,38 +446,21 @@ fn emit_loop_source<'a>(
             // They are cached in expr_to_reg_cache so that when the full
             // expression is evaluated after AggFinal, translate_expr finds
             // the cached values instead of reading from the exhausted cursor.
-            for rc in plan
-                .result_columns
-                .iter()
-                .filter(|rc| rc.contains_aggregates)
-            {
-                walk_expr(&rc.expr, &mut |expr: &Expr| -> Result<WalkControl> {
-                    match expr {
-                        Expr::Column { .. } | Expr::RowId { .. } => {
-                            let reg = program.alloc_register();
-                            translate_expr(
-                                program,
-                                Some(&plan.table_references),
-                                expr,
-                                reg,
-                                &t_ctx.resolver,
-                            )?;
-                            t_ctx.resolver.cache_scalar_expr_reg(
-                                Cow::Owned(expr.clone()),
-                                reg,
-                                false,
-                                &plan.table_references,
-                            )?;
-                            Ok(WalkControl::SkipChildren)
-                        }
-                        _ => {
-                            if plan.aggregates.iter().any(|a| a.original_expr == *expr) {
-                                return Ok(WalkControl::SkipChildren);
-                            }
-                            Ok(WalkControl::Continue)
-                        }
-                    }
-                })?;
+            for expression in bare_columns {
+                let register = program.alloc_register();
+                translate_expr(
+                    program,
+                    Some(&plan.table_references),
+                    &expression,
+                    register,
+                    &t_ctx.resolver,
+                )?;
+                t_ctx.resolver.cache_scalar_expr_reg(
+                    Cow::Owned(expression),
+                    register,
+                    false,
+                    &plan.table_references,
+                )?;
             }
 
             if let Some(label) = label_emit_nonagg_only_once {

@@ -1,0 +1,69 @@
+@database :memory:
+
+test correlated-values-empty {
+    CREATE TABLE t1(a);
+    SELECT (VALUES(a),(a)) FROM t1;
+}
+expect {
+}
+
+test correlated-values-scalar {
+    CREATE TABLE t1(a, b);
+    INSERT INTO t1 VALUES(11, 12), (21, 22), (NULL, 32);
+    SELECT rowid, typeof((VALUES(a),(b))), coalesce((VALUES(a),(b)), '<NULL>')
+    FROM t1 ORDER BY rowid;
+}
+expect {
+    1|integer|11
+    2|integer|21
+    3|null|<NULL>
+}
+
+test correlated-values-membership {
+    CREATE TABLE t1(a, b);
+    INSERT INTO t1 VALUES(11, 12), (21, 22), (NULL, 32);
+    SELECT b IN (VALUES(a),(b)) FROM t1 ORDER BY rowid;
+}
+expect {
+    1
+    1
+    1
+}
+
+test correlated-values-view-rename {
+    CREATE TABLE t1(a, b);
+    CREATE VIEW v1 AS SELECT (VALUES(a),(b)) FROM (SELECT a, b FROM t1);
+    SELECT * FROM v1;
+    INSERT INTO t1 VALUES(11, 12), (21, 22);
+    SELECT * FROM v1;
+    ALTER TABLE t1 RENAME TO t2;
+    SELECT * FROM v1;
+}
+expect {
+    11
+    21
+    11
+    21
+}
+
+test correlated-values-single-row {
+    CREATE TABLE t1(a);
+    INSERT INTO t1 VALUES(11), (21);
+    SELECT (VALUES(a)) FROM t1 ORDER BY rowid;
+}
+expect {
+    11
+    21
+}
+
+test uncorrelated-values-control {
+    VALUES(11), (21);
+    SELECT (VALUES(31),(41));
+    SELECT 41 IN (VALUES(31),(41));
+}
+expect {
+    11
+    21
+    31
+    1
+}

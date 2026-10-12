@@ -29,6 +29,78 @@ fn query_rows(conn: &Arc<turso_core::Connection>, sql: &str) -> Vec<String> {
     rows
 }
 
+#[turso_macros::test]
+fn insert_replace_delete_trigger_abort_preserves_transaction(
+    tmp_db: TempDatabase,
+) -> anyhow::Result<()> {
+    let conn = tmp_db.connect_limbo();
+    conn.execute("PRAGMA recursive_triggers=ON")?;
+    conn.execute("CREATE TABLE t(id INTEGER PRIMARY KEY, a TEXT UNIQUE, b TEXT)")?;
+    conn.execute("CREATE INDEX tb ON t(b)")?;
+    conn.execute("CREATE TABLE log(a)")?;
+    conn.execute("CREATE TABLE prior(a)")?;
+    conn.execute("INSERT INTO t VALUES(1,'key','original')")?;
+    conn.execute("CREATE TRIGGER tr AFTER DELETE ON t BEGIN INSERT INTO log VALUES(old.id); INSERT INTO t VALUES(old.id,old.a,'trigger'); END")?;
+    conn.execute("BEGIN")?;
+    conn.execute("INSERT INTO prior VALUES(42)")?;
+    assert!(needs_stmt_journal(
+        &conn,
+        "REPLACE INTO t VALUES(2,'key','new')"
+    ));
+    let error = conn
+        .execute("REPLACE INTO t VALUES(2,'key','new')")
+        .expect_err("replacement must abort after the trigger restores its unique key");
+    assert!(error.to_string().contains("UNIQUE constraint failed: t.a"));
+    assert_eq!(
+        query_rows(&conn, "SELECT * FROM t ORDER BY id"),
+        vec!["1|key|original"]
+    );
+    assert_eq!(
+        query_rows(&conn, "SELECT * FROM t WHERE a='key'"),
+        vec!["1|key|original"]
+    );
+    assert_eq!(
+        query_rows(&conn, "SELECT * FROM t INDEXED BY tb WHERE b='original'"),
+        vec!["1|key|original"]
+    );
+    assert_eq!(query_rows(&conn, "SELECT count(*) FROM log"), vec!["0"]);
+    assert_eq!(query_rows(&conn, "SELECT * FROM prior"), vec!["42"]);
+    assert_eq!(query_rows(&conn, "PRAGMA integrity_check"), vec!["ok"]);
+    conn.execute("COMMIT")?;
+    assert_eq!(query_rows(&conn, "SELECT * FROM prior"), vec!["42"]);
+    assert_eq!(query_rows(&conn, "PRAGMA integrity_check"), vec!["ok"]);
+    Ok(())
+}
+
+#[turso_macros::test]
+fn insert_replace_fk_abort_preserves_transaction(tmp_db: TempDatabase) -> anyhow::Result<()> {
+    let conn = tmp_db.connect_limbo();
+    conn.execute("PRAGMA foreign_keys=ON")?;
+    conn.execute("CREATE TABLE p(a, b UNIQUE)")?;
+    conn.execute("CREATE TABLE c(a, b REFERENCES p(b) ON DELETE CASCADE)")?;
+    conn.execute("CREATE TABLE log(a)")?;
+    conn.execute("CREATE TABLE prior(a)")?;
+    conn.execute("CREATE TRIGGER tr AFTER DELETE ON c BEGIN INSERT INTO log VALUES(old.a); INSERT INTO p VALUES(4,1); END")?;
+    conn.execute("INSERT INTO p VALUES(1,1)")?;
+    conn.execute("INSERT INTO c VALUES(2,1)")?;
+    conn.execute("BEGIN")?;
+    conn.execute("INSERT INTO prior VALUES(42)")?;
+    assert!(needs_stmt_journal(&conn, "REPLACE INTO p VALUES(3,1)"));
+    let error = conn
+        .execute("REPLACE INTO p VALUES(3,1)")
+        .expect_err("replacement must abort after the cascade restores its unique key");
+    assert!(error.to_string().contains("UNIQUE constraint failed: p.b"));
+    assert_eq!(query_rows(&conn, "SELECT * FROM p WHERE b=1"), vec!["1|1"]);
+    assert_eq!(query_rows(&conn, "SELECT * FROM c"), vec!["2|1"]);
+    assert_eq!(query_rows(&conn, "SELECT count(*) FROM log"), vec!["0"]);
+    assert_eq!(query_rows(&conn, "SELECT * FROM prior"), vec!["42"]);
+    assert_eq!(query_rows(&conn, "PRAGMA integrity_check"), vec!["ok"]);
+    conn.execute("COMMIT")?;
+    assert_eq!(query_rows(&conn, "SELECT * FROM prior"), vec!["42"]);
+    assert_eq!(query_rows(&conn, "PRAGMA integrity_check"), vec!["ok"]);
+    Ok(())
+}
+
 // ──────────────────────────────────────────────────────────
 // INSERT
 // ──────────────────────────────────────────────────────────
@@ -748,5 +820,162 @@ fn upsert_or_replace_do_update_unique_failure_no_index_corruption(
         query_rows(&conn, "SELECT id, u, a FROM t ORDER BY id"),
         vec!["1|u1|a1", "2|u2|a2"]
     );
+    Ok(())
+}
+
+#[turso_macros::test]
+fn update_replace_pk_delete_abort_preserves_transaction(
+    tmp_db: TempDatabase,
+) -> anyhow::Result<()> {
+    let conn = tmp_db.connect_limbo();
+    conn.execute("PRAGMA recursive_triggers=ON")?;
+    conn.execute("CREATE TABLE t(id INTEGER PRIMARY KEY,b UNIQUE,c)")?;
+    conn.execute("CREATE INDEX tc ON t(c) WHERE c IS NOT NULL")?;
+    conn.execute("CREATE TABLE fire(x)")?;
+    conn.execute("CREATE TABLE prior(x)")?;
+    conn.execute("INSERT INTO t VALUES(1,1,'original'),(2,2,'victim')")?;
+    conn.execute("CREATE TRIGGER tb BEFORE DELETE ON t BEGIN INSERT INTO fire VALUES(old.id); UPDATE t SET c='changed' WHERE id=old.id; END")?;
+    conn.execute("CREATE TRIGGER ta AFTER DELETE ON t BEGIN INSERT INTO fire VALUES(old.id); INSERT INTO t VALUES(old.id,9,'trigger'); END")?;
+    conn.execute("BEGIN")?;
+    conn.execute("INSERT INTO prior VALUES(42)")?;
+    let update = "UPDATE OR REPLACE t SET id=2,b=3 WHERE id=1";
+    assert!(needs_stmt_journal(&conn, update));
+    let error = conn
+        .execute(update)
+        .expect_err("restored rowid must abort UPDATE");
+    assert!(error.to_string().contains("UNIQUE constraint failed: t.id"));
+    assert_eq!(
+        query_rows(&conn, "SELECT * FROM t ORDER BY id"),
+        vec!["1|1|original", "2|2|victim"]
+    );
+    assert_eq!(
+        query_rows(&conn, "SELECT * FROM t WHERE b=1"),
+        vec!["1|1|original"]
+    );
+    assert_eq!(
+        query_rows(&conn, "SELECT * FROM t WHERE b=2"),
+        vec!["2|2|victim"]
+    );
+    assert_eq!(
+        query_rows(
+            &conn,
+            "SELECT * FROM t INDEXED BY tc WHERE c IS NOT NULL ORDER BY id"
+        ),
+        vec!["1|1|original", "2|2|victim"]
+    );
+    assert_eq!(query_rows(&conn, "SELECT count(*) FROM fire"), vec!["0"]);
+    assert_eq!(query_rows(&conn, "SELECT * FROM prior"), vec!["42"]);
+    assert_eq!(query_rows(&conn, "PRAGMA integrity_check"), vec!["ok"]);
+    conn.execute("COMMIT")?;
+    assert_eq!(query_rows(&conn, "SELECT * FROM prior"), vec!["42"]);
+    assert_eq!(query_rows(&conn, "PRAGMA integrity_check"), vec!["ok"]);
+    Ok(())
+}
+
+#[turso_macros::test]
+fn update_replace_fk_delete_abort_preserves_transaction(
+    tmp_db: TempDatabase,
+) -> anyhow::Result<()> {
+    let conn = tmp_db.connect_limbo();
+    conn.execute("PRAGMA foreign_keys=ON")?;
+    conn.execute("CREATE TABLE p(id INTEGER PRIMARY KEY,b UNIQUE,c)")?;
+    conn.execute("CREATE INDEX pc ON p(c) WHERE c IS NOT NULL")?;
+    conn.execute("CREATE TABLE child(a,b REFERENCES p(b) ON DELETE CASCADE)")?;
+    conn.execute("CREATE TABLE fire(x)")?;
+    conn.execute("CREATE TABLE prior(x)")?;
+    conn.execute("INSERT INTO p VALUES(1,1,'original'),(2,2,'victim')")?;
+    conn.execute("INSERT INTO child VALUES(9,2)")?;
+    conn.execute("CREATE TRIGGER tr AFTER DELETE ON child BEGIN INSERT INTO fire VALUES(old.a); INSERT INTO p VALUES(3,2,'trigger'); END")?;
+    conn.execute("BEGIN")?;
+    conn.execute("INSERT INTO prior VALUES(42)")?;
+    let update = "UPDATE OR REPLACE p SET b=2 WHERE id=1";
+    assert!(needs_stmt_journal(&conn, update));
+    let error = conn
+        .execute(update)
+        .expect_err("restored unique key must abort UPDATE");
+    assert!(error.to_string().contains("UNIQUE constraint failed: p.b"));
+    assert_eq!(
+        query_rows(&conn, "SELECT * FROM p ORDER BY id"),
+        vec!["1|1|original", "2|2|victim"]
+    );
+    assert_eq!(
+        query_rows(&conn, "SELECT * FROM p WHERE b=1"),
+        vec!["1|1|original"]
+    );
+    assert_eq!(
+        query_rows(&conn, "SELECT * FROM p WHERE b=2"),
+        vec!["2|2|victim"]
+    );
+    assert_eq!(
+        query_rows(
+            &conn,
+            "SELECT * FROM p INDEXED BY pc WHERE c IS NOT NULL ORDER BY id"
+        ),
+        vec!["1|1|original", "2|2|victim"]
+    );
+    assert_eq!(query_rows(&conn, "SELECT * FROM child"), vec!["9|2"]);
+    assert_eq!(query_rows(&conn, "SELECT count(*) FROM fire"), vec!["0"]);
+    assert_eq!(query_rows(&conn, "SELECT * FROM prior"), vec!["42"]);
+    assert_eq!(
+        query_rows(&conn, "PRAGMA foreign_key_check"),
+        Vec::<String>::new()
+    );
+    assert_eq!(query_rows(&conn, "PRAGMA integrity_check"), vec!["ok"]);
+    conn.execute("COMMIT")?;
+    assert_eq!(query_rows(&conn, "SELECT * FROM prior"), vec!["42"]);
+    assert_eq!(query_rows(&conn, "PRAGMA integrity_check"), vec!["ok"]);
+    Ok(())
+}
+
+#[turso_macros::test]
+fn update_replace_unique_delete_guard_preserves_transaction(
+    tmp_db: TempDatabase,
+) -> anyhow::Result<()> {
+    let conn = tmp_db.connect_limbo();
+    conn.execute("PRAGMA recursive_triggers=ON")?;
+    conn.execute("CREATE TABLE t(id INTEGER PRIMARY KEY,b UNIQUE,c)")?;
+    conn.execute("CREATE INDEX tc ON t(c) WHERE c IS NOT NULL")?;
+    conn.execute("CREATE TABLE prior(x)")?;
+    conn.execute("CREATE TABLE fire(x)")?;
+    conn.execute("INSERT INTO t VALUES(1,1,'original'),(2,2,'victim')")?;
+    conn.execute("CREATE TRIGGER tr AFTER DELETE ON t WHEN old.id=2 BEGIN INSERT INTO fire VALUES(old.id); DELETE FROM t WHERE id=1; END")?;
+    conn.execute("BEGIN")?;
+    conn.execute("INSERT INTO prior VALUES(42)")?;
+    let update = "UPDATE OR REPLACE t SET b=2 WHERE id=1";
+    assert!(needs_stmt_journal(&conn, update));
+    let error = conn
+        .execute(update)
+        .expect_err("UNIQUE replacement must protect the source table");
+    assert!(error.to_string().contains("constraint failed"));
+    assert_eq!(
+        query_rows(&conn, "SELECT * FROM t ORDER BY id"),
+        vec!["1|1|original", "2|2|victim"]
+    );
+    assert_eq!(
+        query_rows(&conn, "SELECT * FROM t WHERE b=1"),
+        vec!["1|1|original"]
+    );
+    assert_eq!(
+        query_rows(&conn, "SELECT * FROM t WHERE b=2"),
+        vec!["2|2|victim"]
+    );
+    assert_eq!(
+        query_rows(
+            &conn,
+            "SELECT * FROM t INDEXED BY tc WHERE c IS NOT NULL ORDER BY id"
+        ),
+        vec!["1|1|original", "2|2|victim"]
+    );
+    assert_eq!(query_rows(&conn, "SELECT count(*) FROM fire"), vec!["0"]);
+    assert_eq!(query_rows(&conn, "SELECT * FROM prior"), vec!["42"]);
+    assert_eq!(query_rows(&conn, "PRAGMA integrity_check"), vec!["ok"]);
+    conn.execute("UPDATE t SET c='after-error' WHERE id=1")?;
+    conn.execute("COMMIT")?;
+    assert_eq!(query_rows(&conn, "SELECT * FROM prior"), vec!["42"]);
+    assert_eq!(
+        query_rows(&conn, "SELECT * FROM t WHERE id=1"),
+        vec!["1|1|after-error"]
+    );
+    assert_eq!(query_rows(&conn, "PRAGMA integrity_check"), vec!["ok"]);
     Ok(())
 }

@@ -1,0 +1,1161 @@
+@database :memory:
+
+# Verbatim setup from the original unnest-correlated matrix.
+setup correlated_rows {
+    CREATE TABLE outer_rows(
+        id INTEGER PRIMARY KEY,
+        key1 INTEGER,
+        key2 INTEGER,
+        amount INTEGER,
+        text_key TEXT
+    );
+    CREATE TABLE inner_rows(key1 INTEGER, key2 INTEGER, amount INTEGER, text_key TEXT);
+    CREATE TABLE outer_key2(id INTEGER PRIMARY KEY, key2 INTEGER);
+    INSERT INTO outer_rows VALUES
+        (1, 1, 10, 5, 'A'),
+        (2, 1, 10, 15, 'a'),
+        (3, 2, 20, 7, 'B'),
+        (4, 3, 30, 9, 'C'),
+        (5, NULL, 40, 4, NULL),
+        (6, 2, NULL, NULL, 'b');
+    INSERT INTO inner_rows VALUES
+        (1, 10, 10, 'a'),
+        (1, 10, 20, 'A'),
+        (1, 99, 100, 'x'),
+        (2, 20, 6, 'b'),
+        (2, 20, NULL, 'B'),
+        (2, NULL, 7, NULL),
+        (NULL, 40, 99, NULL);
+    INSERT INTO outer_key2 VALUES (1, 10), (3, 20), (5, 40);
+}
+
+
+@setup correlated_rows
+test fixed-original-joinfirst-0-0-0 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount = (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.amount = 7
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+    3
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-0-0-1 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount = (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.amount > 6
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+    3
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-0-0-2 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount = (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.amount <= 20
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-0-0-3 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount = (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.amount >= 6 AND i.amount < 20
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-0-0-4 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount = (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND 20 >= i.amount AND 6 <= i.amount
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-0-0-5 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount = (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.amount IS NULL
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-0-1-0 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount = (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.key2 = o.key2 AND i.amount = 7
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-0-1-1 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount = (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.key2 = o.key2 AND i.amount > 6
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-0-1-2 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount = (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.key2 = o.key2 AND i.amount <= 20
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-0-1-3 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount = (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.key2 = o.key2 AND i.amount >= 6 AND i.amount < 20
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-0-1-4 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount = (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.key2 = o.key2 AND 20 >= i.amount AND 6 <= i.amount
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-0-1-5 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount = (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.key2 = o.key2 AND i.amount IS NULL
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-1-0-0 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount < (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.amount = 7
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-1-0-1 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount < (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.amount > 6
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+    1
+    2
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-1-0-2 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount < (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.amount <= 20
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+    1
+    2
+    3
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-1-0-3 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount < (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.amount >= 6 AND i.amount < 20
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+    1
+    3
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-1-0-4 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount < (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND 20 >= i.amount AND 6 <= i.amount
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+    1
+    2
+    3
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-1-0-5 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount < (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.amount IS NULL
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-1-1-0 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount < (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.key2 = o.key2 AND i.amount = 7
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-1-1-1 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount < (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.key2 = o.key2 AND i.amount > 6
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+    1
+    2
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-1-1-2 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount < (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.key2 = o.key2 AND i.amount <= 20
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+    1
+    2
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-1-1-3 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount < (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.key2 = o.key2 AND i.amount >= 6 AND i.amount < 20
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+    1
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-1-1-4 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount < (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.key2 = o.key2 AND 20 >= i.amount AND 6 <= i.amount
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+    1
+    2
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-1-1-5 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount < (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.key2 = o.key2 AND i.amount IS NULL
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-2-0-0 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount <= (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.amount = 7
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+    3
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-2-0-1 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount <= (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.amount > 6
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+    1
+    2
+    3
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-2-0-2 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount <= (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.amount <= 20
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+    1
+    2
+    3
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-2-0-3 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount <= (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.amount >= 6 AND i.amount < 20
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+    1
+    3
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-2-0-4 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount <= (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND 20 >= i.amount AND 6 <= i.amount
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+    1
+    2
+    3
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-2-0-5 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount <= (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.amount IS NULL
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-2-1-0 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount <= (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.key2 = o.key2 AND i.amount = 7
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-2-1-1 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount <= (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.key2 = o.key2 AND i.amount > 6
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+    1
+    2
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-2-1-2 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount <= (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.key2 = o.key2 AND i.amount <= 20
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+    1
+    2
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-2-1-3 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount <= (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.key2 = o.key2 AND i.amount >= 6 AND i.amount < 20
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+    1
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-2-1-4 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount <= (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.key2 = o.key2 AND 20 >= i.amount AND 6 <= i.amount
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+    1
+    2
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-2-1-5 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount <= (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.key2 = o.key2 AND i.amount IS NULL
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-3-0-0 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount > (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.amount = 7
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-3-0-1 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount > (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.amount > 6
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-3-0-2 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount > (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.amount <= 20
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-3-0-3 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount > (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.amount >= 6 AND i.amount < 20
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+    2
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-3-0-4 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount > (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND 20 >= i.amount AND 6 <= i.amount
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-3-0-5 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount > (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.amount IS NULL
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-3-1-0 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount > (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.key2 = o.key2 AND i.amount = 7
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-3-1-1 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount > (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.key2 = o.key2 AND i.amount > 6
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-3-1-2 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount > (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.key2 = o.key2 AND i.amount <= 20
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+    3
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-3-1-3 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount > (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.key2 = o.key2 AND i.amount >= 6 AND i.amount < 20
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+    2
+    3
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-3-1-4 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount > (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.key2 = o.key2 AND 20 >= i.amount AND 6 <= i.amount
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+    3
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-3-1-5 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount > (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.key2 = o.key2 AND i.amount IS NULL
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-4-0-0 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount >= (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.amount = 7
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+    3
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-4-0-1 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount >= (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.amount > 6
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+    3
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-4-0-2 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount >= (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.amount <= 20
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-4-0-3 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount >= (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.amount >= 6 AND i.amount < 20
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+    2
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-4-0-4 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount >= (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND 20 >= i.amount AND 6 <= i.amount
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-4-0-5 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount >= (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.amount IS NULL
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-4-1-0 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount >= (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.key2 = o.key2 AND i.amount = 7
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-4-1-1 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount >= (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.key2 = o.key2 AND i.amount > 6
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-4-1-2 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount >= (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.key2 = o.key2 AND i.amount <= 20
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+    3
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-4-1-3 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount >= (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.key2 = o.key2 AND i.amount >= 6 AND i.amount < 20
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+    2
+    3
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-4-1-4 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount >= (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.key2 = o.key2 AND 20 >= i.amount AND 6 <= i.amount
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+    3
+}
+
+@setup correlated_rows
+test fixed-original-joinfirst-4-1-5 {
+    SELECT candidate.id
+    FROM outer_rows candidate
+    WHERE candidate.id IN (
+        SELECT o.id
+        FROM outer_rows o
+        WHERE o.amount >= (
+            SELECT sum(i.amount)
+            FROM inner_rows i
+            WHERE i.key1 = o.key1 AND i.key2 = o.key2 AND i.amount IS NULL
+        )
+    )
+    ORDER BY candidate.id;
+}
+expect {
+}

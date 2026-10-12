@@ -1,0 +1,115 @@
+@database :memory:
+
+# Full original nine two-window mode pairs with source-only fixed expectations.
+setup anchored_small {
+    CREATE TABLE ts(k INT);
+    INSERT INTO ts VALUES (1),(2),(3),(4),(5);
+}
+
+@setup anchored_small
+test anchored-window-mix-a0-b0 {
+    SELECT k, sum(k) OVER (ORDER BY k ROWS BETWEEN 1 PRECEDING AND CURRENT ROW), count(*) OVER (ORDER BY k ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|1|2
+    2|3|2
+    3|5|2
+    4|7|2
+    5|9|1
+}
+
+@setup anchored_small
+test anchored-window-mix-a0-b1 {
+    SELECT k, sum(k) OVER (ORDER BY k ROWS BETWEEN 1 PRECEDING AND CURRENT ROW), count(*) OVER (ORDER BY k GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|1|2
+    2|3|2
+    3|5|2
+    4|7|2
+    5|9|1
+}
+
+@setup anchored_small
+test anchored-window-mix-a0-b2 {
+    SELECT k, sum(k) OVER (ORDER BY k ROWS BETWEEN 1 PRECEDING AND CURRENT ROW), count(*) OVER (ORDER BY k RANGE BETWEEN CURRENT ROW AND 1 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|1|2
+    2|3|2
+    3|5|2
+    4|7|2
+    5|9|1
+}
+
+@setup anchored_small
+test anchored-window-mix-a1-b0 {
+    SELECT k, sum(k) OVER (ORDER BY k GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW), count(*) OVER (ORDER BY k ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|1|2
+    2|3|2
+    3|5|2
+    4|7|2
+    5|9|1
+}
+
+@setup anchored_small
+test anchored-window-mix-a1-b1 {
+    SELECT k, sum(k) OVER (ORDER BY k GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW), count(*) OVER (ORDER BY k GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|1|2
+    2|3|2
+    3|5|2
+    4|7|2
+    5|9|1
+}
+
+@setup anchored_small
+test anchored-window-mix-a1-b2 {
+    SELECT k, sum(k) OVER (ORDER BY k GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW), count(*) OVER (ORDER BY k RANGE BETWEEN CURRENT ROW AND 1 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|1|2
+    2|3|2
+    3|5|2
+    4|7|2
+    5|9|1
+}
+
+@setup anchored_small
+test anchored-window-mix-a2-b0 {
+    SELECT k, sum(k) OVER (ORDER BY k RANGE BETWEEN 1 PRECEDING AND CURRENT ROW), count(*) OVER (ORDER BY k ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|1|2
+    2|3|2
+    3|5|2
+    4|7|2
+    5|9|1
+}
+
+@setup anchored_small
+test anchored-window-mix-a2-b1 {
+    SELECT k, sum(k) OVER (ORDER BY k RANGE BETWEEN 1 PRECEDING AND CURRENT ROW), count(*) OVER (ORDER BY k GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|1|2
+    2|3|2
+    3|5|2
+    4|7|2
+    5|9|1
+}
+
+@setup anchored_small
+test anchored-window-mix-a2-b2 {
+    SELECT k, sum(k) OVER (ORDER BY k RANGE BETWEEN 1 PRECEDING AND CURRENT ROW), count(*) OVER (ORDER BY k RANGE BETWEEN CURRENT ROW AND 1 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|1|2
+    2|3|2
+    3|5|2
+    4|7|2
+    5|9|1
+}

@@ -910,7 +910,7 @@ impl<Clock: LogicalClock, A: ConcurrentAllocator> CheckpointStateMachine<Clock, 
     /// checkpoint bookkeeping.
     pub fn cleanup_after_external_io_error(&mut self, err: LimboError) -> Result<()> {
         // run storage cleanup within proper checkpoint context (e.g. pager has pending read/write txn)
-        let result = self.mvstore.storage.on_checkpoint_end(Err(err));
+        let mut result = self.mvstore.storage.on_checkpoint_end(Err(err));
 
         // Drop this checkpoint's staged (not-yet-applied) root-map mutations. They were never
         // written to the shared map (deferred to the post-commit publish window), so a failed
@@ -920,7 +920,9 @@ impl<Clock: LogicalClock, A: ConcurrentAllocator> CheckpointStateMachine<Clock, 
         self.pending_alloc_roots.clear();
 
         if self.lock_states.pager_write_tx {
-            self.pager.rollback_tx(self.connection.as_ref());
+            if let Err(error) = self.pager.rollback_tx(self.connection.as_ref()) {
+                result = Err(error);
+            }
             if self.update_transaction_state {
                 self.connection.set_tx_state(TransactionState::None);
             }

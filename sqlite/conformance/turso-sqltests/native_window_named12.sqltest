@@ -1,0 +1,151 @@
+@database :memory:
+
+# All original named-window frame-on-use-site combinations, source-only expected rows.
+setup anchored_two_parts {
+    CREATE TABLE tnp(p INT, v INT);
+    INSERT INTO tnp VALUES (1,10),(1,20),(1,30),(2,40),(2,50);
+}
+
+@setup anchored_two_parts
+test anchored-window-named-m0-s0-e0 {
+    SELECT p, v, sum(v) OVER (w ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM tnp WINDOW w AS (PARTITION BY p ORDER BY v) ORDER BY p, v;
+}
+expect {
+    1|10|10
+    1|20|30
+    1|30|60
+    2|40|40
+    2|50|90
+}
+
+@setup anchored_two_parts
+test anchored-window-named-m0-s0-e1 {
+    SELECT p, v, sum(v) OVER (w ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM tnp WINDOW w AS (PARTITION BY p ORDER BY v) ORDER BY p, v;
+}
+expect {
+    1|10|60
+    1|20|60
+    1|30|60
+    2|40|90
+    2|50|90
+}
+
+@setup anchored_two_parts
+test anchored-window-named-m0-s1-e0 {
+    SELECT p, v, sum(v) OVER (w ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) FROM tnp WINDOW w AS (PARTITION BY p ORDER BY v) ORDER BY p, v;
+}
+expect {
+    1|10|10
+    1|20|30
+    1|30|50
+    2|40|40
+    2|50|90
+}
+
+@setup anchored_two_parts
+test anchored-window-named-m0-s1-e1 {
+    SELECT p, v, sum(v) OVER (w ROWS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING) FROM tnp WINDOW w AS (PARTITION BY p ORDER BY v) ORDER BY p, v;
+}
+expect {
+    1|10|60
+    1|20|60
+    1|30|50
+    2|40|90
+    2|50|90
+}
+
+@setup anchored_two_parts
+test anchored-window-named-m1-s0-e0 {
+    SELECT p, v, sum(v) OVER (w GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM tnp WINDOW w AS (PARTITION BY p ORDER BY v) ORDER BY p, v;
+}
+expect {
+    1|10|10
+    1|20|30
+    1|30|60
+    2|40|40
+    2|50|90
+}
+
+@setup anchored_two_parts
+test anchored-window-named-m1-s0-e1 {
+    SELECT p, v, sum(v) OVER (w GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM tnp WINDOW w AS (PARTITION BY p ORDER BY v) ORDER BY p, v;
+}
+expect {
+    1|10|60
+    1|20|60
+    1|30|60
+    2|40|90
+    2|50|90
+}
+
+@setup anchored_two_parts
+test anchored-window-named-m1-s1-e0 {
+    SELECT p, v, sum(v) OVER (w GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW) FROM tnp WINDOW w AS (PARTITION BY p ORDER BY v) ORDER BY p, v;
+}
+expect {
+    1|10|10
+    1|20|30
+    1|30|50
+    2|40|40
+    2|50|90
+}
+
+@setup anchored_two_parts
+test anchored-window-named-m1-s1-e1 {
+    SELECT p, v, sum(v) OVER (w GROUPS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING) FROM tnp WINDOW w AS (PARTITION BY p ORDER BY v) ORDER BY p, v;
+}
+expect {
+    1|10|60
+    1|20|60
+    1|30|50
+    2|40|90
+    2|50|90
+}
+
+@setup anchored_two_parts
+test anchored-window-named-m2-s0-e0 {
+    SELECT p, v, sum(v) OVER (w RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM tnp WINDOW w AS (PARTITION BY p ORDER BY v) ORDER BY p, v;
+}
+expect {
+    1|10|10
+    1|20|30
+    1|30|60
+    2|40|40
+    2|50|90
+}
+
+@setup anchored_two_parts
+test anchored-window-named-m2-s0-e1 {
+    SELECT p, v, sum(v) OVER (w RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM tnp WINDOW w AS (PARTITION BY p ORDER BY v) ORDER BY p, v;
+}
+expect {
+    1|10|60
+    1|20|60
+    1|30|60
+    2|40|90
+    2|50|90
+}
+
+@setup anchored_two_parts
+test anchored-window-named-m2-s1-e0 {
+    SELECT p, v, sum(v) OVER (w RANGE BETWEEN 1 PRECEDING AND CURRENT ROW) FROM tnp WINDOW w AS (PARTITION BY p ORDER BY v) ORDER BY p, v;
+}
+expect {
+    1|10|10
+    1|20|20
+    1|30|30
+    2|40|40
+    2|50|50
+}
+
+@setup anchored_two_parts
+test anchored-window-named-m2-s1-e1 {
+    SELECT p, v, sum(v) OVER (w RANGE BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING) FROM tnp WINDOW w AS (PARTITION BY p ORDER BY v) ORDER BY p, v;
+}
+expect {
+    1|10|60
+    1|20|50
+    1|30|30
+    2|40|90
+    2|50|50
+}

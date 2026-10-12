@@ -70,6 +70,11 @@ enum Commands {
         #[arg(long)]
         mvcc: bool,
 
+        #[arg(long, help = "Native connection hash-join memory budget in bytes (default: 67108864, matching the snapshot plan baseline)", value_parser = clap::value_parser!(u64).range(1024..=isize::MAX as u64))]
+        hash_join_memory_budget: Option<u64>,
+        #[arg(long, help = "Do not execute matrix cases that call the SQLite oracle")]
+        skip_matrix: bool,
+
         /// Snapshot update mode:
         /// - auto: 'no' in CI, 'new' otherwise (default)
         /// - new: write .snap.new files for review
@@ -154,6 +159,8 @@ async fn main() -> ExitCode {
             output,
             timeout,
             mvcc,
+            hash_join_memory_budget,
+            skip_matrix,
             snapshot_mode,
             snapshot_filter,
             cross_check_binary,
@@ -169,6 +176,8 @@ async fn main() -> ExitCode {
                 output,
                 timeout,
                 mvcc,
+                hash_join_memory_budget,
+                skip_matrix,
                 snapshot_mode,
                 snapshot_filter,
                 cross_check_binary,
@@ -188,6 +197,42 @@ async fn main() -> ExitCode {
             seed,
             mvcc,
         } => generate_debug_databases(output_dir, user_count, seed, mvcc).await,
+    }
+}
+
+#[cfg(test)]
+mod cli_tests {
+    use super::*;
+
+    #[test]
+    fn hash_join_memory_budget_flag_validates_bounds() {
+        for budget in ["0", "1023", "-1", "18446744073709551615", "invalid"] {
+            assert!(
+                Cli::try_parse_from([
+                    "sqltest",
+                    "run",
+                    "tests.sqltest",
+                    "--hash-join-memory-budget",
+                    budget,
+                ])
+                .is_err()
+            );
+        }
+        let cli = Cli::try_parse_from([
+            "sqltest",
+            "run",
+            "tests.sqltest",
+            "--hash-join-memory-budget",
+            "67108864",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Commands::Run {
+                hash_join_memory_budget: Some(67108864),
+                ..
+            }
+        ));
     }
 }
 
@@ -225,10 +270,16 @@ async fn run_tests(
     output_format: String,
     timeout: u64,
     mvcc: bool,
+    hash_join_memory_budget: Option<u64>,
+    skip_matrix: bool,
     snapshot_mode: SnapshotUpdateMode,
     snapshot_filter: Option<String>,
     cross_check_binary: Option<PathBuf>,
 ) -> ExitCode {
+    if hash_join_memory_budget.is_some() && backend_type != "rust" {
+        eprintln!("Error: --hash-join-memory-budget requires --backend rust");
+        return ExitCode::from(1);
+    }
     // Resolve paths, trying to add .sqltest extension if missing
     let mut resolved_paths = Vec::new();
     let mut missing = Vec::new();
@@ -321,7 +372,8 @@ async fn run_tests(
     let mut config = RunnerConfig::default()
         .with_max_jobs(jobs)
         .with_mvcc(mvcc)
-        .with_snapshot_update_mode(snapshot_mode);
+        .with_snapshot_update_mode(snapshot_mode)
+        .with_skip_matrix(skip_matrix);
     if let Some(f) = filter {
         config = config.with_filter(f);
     }
@@ -355,6 +407,12 @@ async fn run_tests(
         }
         "rust" => {
             let mut backend = RustBackend::new().with_mvcc(mvcc);
+            // The snapshots capture plans made with the release (64 MiB) budget.
+            // Keep the engine's intentional 32 KiB debug default for spill tests,
+            // but make sqltest's plan comparisons independent of build profile.
+            backend = backend.with_hash_join_memory_budget(
+                hash_join_memory_budget.unwrap_or(64 * 1024 * 1024) as usize,
+            );
             if let Some(resolver) = resolver {
                 backend = backend.with_default_db_resolver(resolver);
             }

@@ -1,0 +1,278 @@
+@database :memory:
+
+# Hand-derived, ordered native anchors for unnest-correlated matrix families.
+# The setup is copied byte-for-byte from the original file; expectations are
+# independently enumerated from the six outer and seven inner rows.
+
+setup correlated_rows {
+    CREATE TABLE outer_rows(
+        id INTEGER PRIMARY KEY,
+        key1 INTEGER,
+        key2 INTEGER,
+        amount INTEGER,
+        text_key TEXT
+    );
+    CREATE TABLE inner_rows(key1 INTEGER, key2 INTEGER, amount INTEGER, text_key TEXT);
+    CREATE TABLE outer_key2(id INTEGER PRIMARY KEY, key2 INTEGER);
+    INSERT INTO outer_rows VALUES
+        (1, 1, 10, 5, 'A'),
+        (2, 1, 10, 15, 'a'),
+        (3, 2, 20, 7, 'B'),
+        (4, 3, 30, 9, 'C'),
+        (5, NULL, 40, 4, NULL),
+        (6, 2, NULL, NULL, 'b');
+    INSERT INTO inner_rows VALUES
+        (1, 10, 10, 'a'),
+        (1, 10, 20, 'A'),
+        (1, 99, 100, 'x'),
+        (2, 20, 6, 'b'),
+        (2, 20, NULL, 'B'),
+        (2, NULL, 7, NULL),
+        (NULL, 40, 99, NULL);
+    INSERT INTO outer_key2 VALUES (1, 10), (3, 20), (5, 40);
+}
+
+setup correlated_in_indexes {
+    CREATE INDEX inner_amount ON inner_rows(amount);
+    CREATE INDEX inner_key_amount ON inner_rows(key1, amount);
+    CREATE INDEX inner_text_nocase ON inner_rows(text_key COLLATE NOCASE);
+}
+
+# IN TRUE on key 2; empty and NULL cases do not satisfy WHERE.
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-correlated-in-match {
+    SELECT o.id FROM outer_rows AS o
+    WHERE o.amount IN (SELECT i.amount FROM inner_rows AS i WHERE i.key1=o.key1)
+    ORDER BY o.id;
+}
+expect {
+    3
+}
+
+# A NULL inside a nonempty RHS makes a missing value's NOT IN UNKNOWN.
+# A non-NULL left value NOT IN an empty RHS is TRUE for key 3 and the NULL-key row.
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-correlated-not-in-null-poison-and-empty {
+    SELECT o.id,
+           CASE WHEN (o.amount+1) NOT IN
+             (SELECT i.amount FROM inner_rows i WHERE i.key1=o.key1) THEN 1
+             WHEN ((o.amount+1) NOT IN
+             (SELECT i.amount FROM inner_rows i WHERE i.key1=o.key1)) IS NULL THEN -1
+             ELSE 0 END
+    FROM outer_rows o ORDER BY o.id;
+}
+expect {
+    1|1
+    2|1
+    3|-1
+    4|1
+    5|1
+    6|-1
+}
+
+# IS correlates NULL to NULL; = would not reach the inner key1=NULL row.
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-correlated-exists-null-key-is {
+    SELECT o.id, EXISTS(
+      SELECT 1 FROM inner_rows i WHERE i.key1 IS o.key1 AND i.amount>50)
+    FROM outer_rows o ORDER BY o.id;
+}
+expect {
+    1|1
+    2|1
+    3|0
+    4|0
+    5|1
+    6|0
+}
+
+# NOCASE is on the IN left operand; the inner column is declared BINARY.
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-correlated-text-nocase-and-null {
+    SELECT o.id, CASE WHEN o.text_key COLLATE NOCASE IN
+         (SELECT i.text_key FROM inner_rows i WHERE i.key1 IS o.key1)
+       THEN 1 WHEN (o.text_key COLLATE NOCASE IN
+         (SELECT i.text_key FROM inner_rows i WHERE i.key1 IS o.key1)) IS NULL
+       THEN -1 ELSE 0 END
+    FROM outer_rows o ORDER BY o.id;
+}
+expect {
+    1|1
+    2|1
+    3|1
+    4|0
+    5|-1
+    6|1
+}
+
+# The LEFT JOIN's missing k rows yield empty correlated input (FALSE),
+# while a nonempty list containing NULL can yield UNKNOWN for keys 10/40.
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-correlated-in-after-left-join {
+    SELECT o.id, CASE WHEN k.key2 IN
+          (SELECT i.key2 FROM inner_rows i WHERE i.amount<k.key2) THEN 1
+          WHEN (k.key2 IN
+          (SELECT i.key2 FROM inner_rows i WHERE i.amount<k.key2)) IS NULL
+          THEN -1 ELSE 0 END
+    FROM outer_rows o LEFT JOIN outer_key2 k ON o.id=k.id
+    ORDER BY o.id;
+}
+expect {
+    1|-1
+    2|0
+    3|1
+    4|0
+    5|-1
+    6|0
+}
+
+# FULL's unmatched inner key2=99 row still reaches its correlated predicate;
+# key2=40 joins outer id=5, whose NULL key1 matches inner NULL via IS.
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-correlated-exists-after-full-join {
+    SELECT o.id,i.amount FROM outer_rows o
+    JOIN outer_key2 k ON o.id=k.id
+    FULL OUTER JOIN inner_rows i ON k.key2=i.key2
+    WHERE EXISTS (SELECT 1 FROM outer_rows s
+                  WHERE s.key1 IS i.key1 AND s.amount<i.amount)
+    ORDER BY coalesce(o.id,999),i.amount;
+}
+expect {
+    1|10
+    1|20
+    5|99
+    |100
+}
+
+# Correlated sum ignores inner NULL; COUNT(*) retains it; empty sum is NULL.
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-correlated-aggregate-sum-count {
+    SELECT o.id,
+      (SELECT sum(i.amount) FROM inner_rows i WHERE i.key1=o.key1),
+      (SELECT count(*) FROM inner_rows i WHERE i.key1=o.key1)
+    FROM outer_rows o ORDER BY o.id;
+}
+expect {
+    1|130|3
+    2|130|3
+    3|13|3
+    4||0
+    5||0
+    6|13|3
+}
+
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-correlated-count-null-vs-star {
+    SELECT o.id,
+      (SELECT count(i.amount) FROM inner_rows i WHERE i.key1=o.key1),
+      (SELECT count(*) FROM inner_rows i WHERE i.key1=o.key1),
+      (SELECT count(DISTINCT i.key2) FROM inner_rows i WHERE i.key1=o.key1)
+    FROM outer_rows o ORDER BY o.id;
+}
+expect {
+    1|3|3|2
+    2|3|3|2
+    3|2|3|1
+    4|0|0|0
+    5|0|0|0
+    6|2|3|1
+}
+
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-correlated-one-value-comparison {
+    SELECT o.id FROM outer_rows o
+    WHERE o.amount < (SELECT sum(i.amount) FROM inner_rows i
+                      WHERE i.key1=o.key1)
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    3
+}
+
+# These SUM tails are literal expansions of the original matrix tail family.
+@setup correlated_rows
+test fixed-correlated-scalar-sum-limit-zero {
+    SELECT o.id,(SELECT sum(i.amount) FROM inner_rows i
+                 WHERE i.key1=o.key1 LIMIT 0)
+    FROM outer_rows o ORDER BY o.id;
+}
+expect {
+    1|
+    2|
+    3|
+    4|
+    5|
+    6|
+}
+
+@setup correlated_rows
+test fixed-correlated-scalar-sum-offset-one {
+    SELECT o.id,(SELECT sum(i.amount) FROM inner_rows i
+                 WHERE i.key1=o.key1 LIMIT 1 OFFSET 1)
+    FROM outer_rows o ORDER BY o.id;
+}
+expect {
+    1|
+    2|
+    3|
+    4|
+    5|
+    6|
+}
+
+@setup correlated_rows
+test fixed-correlated-left-expression-subquery {
+    SELECT o.id,CASE WHEN (SELECT o.amount) IN
+           (SELECT i.amount FROM inner_rows i WHERE i.key1=o.key1)
+           THEN 1 ELSE 0 END
+    FROM outer_rows o ORDER BY o.id;
+}
+expect {
+    1|0
+    2|0
+    3|1
+    4|0
+    5|0
+    6|0
+}
+
+# The OR arm must not be pulled into the correlated inner predicate.
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-correlated-exists-or-outer-arm {
+    SELECT o.id FROM outer_rows o
+    WHERE EXISTS(SELECT 1 FROM inner_rows i
+                 WHERE i.key1=o.key1 AND i.amount>10)
+       OR o.id=4
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    4
+}
+
+@setup correlated_rows
+test fixed-correlated-not-exists-null-inner {
+    SELECT o.id FROM outer_rows o
+    WHERE NOT EXISTS(SELECT 1 FROM inner_rows i
+                     WHERE i.key1=o.key1 AND i.amount IS NULL)
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    4
+    5
+}

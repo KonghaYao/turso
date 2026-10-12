@@ -2,6 +2,157 @@ use crate::common::{do_flush, ExecRows, TempDatabase};
 use asserting::expectations::{any, StringContains};
 use asserting::prelude::*;
 
+struct CursorLockCallback {
+    connection: std::sync::Weak<turso_core::Connection>,
+    sql: String,
+    error: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+    propagate: bool,
+}
+
+unsafe extern "C" fn cursor_lock_callback(
+    context: usize,
+    _argc: i32,
+    _argv: *const turso_ext::Value,
+    _context_destructor: Option<turso_ext::ContextDestructor>,
+    _value_destructor: Option<turso_ext::ValueDestructor>,
+) -> turso_ext::Value {
+    let callback = unsafe { &*(context as *const CursorLockCallback) };
+    let Some(connection) = callback.connection.upgrade() else {
+        return turso_ext::Value::error_with_message("connection closed".to_string());
+    };
+    let outcome = connection
+        .prepare_internal(&callback.sql)
+        .and_then(|mut statement| statement.run_with_row_callback(|_| Ok(())));
+    if let Err(error) = outcome {
+        let message = error.to_string();
+        *callback.error.lock().unwrap() = Some(message.clone());
+        if callback.propagate {
+            return turso_ext::Value::error_with_message(message);
+        }
+    }
+    turso_ext::Value::null()
+}
+
+unsafe extern "C" fn drop_cursor_lock_callback(context: usize) {
+    drop(unsafe { Box::from_raw(context as *mut CursorLockCallback) });
+}
+
+#[test]
+fn replace_cursor_lock_internal_callback_preserves_indexes_and_transaction() {
+    use std::sync::{Arc, Mutex};
+    use turso_core::{Database, DatabaseOpts, MemoryIO, OpenFlags, SqliteDialect, IO};
+
+    let open = || {
+        let io: Arc<dyn IO> = Arc::new(MemoryIO::new());
+        Database::open_file_with_flags(
+            io,
+            ":memory:",
+            OpenFlags::Create,
+            DatabaseOpts::new(),
+            None,
+            Arc::new(SqliteDialect),
+        )
+        .unwrap()
+        .connect()
+        .unwrap()
+    };
+    for (sql, independent, blocked, propagate) in [
+        ("UPDATE t SET b=3 WHERE a=1", false, true, true),
+        ("UPDATE t SET b=3 WHERE a=1", false, true, false),
+        ("INSERT INTO t VALUES(3,3)", false, true, true),
+        ("INSERT INTO t VALUES(3,3)", false, true, false),
+        ("SELECT * FROM t", false, false, true),
+        ("SELECT * FROM t WHERE 0", false, false, true),
+        ("INSERT INTO other VALUES(7)", false, false, true),
+        ("UPDATE t SET b=3 WHERE a=1", true, false, true),
+    ] {
+        let connection = open();
+        connection.execute("PRAGMA recursive_triggers=ON; CREATE TABLE t(a INTEGER PRIMARY KEY,b UNIQUE); INSERT INTO t VALUES(1,1),(2,2); CREATE TABLE other(value); CREATE TABLE prior(value);").unwrap();
+        let target = if independent {
+            open()
+        } else {
+            connection.clone()
+        };
+        if independent {
+            target.execute("CREATE TABLE t(a INTEGER PRIMARY KEY,b UNIQUE); INSERT INTO t VALUES(1,1),(2,2);").unwrap();
+        }
+        let error = Arc::new(Mutex::new(None));
+        let context = Box::into_raw(Box::new(CursorLockCallback {
+            connection: Arc::downgrade(&target),
+            sql: sql.to_string(),
+            error: error.clone(),
+            propagate,
+        })) as usize;
+        let name = std::ffi::CString::new("guard_callback").unwrap();
+        let api = unsafe { connection._build_turso_ext() };
+        let registration = unsafe {
+            (api.register_scalar_function)(
+                api.ctx,
+                name.as_ptr(),
+                0,
+                false,
+                context,
+                cursor_lock_callback,
+                Some(drop_cursor_lock_callback),
+                None,
+            )
+        };
+        unsafe { connection._free_extension_ctx(api) };
+        assert_eq!(registration, turso_ext::ResultCode::OK);
+        connection.execute("CREATE TRIGGER tr BEFORE DELETE ON t WHEN OLD.a=2 BEGIN SELECT guard_callback(); END; BEGIN; INSERT INTO prior VALUES(42);").unwrap();
+        let outcome = connection.execute("UPDATE OR REPLACE t SET b=2 WHERE a=1");
+        assert_eq!(outcome.is_err(), blocked && propagate, "{sql}: {outcome:?}");
+        let message = error.lock().unwrap().clone();
+        assert_eq!(message.is_some(), blocked, "{sql}: {message:?}");
+        if let Some(message) = message {
+            assert!(message.contains("constraint failed"), "{sql}: {message}");
+        }
+        let expected = if blocked && propagate {
+            vec![(1i64, 1i64), (2, 2)]
+        } else {
+            vec![(1i64, 2i64)]
+        };
+        assert_eq!(
+            ExecRows::<(i64, i64)>::exec_rows(&connection, "SELECT a,b FROM t ORDER BY a"),
+            expected,
+            "{sql}"
+        );
+        assert_eq!(
+            ExecRows::<(i64, i64)>::exec_rows(
+                &connection,
+                "SELECT a,b FROM t INDEXED BY sqlite_autoindex_t_1 ORDER BY a"
+            ),
+            expected,
+            "{sql}"
+        );
+        assert_eq!(
+            ExecRows::<(String,)>::exec_rows(&connection, "PRAGMA integrity_check"),
+            vec![("ok".to_string(),)],
+            "{sql}"
+        );
+        assert_eq!(
+            ExecRows::<(i64,)>::exec_rows(&connection, "SELECT value FROM prior"),
+            vec![(42,)]
+        );
+        assert!(!connection.get_auto_commit());
+        connection
+            .execute("DROP TRIGGER tr; UPDATE t SET b=9 WHERE a=1; COMMIT;")
+            .unwrap();
+        assert_eq!(
+            ExecRows::<(String,)>::exec_rows(&connection, "PRAGMA integrity_check"),
+            vec![("ok".to_string(),)]
+        );
+        connection.close().unwrap();
+        if independent {
+            assert_eq!(
+                ExecRows::<(i64,)>::exec_rows(&target, "SELECT b FROM t WHERE a=1"),
+                vec![(3,)]
+            );
+            target.close().unwrap();
+        }
+    }
+}
+
 #[turso_macros::test(mvcc)]
 fn test_create_trigger(db: TempDatabase) {
     let _ = tracing_subscriber::fmt()

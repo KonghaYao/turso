@@ -13,6 +13,7 @@ use super::{
     },
     group_by::GroupByMetadata,
     main_loop::{LeftJoinMetadata, LoopLabels, SemiAntiJoinMetadata},
+    optimizer::Optimizable,
     order_by::SortMetadata,
     plan::{
         BitSet, HashJoinType, JoinedTable, NonFromClauseSubquery, Plan, ResultSetColumn,
@@ -30,6 +31,7 @@ use crate::schema::{
 };
 use crate::translate::fkeys::FkActionCompileStack;
 use crate::translate::plan::{Aggregate, ColumnMask};
+use crate::translate::trigger_exec::TriggerCompileStack;
 use crate::vdbe::{
     affinity::Affinity,
     builder::{CursorType, DmlColumnContext, ProgramBuilder, SelfTableContext},
@@ -133,6 +135,11 @@ impl From<bool> for DoubleQuotedDml {
     }
 }
 
+struct QueryAggregateScope {
+    tables: Vec<TableInternalId>,
+    aggregates: Vec<Aggregate>,
+}
+
 pub struct Resolver<'a> {
     schema: &'a Schema,
     database_schemas: &'a RwLock<HashMap<usize, Arc<Schema>>>,
@@ -173,11 +180,12 @@ pub struct Resolver<'a> {
     /// later. Each query adds an empty list before planning its subqueries and
     /// removes it — folding the collected aggregates into its own aggregate
     /// list — afterwards.
-    enclosing_query_aggregates: RefCell<Vec<Vec<Aggregate>>>,
+    enclosing_query_aggregates: RefCell<Vec<QueryAggregateScope>>,
     pub enable_custom_types: bool,
     /// Controls whether unresolved double-quoted identifiers fall back to string
     /// literals (SQLite's DQS misfeature) in DML statements.
     pub dqs_dml: DoubleQuotedDml,
+    pub(crate) hash_join_memory_budget: usize,
     #[cfg(feature = "simulator")]
     subquery_unnesting_mode: crate::SubqueryUnnestingMode,
     /// Schema dialect of the database being compiled against; used when a
@@ -207,6 +215,7 @@ pub struct Resolver<'a> {
     /// shared state, a self-referential `ON DELETE CASCADE` could fail to see
     /// that its own action program is already being built.
     pub(super) fk_action_compile_stack: FkActionCompileStack,
+    pub(super) trigger_compile_stack: TriggerCompileStack,
     unqualified_database_search_path: Option<Vec<String>>,
 }
 
@@ -307,12 +316,14 @@ impl<'a> Resolver<'a> {
             enclosing_query_aggregates: RefCell::new(Vec::new()),
             enable_custom_types,
             dqs_dml,
+            hash_join_memory_budget: crate::vdbe::hash_table::DEFAULT_MEM_BUDGET,
             #[cfg(feature = "simulator")]
             subquery_unnesting_mode: crate::SubqueryUnnestingMode::Auto,
             dialect,
             trigger_context: None,
             has_temp_schema,
             fk_action_compile_stack: FkActionCompileStack::default(),
+            trigger_compile_stack: TriggerCompileStack::default(),
             unqualified_database_search_path: unqualified_database_search_path.clone(),
         }
     }
@@ -352,12 +363,14 @@ impl<'a> Resolver<'a> {
             enclosing_query_aggregates: RefCell::new(Vec::new()),
             enable_custom_types: self.enable_custom_types,
             dqs_dml: self.dqs_dml,
+            hash_join_memory_budget: self.hash_join_memory_budget,
             #[cfg(feature = "simulator")]
             subquery_unnesting_mode: self.subquery_unnesting_mode,
             dialect: self.dialect.clone(),
             trigger_context: self.trigger_context.clone(),
             has_temp_schema: self.has_temp_schema,
             fk_action_compile_stack: self.fk_action_compile_stack.clone(),
+            trigger_compile_stack: self.trigger_compile_stack.clone(),
             unqualified_database_search_path: self.unqualified_database_search_path.clone(),
         }
     }
@@ -379,12 +392,14 @@ impl<'a> Resolver<'a> {
             enclosing_query_aggregates: RefCell::new(Vec::new()),
             enable_custom_types: self.enable_custom_types,
             dqs_dml: self.dqs_dml,
+            hash_join_memory_budget: self.hash_join_memory_budget,
             #[cfg(feature = "simulator")]
             subquery_unnesting_mode: self.subquery_unnesting_mode,
             dialect: self.dialect.clone(),
             trigger_context: self.trigger_context.clone(),
             has_temp_schema: self.has_temp_schema,
             fk_action_compile_stack: self.fk_action_compile_stack.clone(),
+            trigger_compile_stack: self.trigger_compile_stack.clone(),
             unqualified_database_search_path: self.unqualified_database_search_path.clone(),
         }
     }
@@ -546,7 +561,22 @@ impl<'a> Resolver<'a> {
     pub(crate) fn begin_collecting_aggregates_from_subqueries(&self) {
         self.enclosing_query_aggregates
             .borrow_mut()
-            .push(Vec::new());
+            .push(QueryAggregateScope {
+                tables: Vec::new(),
+                aggregates: Vec::new(),
+            });
+    }
+
+    pub(crate) fn set_query_aggregate_tables(&self, tables: &TableReferences) {
+        self.enclosing_query_aggregates
+            .borrow_mut()
+            .last_mut()
+            .expect("SELECT planning requires an aggregate scope")
+            .tables = tables
+            .joined_tables()
+            .iter()
+            .map(|table| table.internal_id)
+            .collect();
     }
 
     /// Stop collecting and return the aggregates this query's subqueries moved
@@ -555,20 +585,85 @@ impl<'a> Resolver<'a> {
         self.enclosing_query_aggregates
             .borrow_mut()
             .pop()
+            .expect("SELECT planning requires an aggregate scope")
+            .aggregates
+    }
+
+    pub(crate) fn take_current_query_aggregates(&self) -> Vec<Aggregate> {
+        self.enclosing_query_aggregates
+            .borrow_mut()
+            .last_mut()
+            .map(|scope| std::mem::take(&mut scope.aggregates))
             .unwrap_or_default()
+    }
+
+    pub(crate) fn aggregate_belongs_to_outer_query(&self, aggregate: &Aggregate) -> bool {
+        let scopes = self.enclosing_query_aggregates.borrow();
+        aggregate_query_scope(aggregate, &scopes).is_some_and(|owner| owner + 1 < scopes.len())
+    }
+
+    pub(crate) fn visible_query_aggregates(&self) -> Vec<Aggregate> {
+        self.enclosing_query_aggregates
+            .borrow()
+            .iter()
+            .flat_map(|scope| scope.aggregates.iter().cloned())
+            .collect()
     }
 
     /// Move an aggregate up to the innermost enclosing query that is
     /// collecting. Returns false when there is none — the aggregate then stays
     /// with the query that resolved it.
     pub(crate) fn move_aggregate_to_enclosing_query(&self, agg: Aggregate) -> bool {
-        match self.enclosing_query_aggregates.borrow_mut().last_mut() {
-            Some(collected) => {
-                collected.push(agg);
-                true
-            }
-            None => false,
+        let mut scopes = self.enclosing_query_aggregates.borrow_mut();
+        let Some(owner) = aggregate_query_scope(&agg, &scopes) else {
+            return false;
+        };
+        if owner + 1 == scopes.len() {
+            return false;
         }
+        let collected = &mut scopes[owner].aggregates;
+        if !collected
+            .iter()
+            .any(|existing| exprs_are_equivalent(&existing.original_expr, &agg.original_expr))
+        {
+            collected.push(agg);
+        }
+        true
+    }
+
+    pub(crate) fn fork_with_outer_query_cache(&self, tables: &TableReferences) -> Resolver<'a> {
+        let mut resolver = self.fork_with_expr_cache();
+        resolver.expr_to_reg_cache.retain(|cached| {
+            match cached.expr.as_ref() {
+                Expr::Column { .. } | Expr::RowId { .. } => {}
+                Expr::FunctionCall {
+                    name,
+                    args,
+                    filter_over,
+                    ..
+                } if filter_over.over_clause.is_none()
+                    && matches!(
+                        self.resolve_function(name.as_str(), args.len()),
+                        Ok(Some(Func::Agg(_)))
+                    ) => {}
+                _ => return false,
+            }
+            let mut has_outer_column = false;
+            let mut has_other_column = false;
+            walk_expr(cached.expr.as_ref(), &mut |expression| {
+                if let Expr::Column { table, .. } | Expr::RowId { table, .. } = expression {
+                    if tables.find_outer_query_ref_by_internal_id(*table).is_some() {
+                        has_outer_column = true;
+                    } else {
+                        has_other_column = true;
+                    }
+                }
+                Ok(WalkControl::Continue)
+            })
+            .expect("walking cached column references cannot fail");
+            has_outer_column && !has_other_column
+        });
+        resolver
     }
 
     pub fn cache_expr_reg(
@@ -871,6 +966,25 @@ impl<'a> Resolver<'a> {
             _ => self.attached_databases.read().get_name_by_index(index),
         }
     }
+}
+
+fn aggregate_query_scope(aggregate: &Aggregate, scopes: &[QueryAggregateScope]) -> Option<usize> {
+    let mut owner = None;
+    for expression in aggregate.args.iter().chain(aggregate.filter_expr.iter()) {
+        walk_expr(expression, &mut |expression| {
+            if let Expr::Column { table, .. } | Expr::RowId { table, .. } = expression {
+                if let Some(scope) = scopes
+                    .iter()
+                    .rposition(|scope| scope.tables.contains(table))
+                {
+                    owner = Some(owner.map_or(scope, |previous: usize| previous.max(scope)));
+                }
+            }
+            Ok(WalkControl::Continue)
+        })
+        .expect("walking aggregate column references cannot fail");
+    }
+    owner
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1848,6 +1962,7 @@ pub(crate) fn init_limit(
     t_ctx: &mut TranslateCtx,
     limit: &Option<Box<Expr>>,
     offset: &Option<Box<Expr>>,
+    skip_output_when_zero: Option<BranchOffset>,
 ) -> Result<()> {
     if t_ctx.limit_ctx.is_none() && limit.is_some() {
         t_ctx.limit_ctx = Some(LimitCtx::new(program));
@@ -1856,11 +1971,13 @@ pub(crate) fn init_limit(
         return Ok(());
     };
 
+    let mut initialized_positive_limit = false;
     if limit_ctx.initialize_counter {
         if let Some(expr) = limit {
             match expr.as_ref() {
                 Expr::Literal(Literal::Numeric(n)) => match parse_numeric_literal(n)? {
                     crate::types::Value::Numeric(crate::Numeric::Integer(value)) => {
+                        initialized_positive_limit = value > 0;
                         program.add_comment(program.offset(), "LIMIT counter");
                         program.emit_insn(Insn::Integer {
                             value,
@@ -1883,7 +2000,7 @@ pub(crate) fn init_limit(
                 _ => {
                     let r = limit_ctx.reg_limit;
 
-                    _ = translate_expr(program, None, expr, r, &t_ctx.resolver)?;
+                    emit_limit_offset_expr(program, expr, r, &t_ctx.resolver)?;
                     program.emit_insn(Insn::MustBeInt {
                         reg: r,
                         target_pc: None,
@@ -1891,6 +2008,17 @@ pub(crate) fn init_limit(
                 }
             }
         }
+    }
+
+    let main_loop_end = t_ctx
+        .label_main_loop_end
+        .expect("label_main_loop_end must be set before init_limit");
+    if !initialized_positive_limit {
+        program.emit_insn(Insn::IfNot {
+            reg: limit_ctx.reg_limit,
+            target_pc: skip_output_when_zero.unwrap_or(main_loop_end),
+            jump_if_null: false,
+        });
     }
 
     if t_ctx.reg_offset.is_none() {
@@ -1910,15 +2038,11 @@ pub(crate) fn init_limit(
                             value: value.into(),
                             dest: offset_reg,
                         });
-                        program.emit_insn(Insn::MustBeInt {
-                            reg: offset_reg,
-                            target_pc: None,
-                        });
                     }
                     _ => unreachable!("parse_numeric_literal only returns Integer or Float"),
                 },
                 _ => {
-                    _ = translate_expr(program, None, expr, offset_reg, &t_ctx.resolver)?;
+                    emit_limit_offset_expr(program, expr, offset_reg, &t_ctx.resolver)?;
                 }
             }
             program.add_comment(program.offset(), "OFFSET counter");
@@ -1926,7 +2050,6 @@ pub(crate) fn init_limit(
                 reg: offset_reg,
                 target_pc: None,
             });
-
             let combined_reg = program.alloc_register();
             t_ctx.reg_limit_offset_sum = Some(combined_reg);
             program.add_comment(program.offset(), "OFFSET + LIMIT");
@@ -1938,16 +2061,49 @@ pub(crate) fn init_limit(
         }
     }
 
-    // exit early if LIMIT 0
-    let main_loop_end = t_ctx
-        .label_main_loop_end
-        .expect("label_main_loop_end must be set before init_limit");
-    program.emit_insn(Insn::IfNot {
-        reg: limit_ctx.reg_limit,
-        target_pc: main_loop_end,
-        jump_if_null: false,
-    });
+    if initialized_positive_limit {
+        program.emit_insn(Insn::IfNot {
+            reg: limit_ctx.reg_limit,
+            target_pc: main_loop_end,
+            jump_if_null: false,
+        });
+    }
 
+    Ok(())
+}
+
+fn emit_limit_offset_expr(
+    program: &mut ProgramBuilder,
+    expr: &Expr,
+    counter_reg: usize,
+    resolver: &Resolver,
+) -> Result<()> {
+    let cached_value = if expr.is_constant(resolver) {
+        let ready = program.allocate_label();
+        program.emit_insn(Insn::Once {
+            target_pc_when_reentered: ready,
+        });
+        Some((program.alloc_register(), ready))
+    } else {
+        None
+    };
+    let value_reg = cached_value.map_or(counter_reg, |(value_reg, _)| value_reg);
+    translate_expr_no_constant_opt(
+        program,
+        None,
+        expr,
+        value_reg,
+        resolver,
+        NoConstantOptReason::RegisterReuse,
+    )?;
+    if let Some((value_reg, ready)) = cached_value {
+        program.preassign_label_to_next_insn(ready);
+        program.emit_insn(Insn::Copy {
+            src_reg: value_reg,
+            dst_reg: counter_reg,
+            extra_amount: 0,
+        });
+    }
     Ok(())
 }
 

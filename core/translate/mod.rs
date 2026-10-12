@@ -127,6 +127,7 @@ pub fn translate(
         },
         &prepare_options.unqualified_database_search_path,
     );
+    resolver.hash_join_memory_budget = connection.get_hash_join_memory_budget();
     #[cfg(feature = "simulator")]
     resolver.set_subquery_unnesting_mode(connection.subquery_unnesting_mode());
 
@@ -288,17 +289,17 @@ pub fn translate_inner(
         ast::Stmt::CreateView {
             view_name,
             select,
-            columns,
+            columns: _,
             if_not_exists,
             temporary,
         } => view::translate_create_view(
             &view_name,
             resolver,
             &select,
-            &columns,
             temporary,
             if_not_exists,
             program,
+            input,
         )?,
         ast::Stmt::CreateMaterializedView {
             view_name,
@@ -566,6 +567,113 @@ mod tests {
     use crate::vdbe::insn::Insn;
     use crate::Database;
     use crate::SqliteDialect;
+
+    #[test]
+    fn test_select_join_result_alias_with_view_and_duplicate_aliases() {
+        let io = Arc::new(MemoryIO::new());
+        let db = Database::open_file(io, ":memory:", Arc::new(SqliteDialect)).unwrap();
+        let connection = db.connect().unwrap();
+        connection.execute("CREATE TABLE t1(a IMTEGES PRIMARY KEY,R); CREATE TABLE t2(x UNIQUE); CREATE VIEW v1a(z,y) AS SELECT x IS NULL, x FROM t2;").unwrap();
+        let mut original = connection.prepare("SELECT a,(+a)b,(+a)b,(+a)b,NOT EXISTS(SELECT null FROM t2),CASE z WHEN 487 THEN 992 WHEN 391 THEN 203 WHEN 10 THEN '?k<D Q' END,'' FROM t1 LEFT JOIN v1a ON z=b;").unwrap();
+        assert!(original.run_collect_rows().unwrap().is_empty());
+        drop(original);
+        connection
+            .execute(
+                "INSERT INTO t1 VALUES(0,NULL),(1,NULL),(2,NULL); INSERT INTO t2 VALUES(NULL),(7);",
+            )
+            .unwrap();
+        let mut populated = connection
+            .prepare("SELECT a,(+a)b,(+a)b,z,y FROM t1 LEFT JOIN v1a ON z=b ORDER BY a;")
+            .unwrap();
+        assert_eq!(
+            populated.run_collect_rows().unwrap(),
+            vec![
+                vec![
+                    crate::Value::from_i64(0),
+                    crate::Value::from_i64(0),
+                    crate::Value::from_i64(0),
+                    crate::Value::from_i64(0),
+                    crate::Value::from_i64(7)
+                ],
+                vec![
+                    crate::Value::from_i64(1),
+                    crate::Value::from_i64(1),
+                    crate::Value::from_i64(1),
+                    crate::Value::from_i64(1),
+                    crate::Value::Null
+                ],
+                vec![
+                    crate::Value::from_i64(2),
+                    crate::Value::from_i64(2),
+                    crate::Value::from_i64(2),
+                    crate::Value::Null,
+                    crate::Value::Null
+                ],
+            ]
+        );
+    }
+
+    #[test]
+    fn test_select_join_alias_canonical_column_precedence_and_scope() {
+        let io = Arc::new(MemoryIO::new());
+        let db = Database::open_file(io, ":memory:", Arc::new(SqliteDialect)).unwrap();
+        let connection = db.connect().unwrap();
+        connection.execute("CREATE TABLE lhs(a,b);CREATE TABLE rhs(x);INSERT INTO lhs VALUES(1,2);INSERT INTO rhs VALUES(1),(2),(3);").unwrap();
+        let mut canonical = connection
+            .prepare("SELECT a AS b,x FROM lhs JOIN rhs ON x=b;")
+            .unwrap();
+        assert_eq!(
+            canonical.run_collect_rows().unwrap(),
+            vec![vec![crate::Value::from_i64(1), crate::Value::from_i64(2)]]
+        );
+        let mut duplicate = connection
+            .prepare("SELECT (+a+1) AS chosen,(+a+2) AS chosen,x FROM lhs JOIN rhs ON x=chosen;")
+            .unwrap();
+        assert_eq!(
+            duplicate.run_collect_rows().unwrap(),
+            vec![vec![
+                crate::Value::from_i64(2),
+                crate::Value::from_i64(3),
+                crate::Value::from_i64(2)
+            ]]
+        );
+        let future_alias = connection.prepare(
+            "SELECT third.a AS chosen FROM lhs LEFT JOIN rhs ON x=chosen JOIN lhs AS third ON 1;",
+        );
+        assert!(
+            matches!(future_alias, Err(crate::LimboError::ParseError(ref message)) if message == "ON clause references tables to its right")
+        );
+        assert!(connection
+            .prepare("SELECT a FROM lhs LEFT JOIN rhs ON x=missing;")
+            .is_err());
+        assert!(connection
+            .prepare("SELECT count(*) AS chosen FROM lhs LEFT JOIN rhs ON x=chosen;")
+            .is_err());
+        assert!(connection
+            .prepare("SELECT row_number() OVER () AS chosen FROM lhs LEFT JOIN rhs ON x=chosen;")
+            .is_err());
+    }
+
+    #[test]
+    fn test_select_join_alias_does_not_ignore_invalid_used_schema() {
+        let io = Arc::new(MemoryIO::new());
+        let db = Database::open_file(io, ":memory:", Arc::new(SqliteDialect)).unwrap();
+        let connection = db.connect().unwrap();
+        connection.execute("CREATE TABLE lhs(a); CREATE TABLE rhs(x); CREATE VIEW unused_bad_view AS SELECT missing FROM lhs;").unwrap();
+        let mut unused = connection
+            .prepare("SELECT a AS chosen FROM lhs LEFT JOIN rhs ON x=chosen;")
+            .unwrap();
+        assert!(unused.run_collect_rows().unwrap().is_empty());
+        assert!(connection
+            .prepare("SELECT * FROM unused_bad_view;")
+            .is_err());
+        assert!(connection
+            .execute("CREATE INDEX bad_index ON lhs(missing);")
+            .is_err());
+        assert!(connection
+            .prepare("SELECT missing AS chosen FROM lhs LEFT JOIN rhs ON x=chosen;")
+            .is_err());
+    }
 
     #[test]
     fn view_expansion_restores_context_after_errors() {

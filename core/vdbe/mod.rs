@@ -302,7 +302,11 @@ impl CommitState {
         *self = CommitState::Ready;
 
         connection.rollback_attached_mvcc_txs(true);
-        connection.rollback_attached_wal_txns();
+        if let Err(error) = connection.rollback_attached_wal_txns() {
+            tracing::error!(
+                "Failed to roll back attached databases during abandoned commit cleanup: {error}"
+            );
+        }
         connection.rollback_temp_schema();
         connection.index_methods_on_transaction_rolled_back();
     }
@@ -920,6 +924,7 @@ pub struct ProgramState {
     pub(crate) explicit_checkpoint_guard: Option<crate::connection::ExplicitCheckpointGuard>,
     pub parameters: Vec<Value>,
     commit_state: CommitState,
+    uncertain_commit_error: Option<LimboError>,
     /// In-flight commit-state-machine for an autonomous sequence
     /// inner-tx. `Insn::SequenceCommitInnerTx` constructs this on first
     /// entry and drives it one step per opcode call, yielding
@@ -991,6 +996,7 @@ pub struct ProgramState {
     /// Cached subprogram Statements keyed by the PC of the Program instruction.
     /// Avoids re-allocating ProgramState on each trigger/FK-action fire.
     pub(crate) subprogram_stmt_cache: HashMap<usize, Box<Statement>>,
+    cursor_locks: execute::CursorLocks,
     /// RowSet objects stored by register index
     rowsets: HashMap<usize, RowSet>,
     // Cache of unused allocated Vecs
@@ -1073,6 +1079,7 @@ impl ProgramState {
             explicit_checkpoint_guard: None,
             parameters: Vec::new(),
             commit_state: CommitState::Ready,
+            uncertain_commit_error: None,
             sequence_inner_commit: None,
             sequence_inner_tx_pending: None,
             sequence_inner_retry_count: 0,
@@ -1106,6 +1113,7 @@ impl ProgramState {
             internal_temp_certificate: None,
             pending_cdc_info: None,
             subprogram_stmt_cache: HashMap::default(),
+            cursor_locks: execute::CursorLocks::default(),
             mv_store_cache: None,
         }
     }
@@ -1165,6 +1173,7 @@ impl ProgramState {
     }
 
     pub fn reset(&mut self, max_registers: Option<usize>, max_cursors: Option<usize>) {
+        self.cursor_locks.clear();
         self.io_completions = None;
         self.pc = 0;
 
@@ -1236,6 +1245,7 @@ impl ProgramState {
         self.active_op_state.clear();
         self.seek_state = OpSeekState::Start;
         self.commit_state = CommitState::Ready;
+        self.uncertain_commit_error = None;
         // Drop any in-flight sequence inner-tx commit-state-machine. If
         // it was mid-step the inner mv_tx has already been swapped back
         // (we handle that on every code path inside
@@ -2037,7 +2047,7 @@ impl Program {
         if self.connection.is_closed() {
             let tx_state = self.connection.get_tx_state();
             if let TransactionState::Write { .. } = tx_state {
-                pager.rollback_tx(&self.connection);
+                pager.rollback_tx(&self.connection)?;
             }
             return Err(LimboError::InternalError("Connection closed".to_string()).into());
         }
@@ -2136,7 +2146,7 @@ impl Program {
                 // Connection is closed for whatever reason, rollback the transaction.
                 let state = self.connection.get_tx_state();
                 if let TransactionState::Write { .. } = state {
-                    pager.rollback_tx(&self.connection);
+                    pager.rollback_tx(&self.connection)?;
                 }
                 return Err(LimboError::InternalError("Connection closed".to_string()).into());
             }
@@ -2187,7 +2197,7 @@ impl Program {
             // Connection is closed for whatever reason, rollback the transaction.
             let tx_state = self.connection.get_tx_state();
             if let TransactionState::Write { .. } = tx_state {
-                pager.rollback_tx(&self.connection);
+                pager.rollback_tx(&self.connection)?;
             }
             return Err(LimboError::InternalError("Connection closed".to_string()).into());
         }
@@ -2269,6 +2279,13 @@ impl Program {
             dispatch_loop_traced(self, state, pager, waker, enable_tracing, vdbe_trace)
         } else {
             dispatch_loop::<false>(self, state, pager, waker, false, false)
+        };
+        let result = match result {
+            ProgramStep::Done => match state.uncertain_commit_error.take() {
+                Some(err) => ProgramStep::Error(err.into()),
+                None => ProgramStep::Done,
+            },
+            other => other,
         };
         match &result {
             ProgramStep::Row => {}
@@ -2471,6 +2488,55 @@ impl Program {
                 pager.cleanup_after_checkpoint_failure();
                 return Some(ProgramStep::Error(checkpoint_err.into()));
             }
+            let committing_wal = matches!(
+                state.commit_state,
+                CommitState::Committing | CommitState::CommittingAttached
+            );
+            let ambiguous_written_frame = committing_wal
+                && (pager.pending_commit_write_uncertain()
+                    || self
+                        .connection
+                        .with_all_attached_pagers_with_index(|pagers| {
+                            pagers
+                                .iter()
+                                .any(|(_, attached)| attached.pending_commit_write_uncertain())
+                        }));
+            if ambiguous_written_frame {
+                // No publication is safe: some frames may be torn, while a full
+                // commit frame might already be on disk. Block access until reopen.
+                if pager.pending_commit_write_uncertain() {
+                    pager.mark_wal_commit_uncertain();
+                }
+                self.connection
+                    .with_all_attached_pagers_with_index(|pagers| {
+                        for (_, attached) in pagers.iter() {
+                            if attached.pending_commit_write_uncertain() {
+                                attached.mark_wal_commit_uncertain();
+                            }
+                        }
+                    });
+                let uncertainty = LimboError::CommitUncertain;
+                if let Err(abort_err) = self.abort(pager, Some(&uncertainty), state, true) {
+                    tracing::error!("Abort failed after uncertain WAL write: {abort_err}");
+                }
+                return Some(ProgramStep::Error(uncertainty.into()));
+            }
+            let recovering_written_commit = matches!(
+                state.commit_state,
+                CommitState::Committing | CommitState::CommittingAttached
+            ) && (pager.pending_commit_sync_failed()
+                || self
+                    .connection
+                    .with_all_attached_pagers_with_index(|pagers| {
+                        pagers
+                            .iter()
+                            .any(|(_, attached)| attached.pending_commit_sync_failed())
+                    }));
+            if recovering_written_commit {
+                state.uncertain_commit_error = Some(LimboError::CommitUncertain);
+                state.io_completions = None;
+                return None;
+            }
             let err = err.into();
             if let Err(abort_err) = self.abort(pager, Some(&err), state, true) {
                 tracing::error!("Abort failed during error handling: {abort_err}");
@@ -2581,7 +2647,9 @@ impl Program {
     fn closed_during_step(&self, pager: &Arc<Pager>) -> Box<LimboError> {
         // Connection is closed for whatever reason, rollback the transaction.
         if let TransactionState::Write { .. } = self.connection.get_tx_state() {
-            pager.rollback_tx(&self.connection);
+            if let Err(error) = pager.rollback_tx(&self.connection) {
+                return error.into();
+            }
         }
         LimboError::InternalError("Connection closed".to_string()).into()
     }
@@ -2664,10 +2732,7 @@ impl Program {
                 // back, so auto-retrying can be useful.
                 Some(ProgramStep::Busy)
             }
-            err if (matches!(err, LimboError::Constraint(_))
-                && self.resolve_type == ResolveType::Fail)
-                || matches!(err, LimboError::Raise(ResolveType::Fail, _)) =>
-            {
+            err if err.is_fail_constraint(self.resolve_type) => {
                 state.pending_fail_prepare_error = Some(err);
                 None
             }
@@ -2838,11 +2903,29 @@ impl Program {
             return Ok(IOResult::Done(()));
         }
         let res = if let Some(mv_store) = mv_store {
-            self.commit_txn_mvcc(pager, program_state, mv_store, rollback)
+            self.commit_txn_mvcc(pager.clone(), program_state, mv_store, rollback)
         } else {
-            self.commit_txn_wal(pager, program_state, rollback)
+            self.commit_txn_wal(pager.clone(), program_state, rollback)
         }?;
         if !res.is_io() {
+            // The pager publishes successfully written commit frames even when fsync fails,
+            // so this connection sees the same value as WAL recovery. Never report such a
+            // commit as durable: surface the I/O failure after transaction finalization.
+            if pager.take_uncertain_commit_sync_error().is_some() {
+                program_state
+                    .uncertain_commit_error
+                    .get_or_insert(LimboError::CommitUncertain);
+            }
+            self.connection
+                .with_all_attached_pagers_with_index(|pagers| {
+                    for (_, attached) in pagers.iter() {
+                        if attached.take_uncertain_commit_sync_error().is_some() {
+                            program_state
+                                .uncertain_commit_error
+                                .get_or_insert(LimboError::CommitUncertain);
+                        }
+                    }
+                });
             if self.change_cnt_on {
                 self.connection
                     .set_changes(program_state.n_change.load(Ordering::SeqCst));
@@ -3138,8 +3221,16 @@ impl Program {
         let txn_finish_result = if !rollback {
             pager.commit_tx(connection, connection.get_sync_mode(), true)
         } else {
-            pager.rollback_tx(connection);
-            Ok(IOResult::Done(()))
+            let rollback_result = pager.rollback_tx(connection);
+            let attached_result = self.end_attached_write_txns(connection, true);
+            self.end_attached_read_txns(connection);
+            *commit_state = CommitState::Ready;
+            match attached_result? {
+                IOResult::Done(()) => {}
+                IOResult::IO(pending) => return Ok(IOResult::IO(pending)),
+            }
+            rollback_result?;
+            return Ok(IOResult::Done(()));
         };
         tracing::debug!("txn_finish_result: {:?}", txn_finish_result);
         match txn_finish_result? {
@@ -3174,7 +3265,16 @@ impl Program {
     /// On IO yield, already-committed pagers are skipped on re-entry via holds_write_lock().
     fn end_attached_write_txns(&self, connection: &Connection, rollback: bool) -> IOResultOr<()> {
         connection.with_all_attached_pagers_with_index(|pagers| {
-            for (db_id, attached_pager) in pagers {
+            let mut rollback_error = None;
+            for (db_id, attached_pager) in pagers
+                .iter()
+                .filter(|(db_id, _)| *db_id != crate::TEMP_DB_ID)
+                .chain(
+                    pagers
+                        .iter()
+                        .filter(|(db_id, _)| *db_id == crate::TEMP_DB_ID),
+                )
+            {
                 let db_id = *db_id;
                 // MVCC-enabled attached DBs are committed in commit_txn_mvcc phase 2
                 if connection.mv_store_for_db(db_id).is_some() {
@@ -3210,10 +3310,15 @@ impl Program {
                 } else {
                     // Discard any local schema changes on rollback
                     connection.database_schemas().write().remove(&db_id);
-                    attached_pager.rollback_attached();
+                    if let Err(error) = attached_pager.rollback_attached() {
+                        rollback_error = Some(error);
+                    }
                 }
             }
-            Ok(IOResult::Done(()))
+            match rollback_error {
+                Some(error) => Err(error.into()),
+                None => Ok(IOResult::Done(())),
+            }
         })
     }
 
@@ -3273,6 +3378,7 @@ impl Program {
         }
 
         let mut abort_error: Option<LimboError> = None;
+        state.cursor_locks.clear();
         state.explicit_checkpoint_guard = None;
         // PRAGMA journal_mode owns its MVCC checkpoint in active_op_state rather
         // than commit_state. Clean it before transaction abort logic inspects
@@ -3344,8 +3450,7 @@ impl Program {
         // would deliver a rollback outcome for work that commits below.
         let keeps_prior_changes = match err {
             Some(LimboError::RaiseIgnore) => true,
-            Some(LimboError::Raise(ResolveType::Fail, _)) => true,
-            Some(LimboError::Constraint(_)) => self.resolve_type == ResolveType::Fail,
+            Some(err) => err.is_fail_constraint(self.resolve_type),
             _ => false,
         };
         if (err.is_some() || state.execution_state.is_running()) && !keeps_prior_changes {
@@ -3433,9 +3538,8 @@ impl Program {
                 // For ON CONFLICT FAIL, do NOT rollback the statement savepoint —
                 // changes made before the error should persist.
                 // For all other resolve types (ABORT, ROLLBACK, etc.), rollback the statement.
-                let is_fail_constraint = (matches!(err, Some(LimboError::Constraint(_)))
-                    && self.resolve_type == ResolveType::Fail)
-                    || matches!(err, Some(LimboError::Raise(ResolveType::Fail, _)));
+                let is_fail_constraint =
+                    err.is_some_and(|err| err.is_fail_constraint(self.resolve_type));
                 if !is_fail_constraint {
                     if let Err(end_stmt_err) = state.end_statement(
                         &self.connection,
@@ -3482,7 +3586,13 @@ impl Program {
                             "Failed to rollback saved outer transaction after sequence conflict",
                         );
                     }
-                    self.rollback_current_txn(pager);
+                    if let Err(error) = self.rollback_current_txn(pager) {
+                        capture_abort_error(
+                            &mut abort_error,
+                            error,
+                            "Failed to roll back transaction",
+                        );
+                    }
                     self.connection.set_changes(0);
                 }
                 // Foreign key constraint errors: ON CONFLICT does NOT apply to FK violations.
@@ -3490,7 +3600,13 @@ impl Program {
                 // rollback transaction in autocommit mode.
                 Some(LimboError::ForeignKeyConstraint(_)) => {
                     if must_rollback_tx_if_needed {
-                        self.rollback_current_txn(pager);
+                        if let Err(error) = self.rollback_current_txn(pager) {
+                            capture_abort_error(
+                                &mut abort_error,
+                                error,
+                                "Failed to roll back transaction",
+                            );
+                        }
                     }
                     self.connection.set_changes(0);
                 }
@@ -3500,14 +3616,25 @@ impl Program {
                 // - ROLLBACK: rollback the entire transaction regardless of autocommit mode
                 // - FAIL: don't rollback anything - changes persist, transaction stays active
                 // - ABORT (default): rollback statement, rollback txn if autocommit
-                Some(LimboError::Constraint(_)) | Some(LimboError::Raise(_, _)) => {
+                Some(LimboError::Constraint(_))
+                | Some(LimboError::ConstraintWithCode { .. })
+                | Some(LimboError::Raise(_, _)) => {
                     let effective_resolve = match err {
                         Some(LimboError::Raise(rt, _)) => *rt,
+                        Some(LimboError::ConstraintWithCode {
+                            nested_fail: true, ..
+                        }) => ResolveType::Fail,
                         _ => self.resolve_type,
                     };
                     match effective_resolve {
                         ResolveType::Rollback => {
-                            self.rollback_current_txn(pager);
+                            if let Err(error) = self.rollback_current_txn(pager) {
+                                capture_abort_error(
+                                    &mut abort_error,
+                                    error,
+                                    "Failed to roll back transaction",
+                                );
+                            }
                             // All deferred FK violations are undone by the full rollback.
                             self.connection.clear_deferred_foreign_key_violations();
                         }
@@ -3578,8 +3705,16 @@ impl Program {
                                 // delivered it before returning the error;
                                 // only the trigger RAISE(FAIL) shape reaches
                                 // the commit through this arm.
-                                let halt_already_delivered =
-                                    matches!(err, Some(LimboError::Constraint(_)));
+                                let halt_already_delivered = matches!(
+                                    err,
+                                    Some(
+                                        LimboError::Constraint(_)
+                                            | LimboError::ConstraintWithCode {
+                                                nested_fail: false,
+                                                ..
+                                            }
+                                    )
+                                );
                                 if committed && !halt_already_delivered {
                                     execute::index_method_on_transaction_committed_all(
                                         state,
@@ -3590,7 +3725,13 @@ impl Program {
                         }
                         _ => {
                             if must_rollback_tx_if_needed {
-                                self.rollback_current_txn(pager);
+                                if let Err(error) = self.rollback_current_txn(pager) {
+                                    capture_abort_error(
+                                        &mut abort_error,
+                                        error,
+                                        "Failed to roll back transaction",
+                                    );
+                                }
                             }
                         }
                     }
@@ -3612,12 +3753,24 @@ impl Program {
                 _ => match state.auto_txn_cleanup {
                     TxnCleanup::RollbackTxn => {
                         if must_rollback_tx_if_needed {
-                            self.rollback_current_txn(pager);
+                            if let Err(error) = self.rollback_current_txn(pager) {
+                                capture_abort_error(
+                                    &mut abort_error,
+                                    error,
+                                    "Failed to roll back transaction",
+                                );
+                            }
                         }
                     }
                     TxnCleanup::RollbackSavepoint => {
                         if can_autocommit_now {
-                            self.rollback_current_txn(pager);
+                            if let Err(error) = self.rollback_current_txn(pager) {
+                                capture_abort_error(
+                                    &mut abort_error,
+                                    error,
+                                    "Failed to roll back transaction",
+                                );
+                            }
                         } else if err.is_none() && !pager.is_checkpointing() {
                             if let Err(end_stmt_err) = state.end_statement(
                                 &self.connection,
@@ -3636,7 +3789,13 @@ impl Program {
                         if can_autocommit_now
                             || (!self.connection.get_auto_commit() && err.is_some())
                         {
-                            self.rollback_current_txn(pager);
+                            if let Err(error) = self.rollback_current_txn(pager) {
+                                capture_abort_error(
+                                    &mut abort_error,
+                                    error,
+                                    "Failed to roll back transaction",
+                                );
+                            }
                         }
                     }
                 },
@@ -3653,9 +3812,10 @@ impl Program {
         Ok(())
     }
 
-    fn rollback_current_txn(&self, pager: &Arc<Pager>) {
-        self.connection.rollback_current_txn_state(pager, true);
+    fn rollback_current_txn(&self, pager: &Arc<Pager>) -> Result<()> {
+        let rollback_result = self.connection.rollback_current_txn_state(pager, true);
         self.connection.set_cdc_transaction_id(-1);
+        rollback_result
     }
 
     /// MVCC sequence operations run in a separate inner tx, which temporarily

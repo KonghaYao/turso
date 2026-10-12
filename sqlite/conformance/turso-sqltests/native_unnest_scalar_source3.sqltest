@@ -1,0 +1,49 @@
+@database :memory:
+
+# Three original SQL expansions; expectations from literal source rows, independent of reference output.
+
+setup correlated_comparison_errors {
+    CREATE TABLE error_outer(id INTEGER, wanted INTEGER, limit_value INTEGER, text_value TEXT);
+    CREATE TABLE error_inner(value INTEGER, json_value TEXT);
+    INSERT INTO error_outer VALUES (1, 1, 10, '1'), (2, 1, 0, 'bad JSON');
+    INSERT INTO error_inner VALUES (1, '1'), (2, 'bad JSON');
+}
+
+@setup correlated_comparison_errors
+test independently-derived-wanted-lt {
+    SELECT o.id
+        FROM error_outer AS o
+        WHERE (SELECT o.wanted) IN (
+            SELECT i.value FROM error_inner AS i WHERE i.value < o.limit_value
+        )
+        ORDER BY o.id;
+}
+expect {
+    1
+}
+
+@setup correlated_comparison_errors
+test independently-derived-wanted-ge {
+    SELECT o.id
+        FROM error_outer AS o
+        WHERE (SELECT o.wanted) IN (
+            SELECT i.value FROM error_inner AS i WHERE i.value >= o.limit_value
+        )
+        ORDER BY o.id;
+}
+expect {
+    2
+}
+
+@setup correlated_comparison_errors
+test independently-derived-json-ge {
+    SELECT o.id
+        FROM error_outer AS o
+        WHERE (SELECT json_extract(o.text_value, '$')) IN (
+            SELECT i.value FROM error_inner AS i WHERE i.value >= o.limit_value
+        )
+        ORDER BY o.id;
+}
+expect error {
+    .*malformed JSON.*
+}

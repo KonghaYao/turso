@@ -1,5 +1,5 @@
 use crate::schema::{BTreeTable, Trigger};
-use crate::sync::Arc;
+use crate::sync::{Arc, OnceLock, Weak};
 use crate::translate::expr::WalkControl;
 use crate::translate::plan::ColumnMask;
 use crate::translate::subquery::{
@@ -14,10 +14,11 @@ use crate::translate::{
 use crate::util::normalize_ident;
 use crate::vdbe::affinity::Affinity;
 use crate::vdbe::insn::{Insn, Subprogram};
-use crate::vdbe::BranchOffset;
+use crate::vdbe::{BranchOffset, PreparedProgram};
 use crate::{bail_parse_error, QueryMode, Result};
 use std::cell::RefCell;
 use std::num::NonZero;
+use std::rc::Rc;
 use turso_parser::ast::{self, Expr, TriggerEvent, TriggerTime};
 
 /// Context for trigger execution
@@ -109,7 +110,7 @@ impl TriggerContext {
 /// Allocates parameter indices on demand for NEW/OLD column references.
 /// Only columns actually referenced in the trigger body get assigned a parameter,
 /// reducing bind_at calls from N (total columns) to K (referenced columns).
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct ParamAllocator {
     /// For each column index, the assigned 1-based parameter index, or None if unreferenced.
     new_entries: Vec<Option<NonZero<usize>>>,
@@ -530,24 +531,17 @@ fn execute_trigger_commands(
     database_id: usize,
     ignore_jump_target: BranchOffset,
 ) -> Result<bool> {
-    struct TriggerCompilationGuard {
-        connection: Arc<crate::Connection>,
+    let compile_stack = resolver.trigger_compile_stack.clone();
+    if let Some((slot, parameters)) = compile_stack.find(trigger, ctx.override_conflict) {
+        emit_trigger_program(
+            program,
+            ctx,
+            &parameters,
+            Subprogram::Pending(slot),
+            ignore_jump_target,
+        );
+        return Ok(true);
     }
-
-    impl Drop for TriggerCompilationGuard {
-        fn drop(&mut self) {
-            self.connection.end_trigger_compilation();
-        }
-    }
-
-    if connection.trigger_is_compiling(trigger) {
-        // Do not recursively compile the same trigger
-        return Ok(false);
-    }
-    connection.start_trigger_compilation(trigger.clone());
-    let _trigger_compilation_guard = TriggerCompilationGuard {
-        connection: connection.clone(),
-    };
 
     let has_new = ctx.new_registers.is_some();
     let has_old = ctx.old_registers.is_some();
@@ -574,6 +568,21 @@ fn execute_trigger_commands(
         override_conflict: ctx.override_conflict,
         db_name,
     };
+    if trigger.when_clause.is_some() {
+        for column in 0..num_cols {
+            subprogram_ctx.get_new_param(column);
+            subprogram_ctx.get_old_param(column);
+        }
+        subprogram_ctx.get_new_rowid_param();
+        subprogram_ctx.get_old_rowid_param();
+    }
+    let commands = trigger
+        .commands
+        .iter()
+        .map(|command| trigger_cmd_to_stmt_for_subprogram(command, &subprogram_ctx))
+        .collect::<Result<Vec<_>>>()?;
+    let parameters = subprogram_ctx.param_alloc.borrow().clone();
+    let entry = compile_stack.push(trigger.clone(), ctx.override_conflict, parameters.clone());
     let mut subprogram_builder = ProgramBuilder::new_for_trigger(
         QueryMode::Normal,
         program.capture_data_changes_info().clone(),
@@ -595,8 +604,20 @@ fn execute_trigger_commands(
     let prev_trigger_context = resolver.trigger_context.clone();
     resolver.set_trigger_context(trigger_database_id, trigger.name.clone());
     let compile_result = (|| -> Result<()> {
-        for command in trigger.commands.iter() {
-            let stmt = trigger_cmd_to_stmt_for_subprogram(command, &subprogram_ctx)?;
+        subprogram_builder.prologue();
+        let end = subprogram_builder.allocate_label();
+        if let Some(when_expr) = trigger.when_clause.clone() {
+            emit_trigger_when(
+                &mut subprogram_builder,
+                resolver,
+                connection,
+                ctx,
+                &parameters,
+                when_expr,
+                end,
+            )?;
+        }
+        for (command, stmt) in trigger.commands.iter().zip(commands) {
             subprogram_builder.prologue();
             translate_inner(
                 stmt,
@@ -614,6 +635,7 @@ fn execute_trigger_commands(
                 subprogram_builder.emit_insn(Insn::ResetCount);
             }
         }
+        subprogram_builder.preassign_label_to_next_insn(end);
         Ok(())
     })();
     // Restore previous trigger context (supports nested triggers).
@@ -623,6 +645,10 @@ fn execute_trigger_commands(
     let built_subprogram =
         subprogram_builder.build(connection.clone(), true, "trigger subprogram")?;
     let subprogram_prepared = built_subprogram.prepared();
+    entry
+        .slot
+        .set(Arc::downgrade(subprogram_prepared))
+        .expect("trigger subprogram slot already filled");
 
     // Trigger subprograms do not emit Transaction opcodes, so the parent statement
     // must acquire any attached/temp database transactions the trigger body needs
@@ -647,9 +673,24 @@ fn execute_trigger_commands(
         }
     }
 
-    // Build the param_registers Vec from the sparse allocator: maps each parameter
-    // index to the parent register that holds the value.
-    let alloc = subprogram_ctx.param_alloc.borrow();
+    emit_trigger_program(
+        program,
+        ctx,
+        &parameters,
+        Subprogram::PreparedProgram(subprogram_prepared.clone()),
+        ignore_jump_target,
+    );
+
+    Ok(true)
+}
+
+fn emit_trigger_program(
+    program: &mut ProgramBuilder,
+    ctx: &TriggerContext,
+    alloc: &ParamAllocator,
+    subprogram: Subprogram,
+    ignore_jump_target: BranchOffset,
+) {
     let total_params = alloc.num_params();
     let mut param_registers = vec![0usize; total_params];
 
@@ -673,15 +714,140 @@ fn execute_trigger_commands(
             param_registers[param_idx.get() - 1] = *old_regs.last().unwrap();
         }
     }
-    drop(alloc);
-
     program.emit_insn(Insn::Program {
         param_registers,
-        program: Subprogram::PreparedProgram(built_subprogram.prepared().clone()),
+        program: subprogram,
         ignore_jump_target,
     });
+}
 
-    Ok(true)
+fn emit_trigger_when(
+    program: &mut ProgramBuilder,
+    resolver: &mut Resolver,
+    connection: &Arc<crate::Connection>,
+    ctx: &TriggerContext,
+    parameters: &ParamAllocator,
+    mut expression: Expr,
+    end: BranchOffset,
+) -> Result<()> {
+    let mut row_registers = |entries: &[Option<NonZero<usize>>], rowid: Option<NonZero<usize>>| {
+        rowid.map(|rowid| {
+            entries
+                .iter()
+                .copied()
+                .chain([Some(rowid)])
+                .map(|parameter| {
+                    let register = program.alloc_register();
+                    program.emit_insn(Insn::Variable {
+                        index: parameter.expect("WHEN parameter must be allocated"),
+                        dest: register,
+                    });
+                    register
+                })
+                .collect()
+        })
+    };
+    let local_ctx = TriggerContext::new(
+        ctx.table.clone(),
+        row_registers(&parameters.new_entries, parameters.new_rowid),
+        row_registers(&parameters.old_entries, parameters.old_rowid),
+    );
+    let saved_affinities = std::mem::take(&mut resolver.register_affinities);
+    let saved_collations = std::mem::take(&mut resolver.register_collations);
+    populate_trigger_register_affinities(resolver, &local_ctx);
+    let result = (|| {
+        rewrite_trigger_expr_for_when_clause(&mut expression, &ctx.table, &local_ctx)?;
+        let mut subqueries = Vec::new();
+        plan_subqueries_from_trigger_when_clause(
+            program,
+            &mut subqueries,
+            &mut expression,
+            resolver,
+            connection,
+        )?;
+        for subquery in &mut subqueries {
+            let plan = subquery.consume_plan(crate::translate::plan::EvalAt::BeforeLoop);
+            emit_non_from_clause_subquery(
+                program,
+                resolver,
+                *plan,
+                &subquery.query_type,
+                true,
+                false,
+            )?;
+        }
+        let register = program.alloc_register();
+        translate_expr(program, None, &expression, register, resolver)?;
+        program.emit_insn(Insn::IfNot {
+            reg: register,
+            jump_if_null: true,
+            target_pc: end,
+        });
+        Ok(())
+    })();
+    resolver.register_affinities = saved_affinities;
+    resolver.register_collations = saved_collations;
+    result
+}
+
+#[derive(Clone, Default)]
+pub(super) struct TriggerCompileStack(Rc<RefCell<Vec<TriggerCompileEntry>>>);
+
+struct TriggerCompileEntry {
+    trigger: Arc<Trigger>,
+    conflict: Option<ast::ResolveType>,
+    parameters: ParamAllocator,
+    slot: Arc<OnceLock<Weak<PreparedProgram>>>,
+}
+
+impl TriggerCompileStack {
+    fn find(
+        &self,
+        trigger: &Arc<Trigger>,
+        conflict: Option<ast::ResolveType>,
+    ) -> Option<(Arc<OnceLock<Weak<PreparedProgram>>>, ParamAllocator)> {
+        self.0
+            .borrow()
+            .iter()
+            .find(|entry| Arc::ptr_eq(&entry.trigger, trigger) && entry.conflict == conflict)
+            .map(|entry| (entry.slot.clone(), entry.parameters.clone()))
+    }
+
+    fn push(
+        &self,
+        trigger: Arc<Trigger>,
+        conflict: Option<ast::ResolveType>,
+        parameters: ParamAllocator,
+    ) -> TriggerCompileGuard {
+        let slot = Arc::new(OnceLock::new());
+        self.0.borrow_mut().push(TriggerCompileEntry {
+            trigger,
+            conflict,
+            parameters,
+            slot: slot.clone(),
+        });
+        TriggerCompileGuard {
+            stack: self.clone(),
+            slot,
+        }
+    }
+}
+
+struct TriggerCompileGuard {
+    stack: TriggerCompileStack,
+    slot: Arc<OnceLock<Weak<PreparedProgram>>>,
+}
+
+impl Drop for TriggerCompileGuard {
+    fn drop(&mut self) {
+        let entry = self
+            .stack
+            .0
+            .borrow_mut()
+            .pop()
+            .expect("trigger compile stack underflow");
+        debug_assert!(Arc::ptr_eq(&entry.slot, &self.slot));
+    }
 }
 
 /// Check if there are any triggers for a given event (regardless of time).
@@ -888,91 +1054,16 @@ pub fn fire_trigger(
 
     let saved_register_affinities = std::mem::take(&mut resolver.register_affinities);
     let saved_register_collations = std::mem::take(&mut resolver.register_collations);
-    populate_trigger_register_affinities(resolver, ctx);
-    let result = (|| -> Result<()> {
-        // A trigger body is inlined and re-executed once per affected row. Any
-        // run-once block inside it (an uncorrelated subquery, a hash or
-        // ephemeral-index build) is guarded by Insn::Once, whose "already ran"
-        // state otherwise persists across firings and would reuse a value
-        // cached during an earlier firing. Clear that state at the start of
-        // each firing so every firing re-evaluates from the current table
-        // state, the same fresh start SQLite gets from a per-invocation trigger
-        // sub-program.
-        let firing_end = program.allocate_label();
-        program.emit_insn(Insn::ResetOnce {
-            region_end: firing_end,
-        });
-
-        // Evaluate WHEN clause if present
-        if let Some(mut when_expr) = trigger.when_clause.clone() {
-            crate::stack::trace_stack!("when_clause");
-            // Rewrite NEW/OLD references in WHEN clause to use registers
-            rewrite_trigger_expr_for_when_clause(&mut when_expr, &ctx.table, ctx)?;
-
-            // Plan and emit any subqueries in the WHEN clause (e.g. IN (SELECT ...), EXISTS, scalar subqueries).
-            // This transforms InSelect/Exists/Subquery nodes into SubqueryResult nodes that translate_expr can handle.
-            let mut subqueries = Vec::new();
-            plan_subqueries_from_trigger_when_clause(
-                program,
-                &mut subqueries,
-                &mut when_expr,
-                resolver,
-                connection,
-            )?;
-            // Emit the planned subqueries so their results are available when we evaluate the WHEN expression.
-            // Always treat these as correlated (no `Once` caching) because the WHEN clause is evaluated
-            // per-row, and trigger bodies may modify the tables referenced by the subquery between evaluations.
-            for subquery in &mut subqueries {
-                let plan = subquery.consume_plan(crate::translate::plan::EvalAt::BeforeLoop);
-                emit_non_from_clause_subquery(
-                    program,
-                    resolver,
-                    *plan,
-                    &subquery.query_type,
-                    true, // always re-evaluate: trigger WHEN is checked per-row
-                    false,
-                )?;
-            }
-
-            let when_reg = program.alloc_register();
-            translate_expr(program, None, &when_expr, when_reg, resolver)?;
-
-            let skip_label = program.allocate_label();
-            program.emit_insn(Insn::IfNot {
-                reg: when_reg,
-                jump_if_null: true,
-                target_pc: skip_label,
-            });
-
-            // Execute trigger commands if WHEN clause is true
-            execute_trigger_commands(
-                program,
-                resolver,
-                &trigger,
-                ctx,
-                connection,
-                database_id,
-                ignore_jump_target,
-            )?;
-
-            program.preassign_label_to_next_insn(skip_label);
-        } else {
-            // No WHEN clause - always execute
-            execute_trigger_commands(
-                program,
-                resolver,
-                &trigger,
-                ctx,
-                connection,
-                database_id,
-                ignore_jump_target,
-            )?;
-        }
-
-        // Marks the end of this firing's instruction range for ResetOnce above.
-        program.preassign_label_to_next_insn(firing_end);
-        Ok(())
-    })();
+    let result = execute_trigger_commands(
+        program,
+        resolver,
+        &trigger,
+        ctx,
+        connection,
+        database_id,
+        ignore_jump_target,
+    )
+    .map(|_| ());
     resolver.register_affinities = saved_register_affinities;
     resolver.register_collations = saved_register_collations;
     result
@@ -1315,14 +1406,8 @@ fn rewrite_trigger_expr_single_for_when_clause(
     match expr {
         // Bare column references are not valid in trigger WHEN clauses.
         // Per SQLite docs, columns must be qualified with NEW or OLD.
-        Expr::Id(name) if !allow_non_trigger_qualified => {
-            let ident = normalize_ident(name.as_str());
-            if table.get_column(&ident).is_some()
-                || ROWID_STRS.iter().any(|s| s.eq_ignore_ascii_case(&ident))
-            {
-                crate::bail_parse_error!("no such column: {}", ident);
-            }
-            return Ok(());
+        Expr::Id(name) if !allow_non_trigger_qualified && !name.quoted_with('"') => {
+            crate::bail_parse_error!("no such column: {}", name.as_str());
         }
         Expr::Exists(select) | Expr::Subquery(select) => {
             rewrite_expressions_in_select_for_when_clause(select, table, ctx)?;
@@ -1407,4 +1492,250 @@ fn rewrite_trigger_expr_single_for_when_clause(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::io::MemoryIO;
+    use crate::sync::Arc;
+    use crate::{Connection, Database, LimboError, SqliteDialect, Value};
+
+    #[test]
+    fn when_unbound_before_insert() {
+        assert_unbound_when_rejected("BEFORE", "INSERT");
+    }
+
+    #[test]
+    fn when_unbound_after_insert() {
+        assert_unbound_when_rejected("AFTER", "INSERT");
+    }
+
+    #[test]
+    fn when_unbound_before_update() {
+        assert_unbound_when_rejected("BEFORE", "UPDATE");
+    }
+
+    #[test]
+    fn when_unbound_after_update() {
+        assert_unbound_when_rejected("AFTER", "UPDATE");
+    }
+
+    #[test]
+    fn when_unbound_before_delete() {
+        assert_unbound_when_rejected("BEFORE", "DELETE");
+    }
+
+    #[test]
+    fn when_unbound_after_delete() {
+        assert_unbound_when_rejected("AFTER", "DELETE");
+    }
+
+    #[test]
+    fn when_double_quoted_identifiers_respect_dqs() {
+        for enabled in [true, false] {
+            for (predicate, expected_count) in [("\"a\"", 0), ("\"nosuchcol\"", 0), ("\"1\"", 1)] {
+                let connection = when_test_connection();
+                connection.set_dqs_dml(enabled);
+                create_when_trigger(&connection, "AFTER", "INSERT", predicate);
+                if enabled {
+                    connection.execute("INSERT INTO t VALUES(2,2)").unwrap();
+                    assert_when_count(&connection, expected_count);
+                } else {
+                    assert_when_prepare_error(
+                        &connection,
+                        "INSERT INTO t VALUES(2,2)",
+                        &format!("no such column: {}", &predicate[1..predicate.len() - 1]),
+                    );
+                    assert_when_count(&connection, 0);
+                }
+                assert_when_integrity(&connection);
+            }
+        }
+    }
+
+    #[test]
+    fn when_bare_bracket_and_backtick_identifiers_are_not_literals() {
+        for enabled in [true, false] {
+            for predicate in ["nosuchcol", "[nosuchcol]", "`nosuchcol`", "a", "rowid"] {
+                let connection = when_test_connection();
+                connection.set_dqs_dml(enabled);
+                create_when_trigger(&connection, "BEFORE", "INSERT", predicate);
+                let name = match predicate {
+                    "a" => "a",
+                    "rowid" => "rowid",
+                    _ => "nosuchcol",
+                };
+                assert_when_prepare_error(
+                    &connection,
+                    "INSERT INTO t VALUES(2,2)",
+                    &format!("no such column: {name}"),
+                );
+                assert_when_count(&connection, 0);
+                assert_when_integrity(&connection);
+            }
+        }
+    }
+
+    #[test]
+    fn when_old_new_and_select_identifiers_keep_their_scopes() {
+        for timing in ["BEFORE", "AFTER"] {
+            for (event, predicate, statement) in [
+                ("INSERT", "NEW.a=2", "INSERT INTO t VALUES(2,2)"),
+                (
+                    "UPDATE",
+                    "OLD.a=1 AND NEW.a=2",
+                    "UPDATE t SET a=2 WHERE id=1",
+                ),
+                ("DELETE", "OLD.a=1", "DELETE FROM t WHERE id=1"),
+                (
+                    "INSERT",
+                    "(SELECT x FROM lookup WHERE x=NEW.a)=2",
+                    "INSERT INTO t VALUES(2,2)",
+                ),
+                (
+                    "UPDATE",
+                    "OLD.a=1 AND EXISTS(SELECT 1 FROM lookup WHERE x=NEW.a)",
+                    "UPDATE t SET a=2 WHERE id=1",
+                ),
+                (
+                    "DELETE",
+                    "(SELECT x FROM lookup WHERE x=OLD.a)=1",
+                    "DELETE FROM t WHERE id=1",
+                ),
+            ] {
+                let connection = when_test_connection();
+                create_when_trigger(&connection, timing, event, predicate);
+                connection.execute(statement).unwrap();
+                assert_when_count(&connection, 1);
+                assert_when_integrity(&connection);
+            }
+        }
+    }
+
+    #[test]
+    fn when_scalar_select_unknown_identifier_uses_select_binding() {
+        let connection = when_test_connection();
+        create_when_trigger(
+            &connection,
+            "AFTER",
+            "INSERT",
+            "(SELECT nosuchcol FROM lookup)",
+        );
+        assert_when_prepare_error(
+            &connection,
+            "INSERT INTO t VALUES(2,2)",
+            "no such column: nosuchcol",
+        );
+        assert_when_count(&connection, 0);
+        assert_when_integrity(&connection);
+    }
+
+    #[test]
+    fn when_literal_conditions_keep_their_values() {
+        for (predicate, expected_count) in [
+            ("TRUE", 1),
+            ("FALSE", 0),
+            ("NULL", 0),
+            ("1", 1),
+            ("0", 0),
+            ("'1'", 1),
+            ("'literal'", 0),
+        ] {
+            let connection = when_test_connection();
+            create_when_trigger(&connection, "AFTER", "INSERT", predicate);
+            connection.execute("INSERT INTO t VALUES(2,2)").unwrap();
+            assert_when_count(&connection, expected_count);
+            assert_when_integrity(&connection);
+        }
+    }
+
+    fn assert_unbound_when_rejected(timing: &str, event: &str) {
+        let connection = when_test_connection();
+        create_when_trigger(&connection, timing, event, "nosuchcol");
+        connection
+            .execute("CREATE TABLE prior(v); BEGIN; INSERT INTO prior VALUES(42)")
+            .unwrap();
+        let statement = match event {
+            "INSERT" => "INSERT INTO t VALUES(2,2)",
+            "UPDATE" => "UPDATE t SET a=2 WHERE id=1",
+            "DELETE" => "DELETE FROM t WHERE id=1",
+            _ => unreachable!(),
+        };
+        assert_when_prepare_error(&connection, statement, "no such column: nosuchcol");
+        connection.execute("COMMIT").unwrap();
+        assert_eq!(
+            connection
+                .prepare("SELECT id,a FROM t")
+                .unwrap()
+                .run_collect_rows()
+                .unwrap(),
+            vec![vec![Value::from_i64(1), Value::from_i64(1)]]
+        );
+        assert_eq!(
+            connection
+                .prepare("SELECT v FROM prior")
+                .unwrap()
+                .run_collect_rows()
+                .unwrap(),
+            vec![vec![Value::from_i64(42)]]
+        );
+        assert_when_count(&connection, 0);
+        assert_when_integrity(&connection);
+    }
+
+    fn when_test_connection() -> Arc<Connection> {
+        let database = Database::open_file(
+            Arc::new(MemoryIO::new()),
+            ":memory:",
+            Arc::new(SqliteDialect),
+        )
+        .unwrap();
+        let connection = database.connect().unwrap();
+        connection
+            .execute("CREATE TABLE t(id INTEGER PRIMARY KEY,a INTEGER); CREATE INDEX ta ON t(a); INSERT INTO t VALUES(1,1); CREATE TABLE audit(v); CREATE TABLE lookup(x); INSERT INTO lookup VALUES(1),(2)")
+            .unwrap();
+        connection
+    }
+
+    fn create_when_trigger(
+        connection: &Arc<Connection>,
+        timing: &str,
+        event: &str,
+        predicate: &str,
+    ) {
+        connection
+            .execute(format!("CREATE TRIGGER tr {timing} {event} ON t WHEN {predicate} BEGIN INSERT INTO audit VALUES(1); END"))
+            .unwrap();
+    }
+
+    fn assert_when_prepare_error(connection: &Arc<Connection>, statement: &str, message: &str) {
+        let error = connection
+            .prepare(statement)
+            .err()
+            .expect("DML must reject an unbound WHEN identifier");
+        assert!(matches!(&error, LimboError::ParseError(_)));
+        assert_eq!(error.sql_error_message(), message);
+    }
+
+    fn assert_when_count(connection: &Arc<Connection>, expected: i64) {
+        assert_eq!(
+            connection
+                .prepare("SELECT count(*) FROM audit")
+                .unwrap()
+                .run_collect_rows()
+                .unwrap(),
+            vec![vec![Value::from_i64(expected)]]
+        );
+    }
+
+    fn assert_when_integrity(connection: &Arc<Connection>) {
+        assert_eq!(
+            connection
+                .prepare("PRAGMA integrity_check")
+                .unwrap()
+                .run_collect_rows()
+                .unwrap(),
+            vec![vec![Value::from_text("ok")]]
+        );
+    }
 }

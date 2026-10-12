@@ -19,9 +19,19 @@
 #   make clean
 
 ROOT_DIR  := $(shell cd ../.. && pwd)
-TURSO_LIB := $(shell $(ROOT_DIR)/scripts/cargo-target-dir)/release
+TURSO_LIB ?= $(shell $(ROOT_DIR)/scripts/cargo-target-dir)/debug
 SRC       := $(ROOT_DIR)/bindings/tcl/turso_tcl.c
 INCLUDE   := $(ROOT_DIR)/bindings/c/include
+TURSO_SQLITE_TEST_API ?= 0
+TCLSH ?= tclsh
+OFFICIAL_TESTER ?=
+
+ifeq ($(TURSO_SQLITE_TEST_API),1)
+  SRC += $(ROOT_DIR)/bindings/tcl/turso_test_tcl.c
+  CPPFLAGS += -DTURSO_SQLITE_TEST_API
+  CARGO_TEST_FEATURES = --features sqlite_test_api
+  TEST_SUFFIX = _test
+endif
 
 # Default target — local build (no Docker required).
 .PHONY: all
@@ -40,16 +50,16 @@ docker-build:
 	  bash -c '\
 	    apt-get update -qq && \
 	    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tcl-dev && \
-	    cargo build --release -p turso_sqlite3 2>&1 && \
-	    gcc -shared -fPIC -o bindings/tcl/libturso_tcl.so \
-	        bindings/tcl/turso_tcl.c \
+	    cargo build -p turso_sqlite3 $(CARGO_TEST_FEATURES) 2>&1 && \
+	    gcc -shared -fPIC -o bindings/tcl/libturso_tcl$(TEST_SUFFIX).so \
+	        $(patsubst $(ROOT_DIR)/%,%,$(SRC)) $(CPPFLAGS) \
 	        -I bindings/c/include \
 	        -I /usr/include/tcl8.6 \
-	        -L target/release \
+	        -L target/debug \
 	        -lturso_sqlite3 \
-	        -Wl,-rpath,'"'"'$$ORIGIN/../../target/release'"'"' \
+	        -Wl,-rpath,'"'"'$$ORIGIN/../../target/debug'"'"' \
 	        2>&1 && \
-	    echo "Build OK: bindings/tcl/libturso_tcl.so" \
+	    echo "Build OK: bindings/tcl/libturso_tcl$(TEST_SUFFIX).so" \
 	  '
 
 # Build the shared library and run the probe tests in one container so the
@@ -63,17 +73,17 @@ docker-test:
 	  bash -c '\
 	    apt-get update -qq && \
 	    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tcl-dev && \
-	    cargo build --release -p turso_sqlite3 2>&1 && \
-	    gcc -shared -fPIC -o bindings/tcl/libturso_tcl.so \
-	        bindings/tcl/turso_tcl.c \
+	    cargo build -p turso_sqlite3 $(CARGO_TEST_FEATURES) 2>&1 && \
+	    gcc -shared -fPIC -o bindings/tcl/libturso_tcl$(TEST_SUFFIX).so \
+	        $(patsubst $(ROOT_DIR)/%,%,$(SRC)) $(CPPFLAGS) \
 	        -I bindings/c/include \
 	        -I /usr/include/tcl8.6 \
-	        -L target/release \
+	        -L target/debug \
 	        -lturso_sqlite3 \
-	        -Wl,-rpath,'"'"'$$ORIGIN/../../target/release'"'"' \
+	        -Wl,-rpath,'"'"'$$ORIGIN/../../target/debug'"'"' \
 	        2>&1 && \
-	    echo "Build OK: bindings/tcl/libturso_tcl.so" && \
-	    LD_LIBRARY_PATH=target/release tclsh bindings/tcl/test_probes.tcl \
+	    echo "Build OK: bindings/tcl/libturso_tcl$(TEST_SUFFIX).so" && \
+	    LD_LIBRARY_PATH=target/debug $(if $(filter 1,$(TURSO_SQLITE_TEST_API)),tclsh bindings/tcl/test_official_api.tcl bindings/tcl/libturso_tcl_test.so 1,tclsh bindings/tcl/test_probes.tcl) \
 	  '
 
 # ---- Local build (macOS / Linux with TCL dev headers) -----------------------
@@ -87,19 +97,23 @@ ifeq ($(UNAME_S),Darwin)
   TCL_INCLUDE  ?= $(shell pkg-config --cflags tcl 2>/dev/null || echo "-I$(_TCL_SDK_HDR)")
   TCL_LIBS     ?= $(shell pkg-config --libs   tcl 2>/dev/null || echo "-framework Tcl")
   SHARED_FLAG   = -dynamiclib
-  TARGET        = $(ROOT_DIR)/bindings/tcl/libturso_tcl.dylib
+  TARGET       ?= $(ROOT_DIR)/bindings/tcl/libturso_tcl$(TEST_SUFFIX).dylib
 else
   TCL_INCLUDE  ?= $(shell pkg-config --cflags tcl 2>/dev/null || echo "-I/usr/include/tcl8.6")
   TCL_LIBS     ?= $(shell pkg-config --libs   tcl 2>/dev/null || echo "-ltcl8.6")
   SHARED_FLAG   = -shared -fPIC
-  TARGET        = $(ROOT_DIR)/bindings/tcl/libturso_tcl.so
+  TARGET       ?= $(ROOT_DIR)/bindings/tcl/libturso_tcl$(TEST_SUFFIX).so
 endif
 
 .PHONY: build
 build:
-	cargo build --release -p turso_sqlite3
-	gcc $(SHARED_FLAG) -o $(TARGET) \
-	    $(SRC) \
+	cargo build -p turso_sqlite3 $(CARGO_TEST_FEATURES)
+	$(MAKE) link
+
+.PHONY: link test-official-api
+link:
+	$(CC) $(SHARED_FLAG) $(CPPFLAGS) $(CFLAGS) -o $(TARGET) \
+	    $(SRC) $(LDFLAGS) \
 	    $(TCL_INCLUDE) \
 	    -I$(INCLUDE) \
 	    -L$(TURSO_LIB) \
@@ -108,9 +122,14 @@ build:
 	    -Wl,-rpath,'$(TURSO_LIB)'
 	@echo "Built: $(TARGET)"
 
+test-official-api: link
+	$(TCLSH) $(ROOT_DIR)/bindings/tcl/test_official_api.tcl $(TARGET) $(TURSO_SQLITE_TEST_API) $(if $(OFFICIAL_TESTER),"$(OFFICIAL_TESTER)")
+
 # ---- Clean ------------------------------------------------------------------
 
 .PHONY: clean
 clean:
 	rm -f $(ROOT_DIR)/bindings/tcl/libturso_tcl.so \
 	      $(ROOT_DIR)/bindings/tcl/libturso_tcl.dylib
+	rm -f $(ROOT_DIR)/bindings/tcl/libturso_tcl_test.so \
+	      $(ROOT_DIR)/bindings/tcl/libturso_tcl_test.dylib

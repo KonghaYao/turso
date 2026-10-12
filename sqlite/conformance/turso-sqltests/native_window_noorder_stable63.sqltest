@@ -1,0 +1,872 @@
+@database :memory:
+
+# Verbatim original two_parts setup and 63 order-independent original expansions.
+setup two_parts {
+    CREATE TABLE tnp(p INT, v INT);
+    INSERT INTO tnp VALUES (1,10),(1,20),(1,30),(2,40),(2,50);
+}
+
+@setup two_parts
+test fixed-original-noorder-m1-s1-e1-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect {
+    1|10|10|1|10|10
+    1|20|20|1|20|20
+    1|30|30|1|30|30
+    2|40|40|1|40|40
+    2|50|50|1|50|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m1-s1-e2-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p ROWS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect {
+    1|10|10|1|10|10
+    1|20|20|1|20|20
+    1|30|30|1|30|30
+    2|40|40|1|40|40
+    2|50|50|1|50|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m1-s1-e3-x1 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY p, v;
+}
+expect {
+    1|10|60|3|10|30
+    1|20|60|3|10|30
+    1|30|60|3|10|30
+    2|40|90|2|40|50
+    2|50|90|2|40|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m1-s1-e3-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect {
+    1|10|10|1|10|10
+    1|20|20|1|20|20
+    1|30|30|1|30|30
+    2|40|40|1|40|40
+    2|50|50|1|50|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m1-s2-e1-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p ROWS BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect {
+    1|10|10|1|10|10
+    1|20|20|1|20|20
+    1|30|30|1|30|30
+    2|40|40|1|40|40
+    2|50|50|1|50|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m1-s2-e2-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect {
+    1|10|10|1|10|10
+    1|20|20|1|20|20
+    1|30|30|1|30|30
+    2|40|40|1|40|40
+    2|50|50|1|50|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m1-s2-e3-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p ROWS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect {
+    1|10|10|1|10|10
+    1|20|20|1|20|20
+    1|30|30|1|30|30
+    2|40|40|1|40|40
+    2|50|50|1|50|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m1-s3-e1-x1 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p ROWS BETWEEN CURRENT ROW AND CURRENT ROW )
+    ORDER BY p, v;
+}
+expect {
+    1|10|10|1|10|10
+    1|20|20|1|20|20
+    1|30|30|1|30|30
+    2|40|40|1|40|40
+    2|50|50|1|50|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m1-s3-e1-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p ROWS BETWEEN CURRENT ROW AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect {
+    1|10|10|1|10|10
+    1|20|20|1|20|20
+    1|30|30|1|30|30
+    2|40|40|1|40|40
+    2|50|50|1|50|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m1-s3-e2-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect {
+    1|10|10|1|10|10
+    1|20|20|1|20|20
+    1|30|30|1|30|30
+    2|40|40|1|40|40
+    2|50|50|1|50|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m1-s3-e3-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect {
+    1|10|10|1|10|10
+    1|20|20|1|20|20
+    1|30|30|1|30|30
+    2|40|40|1|40|40
+    2|50|50|1|50|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m1-s4-e1-x1 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p ROWS BETWEEN 1 FOLLOWING AND CURRENT ROW )
+    ORDER BY p, v;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup two_parts
+test fixed-original-noorder-m1-s4-e1-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p ROWS BETWEEN 1 FOLLOWING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup two_parts
+test fixed-original-noorder-m1-s4-e2-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect {
+    1|10||0||
+    1|20||0||
+    1|30||0||
+    2|40||0||
+    2|50||0||
+}
+
+@setup two_parts
+test fixed-original-noorder-m1-s4-e3-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p ROWS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect {
+    1|10||0||
+    1|20||0||
+    1|30||0||
+    2|40||0||
+    2|50||0||
+}
+
+@setup two_parts
+test fixed-original-noorder-m2-s1-e1-x1 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW )
+    ORDER BY p, v;
+}
+expect {
+    1|10|60|3|10|30
+    1|20|60|3|10|30
+    1|30|60|3|10|30
+    2|40|90|2|40|50
+    2|50|90|2|40|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m2-s1-e1-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect {
+    1|10|10|1|10|10
+    1|20|20|1|20|20
+    1|30|30|1|30|30
+    2|40|40|1|40|40
+    2|50|50|1|50|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m2-s1-e2-x1 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p GROUPS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING )
+    ORDER BY p, v;
+}
+expect {
+    1|10|60|3|10|30
+    1|20|60|3|10|30
+    1|30|60|3|10|30
+    2|40|90|2|40|50
+    2|50|90|2|40|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m2-s1-e2-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p GROUPS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect {
+    1|10|10|1|10|10
+    1|20|20|1|20|20
+    1|30|30|1|30|30
+    2|40|40|1|40|40
+    2|50|50|1|50|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m2-s1-e3-x1 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY p, v;
+}
+expect {
+    1|10|60|3|10|30
+    1|20|60|3|10|30
+    1|30|60|3|10|30
+    2|40|90|2|40|50
+    2|50|90|2|40|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m2-s1-e3-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect {
+    1|10|10|1|10|10
+    1|20|20|1|20|20
+    1|30|30|1|30|30
+    2|40|40|1|40|40
+    2|50|50|1|50|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m2-s2-e1-x1 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW )
+    ORDER BY p, v;
+}
+expect {
+    1|10|60|3|10|30
+    1|20|60|3|10|30
+    1|30|60|3|10|30
+    2|40|90|2|40|50
+    2|50|90|2|40|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m2-s2-e1-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect {
+    1|10|10|1|10|10
+    1|20|20|1|20|20
+    1|30|30|1|30|30
+    2|40|40|1|40|40
+    2|50|50|1|50|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m2-s2-e2-x1 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING )
+    ORDER BY p, v;
+}
+expect {
+    1|10|60|3|10|30
+    1|20|60|3|10|30
+    1|30|60|3|10|30
+    2|40|90|2|40|50
+    2|50|90|2|40|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m2-s2-e2-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect {
+    1|10|10|1|10|10
+    1|20|20|1|20|20
+    1|30|30|1|30|30
+    2|40|40|1|40|40
+    2|50|50|1|50|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m2-s2-e3-x1 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p GROUPS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY p, v;
+}
+expect {
+    1|10|60|3|10|30
+    1|20|60|3|10|30
+    1|30|60|3|10|30
+    2|40|90|2|40|50
+    2|50|90|2|40|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m2-s2-e3-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p GROUPS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect {
+    1|10|10|1|10|10
+    1|20|20|1|20|20
+    1|30|30|1|30|30
+    2|40|40|1|40|40
+    2|50|50|1|50|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m2-s3-e1-x1 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p GROUPS BETWEEN CURRENT ROW AND CURRENT ROW )
+    ORDER BY p, v;
+}
+expect {
+    1|10|60|3|10|30
+    1|20|60|3|10|30
+    1|30|60|3|10|30
+    2|40|90|2|40|50
+    2|50|90|2|40|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m2-s3-e1-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p GROUPS BETWEEN CURRENT ROW AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect {
+    1|10|10|1|10|10
+    1|20|20|1|20|20
+    1|30|30|1|30|30
+    2|40|40|1|40|40
+    2|50|50|1|50|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m2-s3-e2-x1 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING )
+    ORDER BY p, v;
+}
+expect {
+    1|10|60|3|10|30
+    1|20|60|3|10|30
+    1|30|60|3|10|30
+    2|40|90|2|40|50
+    2|50|90|2|40|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m2-s3-e2-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect {
+    1|10|10|1|10|10
+    1|20|20|1|20|20
+    1|30|30|1|30|30
+    2|40|40|1|40|40
+    2|50|50|1|50|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m2-s3-e3-x1 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING )
+    ORDER BY p, v;
+}
+expect {
+    1|10|60|3|10|30
+    1|20|60|3|10|30
+    1|30|60|3|10|30
+    2|40|90|2|40|50
+    2|50|90|2|40|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m2-s3-e3-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect {
+    1|10|10|1|10|10
+    1|20|20|1|20|20
+    1|30|30|1|30|30
+    2|40|40|1|40|40
+    2|50|50|1|50|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m2-s4-e1-x1 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p GROUPS BETWEEN 1 FOLLOWING AND CURRENT ROW )
+    ORDER BY p, v;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup two_parts
+test fixed-original-noorder-m2-s4-e1-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p GROUPS BETWEEN 1 FOLLOWING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup two_parts
+test fixed-original-noorder-m2-s4-e2-x1 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p GROUPS BETWEEN 1 FOLLOWING AND 1 FOLLOWING )
+    ORDER BY p, v;
+}
+expect {
+    1|10||0||
+    1|20||0||
+    1|30||0||
+    2|40||0||
+    2|50||0||
+}
+
+@setup two_parts
+test fixed-original-noorder-m2-s4-e2-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p GROUPS BETWEEN 1 FOLLOWING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect {
+    1|10||0||
+    1|20||0||
+    1|30||0||
+    2|40||0||
+    2|50||0||
+}
+
+@setup two_parts
+test fixed-original-noorder-m2-s4-e3-x1 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p GROUPS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING )
+    ORDER BY p, v;
+}
+expect {
+    1|10||0||
+    1|20||0||
+    1|30||0||
+    2|40||0||
+    2|50||0||
+}
+
+@setup two_parts
+test fixed-original-noorder-m2-s4-e3-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p GROUPS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect {
+    1|10||0||
+    1|20||0||
+    1|30||0||
+    2|40||0||
+    2|50||0||
+}
+
+@setup two_parts
+test fixed-original-noorder-m3-s1-e1-x1 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW )
+    ORDER BY p, v;
+}
+expect {
+    1|10|60|3|10|30
+    1|20|60|3|10|30
+    1|30|60|3|10|30
+    2|40|90|2|40|50
+    2|50|90|2|40|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m3-s1-e1-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect {
+    1|10|10|1|10|10
+    1|20|20|1|20|20
+    1|30|30|1|30|30
+    2|40|40|1|40|40
+    2|50|50|1|50|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m3-s1-e2-x1 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p RANGE BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING )
+    ORDER BY p, v;
+}
+expect error {
+    .*RANGE with offset PRECEDING/FOLLOWING requires one ORDER BY expression.*
+}
+
+@setup two_parts
+test fixed-original-noorder-m3-s1-e2-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p RANGE BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect error {
+    .*RANGE with offset PRECEDING/FOLLOWING requires one ORDER BY expression.*
+}
+
+@setup two_parts
+test fixed-original-noorder-m3-s1-e3-x1 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY p, v;
+}
+expect {
+    1|10|60|3|10|30
+    1|20|60|3|10|30
+    1|30|60|3|10|30
+    2|40|90|2|40|50
+    2|50|90|2|40|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m3-s1-e3-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect {
+    1|10|10|1|10|10
+    1|20|20|1|20|20
+    1|30|30|1|30|30
+    2|40|40|1|40|40
+    2|50|50|1|50|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m3-s2-e1-x1 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p RANGE BETWEEN 1 PRECEDING AND CURRENT ROW )
+    ORDER BY p, v;
+}
+expect error {
+    .*RANGE with offset PRECEDING/FOLLOWING requires one ORDER BY expression.*
+}
+
+@setup two_parts
+test fixed-original-noorder-m3-s2-e1-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p RANGE BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect error {
+    .*RANGE with offset PRECEDING/FOLLOWING requires one ORDER BY expression.*
+}
+
+@setup two_parts
+test fixed-original-noorder-m3-s2-e2-x1 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING )
+    ORDER BY p, v;
+}
+expect error {
+    .*RANGE with offset PRECEDING/FOLLOWING requires one ORDER BY expression.*
+}
+
+@setup two_parts
+test fixed-original-noorder-m3-s2-e2-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect error {
+    .*RANGE with offset PRECEDING/FOLLOWING requires one ORDER BY expression.*
+}
+
+@setup two_parts
+test fixed-original-noorder-m3-s2-e3-x1 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p RANGE BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY p, v;
+}
+expect error {
+    .*RANGE with offset PRECEDING/FOLLOWING requires one ORDER BY expression.*
+}
+
+@setup two_parts
+test fixed-original-noorder-m3-s2-e3-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p RANGE BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect error {
+    .*RANGE with offset PRECEDING/FOLLOWING requires one ORDER BY expression.*
+}
+
+@setup two_parts
+test fixed-original-noorder-m3-s3-e1-x1 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p RANGE BETWEEN CURRENT ROW AND CURRENT ROW )
+    ORDER BY p, v;
+}
+expect {
+    1|10|60|3|10|30
+    1|20|60|3|10|30
+    1|30|60|3|10|30
+    2|40|90|2|40|50
+    2|50|90|2|40|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m3-s3-e1-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p RANGE BETWEEN CURRENT ROW AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect {
+    1|10|10|1|10|10
+    1|20|20|1|20|20
+    1|30|30|1|30|30
+    2|40|40|1|40|40
+    2|50|50|1|50|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m3-s3-e2-x1 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p RANGE BETWEEN CURRENT ROW AND 1 FOLLOWING )
+    ORDER BY p, v;
+}
+expect error {
+    .*RANGE with offset PRECEDING/FOLLOWING requires one ORDER BY expression.*
+}
+
+@setup two_parts
+test fixed-original-noorder-m3-s3-e2-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p RANGE BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect error {
+    .*RANGE with offset PRECEDING/FOLLOWING requires one ORDER BY expression.*
+}
+
+@setup two_parts
+test fixed-original-noorder-m3-s3-e3-x1 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING )
+    ORDER BY p, v;
+}
+expect {
+    1|10|60|3|10|30
+    1|20|60|3|10|30
+    1|30|60|3|10|30
+    2|40|90|2|40|50
+    2|50|90|2|40|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m3-s3-e3-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect {
+    1|10|10|1|10|10
+    1|20|20|1|20|20
+    1|30|30|1|30|30
+    2|40|40|1|40|40
+    2|50|50|1|50|50
+}
+
+@setup two_parts
+test fixed-original-noorder-m3-s4-e1-x1 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p RANGE BETWEEN 1 FOLLOWING AND CURRENT ROW )
+    ORDER BY p, v;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup two_parts
+test fixed-original-noorder-m3-s4-e1-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p RANGE BETWEEN 1 FOLLOWING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup two_parts
+test fixed-original-noorder-m3-s4-e2-x1 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p RANGE BETWEEN 1 FOLLOWING AND 1 FOLLOWING )
+    ORDER BY p, v;
+}
+expect error {
+    .*RANGE with offset PRECEDING/FOLLOWING requires one ORDER BY expression.*
+}
+
+@setup two_parts
+test fixed-original-noorder-m3-s4-e2-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p RANGE BETWEEN 1 FOLLOWING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect error {
+    .*RANGE with offset PRECEDING/FOLLOWING requires one ORDER BY expression.*
+}
+
+@setup two_parts
+test fixed-original-noorder-m3-s4-e3-x1 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p RANGE BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING )
+    ORDER BY p, v;
+}
+expect error {
+    .*RANGE with offset PRECEDING/FOLLOWING requires one ORDER BY expression.*
+}
+
+@setup two_parts
+test fixed-original-noorder-m3-s4-e3-x2 {
+    SELECT p, v, sum(v) OVER w, count(*) OVER w, min(v) OVER w, max(v) OVER w
+    FROM tnp
+    WINDOW w AS (PARTITION BY p RANGE BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY p, v;
+}
+expect error {
+    .*RANGE with offset PRECEDING/FOLLOWING requires one ORDER BY expression.*
+}

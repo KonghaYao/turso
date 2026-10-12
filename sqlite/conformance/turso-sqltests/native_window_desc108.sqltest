@@ -1,0 +1,1519 @@
+@database :memory:
+
+# 108 exact original SQL expansions; unordered multiset comparison due peer tie ordering.
+setup anchored_shapes {
+    CREATE TABLE t(p INT, k INT);
+    INSERT INTO t VALUES (1,NULL),(1,1),(1,1),(1,3),(1,4),(1,4),(2,7);
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s0-e0-n0-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW ) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1|||1|||
+    1|4|4|2|4||4
+    1|4|8|3|4,4||4
+    1|3|11|4|4,4,3||3
+    1|1|12|5|4,4,3,1||1
+    1|1|13|6|4,4,3,1,1||1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s0-e0-n0-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE TIES) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1|||1|||
+    1|4|4|2|4||4
+    1|4|4|2|4||4
+    1|3|11|4|4,4,3||3
+    1|1|12|5|4,4,3,1||1
+    1|1|12|5|4,4,3,1||1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s0-e0-n1-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW ) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|4|1|4|4|4
+    1|4|8|2|4,4|4|4
+    1|3|11|3|4,4,3|4|3
+    1|1|12|4|4,4,3,1|4|1
+    1|1|13|5|4,4,3,1,1|4|1
+    1||13|6|4,4,3,1,1|4|
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s0-e0-n1-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE TIES) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|4|1|4|4|4
+    1|4|4|1|4|4|4
+    1|3|11|3|4,4,3|4|3
+    1|1|12|4|4,4,3,1|4|1
+    1|1|12|4|4,4,3,1|4|1
+    1||13|6|4,4,3,1,1|4|
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s0-e1-n0-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST ROWS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING ) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1||4|2|4||4
+    1|4|8|3|4,4||4
+    1|4|11|4|4,4,3||3
+    1|3|12|5|4,4,3,1||1
+    1|1|13|6|4,4,3,1,1||1
+    1|1|13|6|4,4,3,1,1||1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s0-e1-n0-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST ROWS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1||4|2|4||4
+    1|4|4|2|4||4
+    1|4|7|3|4,3||3
+    1|3|12|5|4,4,3,1||1
+    1|1|12|5|4,4,3,1||1
+    1|1|12|5|4,4,3,1||1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s0-e1-n1-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST ROWS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING ) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|8|2|4,4|4|4
+    1|4|11|3|4,4,3|4|3
+    1|3|12|4|4,4,3,1|4|1
+    1|1|13|5|4,4,3,1,1|4|1
+    1|1|13|6|4,4,3,1,1|4|
+    1||13|6|4,4,3,1,1|4|
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s0-e1-n1-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST ROWS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|4|1|4|4|4
+    1|4|7|2|4,3|4|3
+    1|3|12|4|4,4,3,1|4|1
+    1|1|12|4|4,4,3,1|4|1
+    1|1|12|5|4,4,3,1|4|
+    1||13|6|4,4,3,1,1|4|
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s0-e2-n0-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING ) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1||13|6|4,4,3,1,1||1
+    1|4|13|6|4,4,3,1,1||1
+    1|4|13|6|4,4,3,1,1||1
+    1|3|13|6|4,4,3,1,1||1
+    1|1|13|6|4,4,3,1,1||1
+    1|1|13|6|4,4,3,1,1||1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s0-e2-n0-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1||13|6|4,4,3,1,1||1
+    1|4|9|5|4,3,1,1||1
+    1|4|9|5|4,3,1,1||1
+    1|3|13|6|4,4,3,1,1||1
+    1|1|12|5|4,4,3,1||1
+    1|1|12|5|4,4,3,1||1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s0-e2-n1-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING ) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|13|6|4,4,3,1,1|4|
+    1|4|13|6|4,4,3,1,1|4|
+    1|3|13|6|4,4,3,1,1|4|
+    1|1|13|6|4,4,3,1,1|4|
+    1|1|13|6|4,4,3,1,1|4|
+    1||13|6|4,4,3,1,1|4|
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s0-e2-n1-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|9|5|4,3,1,1|4|
+    1|4|9|5|4,3,1,1|4|
+    1|3|13|6|4,4,3,1,1|4|
+    1|1|12|5|4,4,3,1|4|
+    1|1|12|5|4,4,3,1|4|
+    1||13|6|4,4,3,1,1|4|
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s1-e0-n0-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST ROWS BETWEEN 1 PRECEDING AND CURRENT ROW ) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1|||1|||
+    1|4|4|2|4||4
+    1|4|8|2|4,4|4|4
+    1|3|7|2|4,3|4|3
+    1|1|4|2|3,1|3|1
+    1|1|2|2|1,1|1|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s1-e0-n0-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST ROWS BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE TIES) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1|||1|||
+    1|4|4|2|4||4
+    1|4|4|1|4|4|4
+    1|3|7|2|4,3|4|3
+    1|1|4|2|3,1|3|1
+    1|1|1|1|1|1|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s1-e0-n1-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST ROWS BETWEEN 1 PRECEDING AND CURRENT ROW ) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|4|1|4|4|4
+    1|4|8|2|4,4|4|4
+    1|3|7|2|4,3|4|3
+    1|1|4|2|3,1|3|1
+    1|1|2|2|1,1|1|1
+    1||1|2|1|1|
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s1-e0-n1-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST ROWS BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE TIES) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|4|1|4|4|4
+    1|4|4|1|4|4|4
+    1|3|7|2|4,3|4|3
+    1|1|4|2|3,1|3|1
+    1|1|1|1|1|1|1
+    1||1|2|1|1|
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s1-e1-n0-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING ) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1||4|2|4||4
+    1|4|8|3|4,4||4
+    1|4|11|3|4,4,3|4|3
+    1|3|8|3|4,3,1|4|1
+    1|1|5|3|3,1,1|3|1
+    1|1|2|2|1,1|1|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s1-e1-n0-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1||4|2|4||4
+    1|4|4|2|4||4
+    1|4|7|2|4,3|4|3
+    1|3|8|3|4,3,1|4|1
+    1|1|4|2|3,1|3|1
+    1|1|1|1|1|1|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s1-e1-n1-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING ) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|8|2|4,4|4|4
+    1|4|11|3|4,4,3|4|3
+    1|3|8|3|4,3,1|4|1
+    1|1|5|3|3,1,1|3|1
+    1|1|2|3|1,1|1|
+    1||1|2|1|1|
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s1-e1-n1-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|4|1|4|4|4
+    1|4|7|2|4,3|4|3
+    1|3|8|3|4,3,1|4|1
+    1|1|4|2|3,1|3|1
+    1|1|1|2|1|1|
+    1||1|2|1|1|
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s1-e2-n0-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST ROWS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING ) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1||13|6|4,4,3,1,1||1
+    1|4|13|6|4,4,3,1,1||1
+    1|4|13|5|4,4,3,1,1|4|1
+    1|3|9|4|4,3,1,1|4|1
+    1|1|5|3|3,1,1|3|1
+    1|1|2|2|1,1|1|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s1-e2-n0-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST ROWS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1||13|6|4,4,3,1,1||1
+    1|4|9|5|4,3,1,1||1
+    1|4|9|4|4,3,1,1|4|1
+    1|3|9|4|4,3,1,1|4|1
+    1|1|4|2|3,1|3|1
+    1|1|1|1|1|1|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s1-e2-n1-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST ROWS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING ) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|13|6|4,4,3,1,1|4|
+    1|4|13|6|4,4,3,1,1|4|
+    1|3|9|5|4,3,1,1|4|
+    1|1|5|4|3,1,1|3|
+    1|1|2|3|1,1|1|
+    1||1|2|1|1|
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s1-e2-n1-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST ROWS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|9|5|4,3,1,1|4|
+    1|4|9|5|4,3,1,1|4|
+    1|3|9|5|4,3,1,1|4|
+    1|1|4|3|3,1|3|
+    1|1|1|2|1|1|
+    1||1|2|1|1|
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s2-e0-n0-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST ROWS BETWEEN CURRENT ROW AND CURRENT ROW ) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1|||1|||
+    1|4|4|1|4|4|4
+    1|4|4|1|4|4|4
+    1|3|3|1|3|3|3
+    1|1|1|1|1|1|1
+    1|1|1|1|1|1|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s2-e0-n0-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST ROWS BETWEEN CURRENT ROW AND CURRENT ROW EXCLUDE TIES) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1|||1|||
+    1|4|4|1|4|4|4
+    1|4|4|1|4|4|4
+    1|3|3|1|3|3|3
+    1|1|1|1|1|1|1
+    1|1|1|1|1|1|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s2-e0-n1-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST ROWS BETWEEN CURRENT ROW AND CURRENT ROW ) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|4|1|4|4|4
+    1|4|4|1|4|4|4
+    1|3|3|1|3|3|3
+    1|1|1|1|1|1|1
+    1|1|1|1|1|1|1
+    1|||1|||
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s2-e0-n1-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST ROWS BETWEEN CURRENT ROW AND CURRENT ROW EXCLUDE TIES) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|4|1|4|4|4
+    1|4|4|1|4|4|4
+    1|3|3|1|3|3|3
+    1|1|1|1|1|1|1
+    1|1|1|1|1|1|1
+    1|||1|||
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s2-e1-n0-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING ) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1||4|2|4||4
+    1|4|8|2|4,4|4|4
+    1|4|7|2|4,3|4|3
+    1|3|4|2|3,1|3|1
+    1|1|2|2|1,1|1|1
+    1|1|1|1|1|1|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s2-e1-n0-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1||4|2|4||4
+    1|4|4|1|4|4|4
+    1|4|7|2|4,3|4|3
+    1|3|4|2|3,1|3|1
+    1|1|1|1|1|1|1
+    1|1|1|1|1|1|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s2-e1-n1-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING ) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|8|2|4,4|4|4
+    1|4|7|2|4,3|4|3
+    1|3|4|2|3,1|3|1
+    1|1|2|2|1,1|1|1
+    1|1|1|2|1|1|
+    1|||1|||
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s2-e1-n1-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|4|1|4|4|4
+    1|4|7|2|4,3|4|3
+    1|3|4|2|3,1|3|1
+    1|1|1|1|1|1|1
+    1|1|1|2|1|1|
+    1|||1|||
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s2-e2-n0-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING ) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1||13|6|4,4,3,1,1||1
+    1|4|13|5|4,4,3,1,1|4|1
+    1|4|9|4|4,3,1,1|4|1
+    1|3|5|3|3,1,1|3|1
+    1|1|2|2|1,1|1|1
+    1|1|1|1|1|1|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s2-e2-n0-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1||13|6|4,4,3,1,1||1
+    1|4|9|4|4,3,1,1|4|1
+    1|4|9|4|4,3,1,1|4|1
+    1|3|5|3|3,1,1|3|1
+    1|1|1|1|1|1|1
+    1|1|1|1|1|1|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s2-e2-n1-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING ) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|13|6|4,4,3,1,1|4|
+    1|4|9|5|4,3,1,1|4|
+    1|3|5|4|3,1,1|3|
+    1|1|2|3|1,1|1|
+    1|1|1|2|1|1|
+    1|||1|||
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m0-s2-e2-n1-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|9|5|4,3,1,1|4|
+    1|4|9|5|4,3,1,1|4|
+    1|3|5|4|3,1,1|3|
+    1|1|1|2|1|1|
+    1|1|1|2|1|1|
+    1|||1|||
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s0-e0-n0-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW ) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1|||1|||
+    1|4|8|3|4,4||4
+    1|4|8|3|4,4||4
+    1|3|11|4|4,4,3||3
+    1|1|13|6|4,4,3,1,1||1
+    1|1|13|6|4,4,3,1,1||1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s0-e0-n0-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE TIES) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1|||1|||
+    1|4|4|2|4||4
+    1|4|4|2|4||4
+    1|3|11|4|4,4,3||3
+    1|1|12|5|4,4,3,1||1
+    1|1|12|5|4,4,3,1||1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s0-e0-n1-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW ) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|8|2|4,4|4|4
+    1|4|8|2|4,4|4|4
+    1|3|11|3|4,4,3|4|3
+    1|1|13|5|4,4,3,1,1|4|1
+    1|1|13|5|4,4,3,1,1|4|1
+    1||13|6|4,4,3,1,1|4|
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s0-e0-n1-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE TIES) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|4|1|4|4|4
+    1|4|4|1|4|4|4
+    1|3|11|3|4,4,3|4|3
+    1|1|12|4|4,4,3,1|4|1
+    1|1|12|4|4,4,3,1|4|1
+    1||13|6|4,4,3,1,1|4|
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s0-e1-n0-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST GROUPS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING ) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1||8|3|4,4||4
+    1|4|11|4|4,4,3||3
+    1|4|11|4|4,4,3||3
+    1|3|13|6|4,4,3,1,1||1
+    1|1|13|6|4,4,3,1,1||1
+    1|1|13|6|4,4,3,1,1||1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s0-e1-n0-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST GROUPS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1||8|3|4,4||4
+    1|4|7|3|4,3||3
+    1|4|7|3|4,3||3
+    1|3|13|6|4,4,3,1,1||1
+    1|1|12|5|4,4,3,1||1
+    1|1|12|5|4,4,3,1||1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s0-e1-n1-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST GROUPS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING ) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|11|3|4,4,3|4|3
+    1|4|11|3|4,4,3|4|3
+    1|3|13|5|4,4,3,1,1|4|1
+    1|1|13|6|4,4,3,1,1|4|
+    1|1|13|6|4,4,3,1,1|4|
+    1||13|6|4,4,3,1,1|4|
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s0-e1-n1-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST GROUPS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|7|2|4,3|4|3
+    1|4|7|2|4,3|4|3
+    1|3|13|5|4,4,3,1,1|4|1
+    1|1|12|5|4,4,3,1|4|
+    1|1|12|5|4,4,3,1|4|
+    1||13|6|4,4,3,1,1|4|
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s0-e2-n0-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING ) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1||13|6|4,4,3,1,1||1
+    1|4|13|6|4,4,3,1,1||1
+    1|4|13|6|4,4,3,1,1||1
+    1|3|13|6|4,4,3,1,1||1
+    1|1|13|6|4,4,3,1,1||1
+    1|1|13|6|4,4,3,1,1||1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s0-e2-n0-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1||13|6|4,4,3,1,1||1
+    1|4|9|5|4,3,1,1||1
+    1|4|9|5|4,3,1,1||1
+    1|3|13|6|4,4,3,1,1||1
+    1|1|12|5|4,4,3,1||1
+    1|1|12|5|4,4,3,1||1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s0-e2-n1-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING ) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|13|6|4,4,3,1,1|4|
+    1|4|13|6|4,4,3,1,1|4|
+    1|3|13|6|4,4,3,1,1|4|
+    1|1|13|6|4,4,3,1,1|4|
+    1|1|13|6|4,4,3,1,1|4|
+    1||13|6|4,4,3,1,1|4|
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s0-e2-n1-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|9|5|4,3,1,1|4|
+    1|4|9|5|4,3,1,1|4|
+    1|3|13|6|4,4,3,1,1|4|
+    1|1|12|5|4,4,3,1|4|
+    1|1|12|5|4,4,3,1|4|
+    1||13|6|4,4,3,1,1|4|
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s1-e0-n0-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW ) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1|||1|||
+    1|4|8|3|4,4||4
+    1|4|8|3|4,4||4
+    1|3|11|3|4,4,3|4|3
+    1|1|5|3|3,1,1|3|1
+    1|1|5|3|3,1,1|3|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s1-e0-n0-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE TIES) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1|||1|||
+    1|4|4|2|4||4
+    1|4|4|2|4||4
+    1|3|11|3|4,4,3|4|3
+    1|1|4|2|3,1|3|1
+    1|1|4|2|3,1|3|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s1-e0-n1-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW ) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|8|2|4,4|4|4
+    1|4|8|2|4,4|4|4
+    1|3|11|3|4,4,3|4|3
+    1|1|5|3|3,1,1|3|1
+    1|1|5|3|3,1,1|3|1
+    1||2|3|1,1|1|
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s1-e0-n1-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE TIES) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|4|1|4|4|4
+    1|4|4|1|4|4|4
+    1|3|11|3|4,4,3|4|3
+    1|1|4|2|3,1|3|1
+    1|1|4|2|3,1|3|1
+    1||2|3|1,1|1|
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s1-e1-n0-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING ) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1||8|3|4,4||4
+    1|4|11|4|4,4,3||3
+    1|4|11|4|4,4,3||3
+    1|3|13|5|4,4,3,1,1|4|1
+    1|1|5|3|3,1,1|3|1
+    1|1|5|3|3,1,1|3|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s1-e1-n0-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1||8|3|4,4||4
+    1|4|7|3|4,3||3
+    1|4|7|3|4,3||3
+    1|3|13|5|4,4,3,1,1|4|1
+    1|1|4|2|3,1|3|1
+    1|1|4|2|3,1|3|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s1-e1-n1-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING ) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|11|3|4,4,3|4|3
+    1|4|11|3|4,4,3|4|3
+    1|3|13|5|4,4,3,1,1|4|1
+    1|1|5|4|3,1,1|3|
+    1|1|5|4|3,1,1|3|
+    1||2|3|1,1|1|
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s1-e1-n1-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|7|2|4,3|4|3
+    1|4|7|2|4,3|4|3
+    1|3|13|5|4,4,3,1,1|4|1
+    1|1|4|3|3,1|3|
+    1|1|4|3|3,1|3|
+    1||2|3|1,1|1|
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s1-e2-n0-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST GROUPS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING ) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1||13|6|4,4,3,1,1||1
+    1|4|13|6|4,4,3,1,1||1
+    1|4|13|6|4,4,3,1,1||1
+    1|3|13|5|4,4,3,1,1|4|1
+    1|1|5|3|3,1,1|3|1
+    1|1|5|3|3,1,1|3|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s1-e2-n0-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST GROUPS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1||13|6|4,4,3,1,1||1
+    1|4|9|5|4,3,1,1||1
+    1|4|9|5|4,3,1,1||1
+    1|3|13|5|4,4,3,1,1|4|1
+    1|1|4|2|3,1|3|1
+    1|1|4|2|3,1|3|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s1-e2-n1-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST GROUPS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING ) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|13|6|4,4,3,1,1|4|
+    1|4|13|6|4,4,3,1,1|4|
+    1|3|13|6|4,4,3,1,1|4|
+    1|1|5|4|3,1,1|3|
+    1|1|5|4|3,1,1|3|
+    1||2|3|1,1|1|
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s1-e2-n1-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST GROUPS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|9|5|4,3,1,1|4|
+    1|4|9|5|4,3,1,1|4|
+    1|3|13|6|4,4,3,1,1|4|
+    1|1|4|3|3,1|3|
+    1|1|4|3|3,1|3|
+    1||2|3|1,1|1|
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s2-e0-n0-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST GROUPS BETWEEN CURRENT ROW AND CURRENT ROW ) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1|||1|||
+    1|4|8|2|4,4|4|4
+    1|4|8|2|4,4|4|4
+    1|3|3|1|3|3|3
+    1|1|2|2|1,1|1|1
+    1|1|2|2|1,1|1|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s2-e0-n0-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST GROUPS BETWEEN CURRENT ROW AND CURRENT ROW EXCLUDE TIES) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1|||1|||
+    1|4|4|1|4|4|4
+    1|4|4|1|4|4|4
+    1|3|3|1|3|3|3
+    1|1|1|1|1|1|1
+    1|1|1|1|1|1|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s2-e0-n1-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST GROUPS BETWEEN CURRENT ROW AND CURRENT ROW ) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|8|2|4,4|4|4
+    1|4|8|2|4,4|4|4
+    1|3|3|1|3|3|3
+    1|1|2|2|1,1|1|1
+    1|1|2|2|1,1|1|1
+    1|||1|||
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s2-e0-n1-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST GROUPS BETWEEN CURRENT ROW AND CURRENT ROW EXCLUDE TIES) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|4|1|4|4|4
+    1|4|4|1|4|4|4
+    1|3|3|1|3|3|3
+    1|1|1|1|1|1|1
+    1|1|1|1|1|1|1
+    1|||1|||
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s2-e1-n0-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING ) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1||8|3|4,4||4
+    1|4|11|3|4,4,3|4|3
+    1|4|11|3|4,4,3|4|3
+    1|3|5|3|3,1,1|3|1
+    1|1|2|2|1,1|1|1
+    1|1|2|2|1,1|1|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s2-e1-n0-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1||8|3|4,4||4
+    1|4|7|2|4,3|4|3
+    1|4|7|2|4,3|4|3
+    1|3|5|3|3,1,1|3|1
+    1|1|1|1|1|1|1
+    1|1|1|1|1|1|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s2-e1-n1-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING ) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|11|3|4,4,3|4|3
+    1|4|11|3|4,4,3|4|3
+    1|3|5|3|3,1,1|3|1
+    1|1|2|3|1,1|1|
+    1|1|2|3|1,1|1|
+    1|||1|||
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s2-e1-n1-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|7|2|4,3|4|3
+    1|4|7|2|4,3|4|3
+    1|3|5|3|3,1,1|3|1
+    1|1|1|2|1|1|
+    1|1|1|2|1|1|
+    1|||1|||
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s2-e2-n0-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING ) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1||13|6|4,4,3,1,1||1
+    1|4|13|5|4,4,3,1,1|4|1
+    1|4|13|5|4,4,3,1,1|4|1
+    1|3|5|3|3,1,1|3|1
+    1|1|2|2|1,1|1|1
+    1|1|2|2|1,1|1|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s2-e2-n0-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1||13|6|4,4,3,1,1||1
+    1|4|9|4|4,3,1,1|4|1
+    1|4|9|4|4,3,1,1|4|1
+    1|3|5|3|3,1,1|3|1
+    1|1|1|1|1|1|1
+    1|1|1|1|1|1|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s2-e2-n1-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING ) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|13|6|4,4,3,1,1|4|
+    1|4|13|6|4,4,3,1,1|4|
+    1|3|5|4|3,1,1|3|
+    1|1|2|3|1,1|1|
+    1|1|2|3|1,1|1|
+    1|||1|||
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m1-s2-e2-n1-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|9|5|4,3,1,1|4|
+    1|4|9|5|4,3,1,1|4|
+    1|3|5|4|3,1,1|3|
+    1|1|1|2|1|1|
+    1|1|1|2|1|1|
+    1|||1|||
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s0-e0-n0-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW ) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1|||1|||
+    1|4|8|3|4,4||4
+    1|4|8|3|4,4||4
+    1|3|11|4|4,4,3||3
+    1|1|13|6|4,4,3,1,1||1
+    1|1|13|6|4,4,3,1,1||1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s0-e0-n0-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE TIES) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1|||1|||
+    1|4|4|2|4||4
+    1|4|4|2|4||4
+    1|3|11|4|4,4,3||3
+    1|1|12|5|4,4,3,1||1
+    1|1|12|5|4,4,3,1||1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s0-e0-n1-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW ) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|8|2|4,4|4|4
+    1|4|8|2|4,4|4|4
+    1|3|11|3|4,4,3|4|3
+    1|1|13|5|4,4,3,1,1|4|1
+    1|1|13|5|4,4,3,1,1|4|1
+    1||13|6|4,4,3,1,1|4|
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s0-e0-n1-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE TIES) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|4|1|4|4|4
+    1|4|4|1|4|4|4
+    1|3|11|3|4,4,3|4|3
+    1|1|12|4|4,4,3,1|4|1
+    1|1|12|4|4,4,3,1|4|1
+    1||13|6|4,4,3,1,1|4|
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s0-e1-n0-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST RANGE BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING ) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1|||1|||
+    1|4|11|4|4,4,3||3
+    1|4|11|4|4,4,3||3
+    1|3|11|4|4,4,3||3
+    1|1|13|6|4,4,3,1,1||1
+    1|1|13|6|4,4,3,1,1||1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s0-e1-n0-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST RANGE BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1|||1|||
+    1|4|7|3|4,3||3
+    1|4|7|3|4,3||3
+    1|3|11|4|4,4,3||3
+    1|1|12|5|4,4,3,1||1
+    1|1|12|5|4,4,3,1||1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s0-e1-n1-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST RANGE BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING ) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|11|3|4,4,3|4|3
+    1|4|11|3|4,4,3|4|3
+    1|3|11|3|4,4,3|4|3
+    1|1|13|5|4,4,3,1,1|4|1
+    1|1|13|5|4,4,3,1,1|4|1
+    1||13|6|4,4,3,1,1|4|
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s0-e1-n1-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST RANGE BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|7|2|4,3|4|3
+    1|4|7|2|4,3|4|3
+    1|3|11|3|4,4,3|4|3
+    1|1|12|4|4,4,3,1|4|1
+    1|1|12|4|4,4,3,1|4|1
+    1||13|6|4,4,3,1,1|4|
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s0-e2-n0-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING ) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1||13|6|4,4,3,1,1||1
+    1|4|13|6|4,4,3,1,1||1
+    1|4|13|6|4,4,3,1,1||1
+    1|3|13|6|4,4,3,1,1||1
+    1|1|13|6|4,4,3,1,1||1
+    1|1|13|6|4,4,3,1,1||1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s0-e2-n0-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1||13|6|4,4,3,1,1||1
+    1|4|9|5|4,3,1,1||1
+    1|4|9|5|4,3,1,1||1
+    1|3|13|6|4,4,3,1,1||1
+    1|1|12|5|4,4,3,1||1
+    1|1|12|5|4,4,3,1||1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s0-e2-n1-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING ) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|13|6|4,4,3,1,1|4|
+    1|4|13|6|4,4,3,1,1|4|
+    1|3|13|6|4,4,3,1,1|4|
+    1|1|13|6|4,4,3,1,1|4|
+    1|1|13|6|4,4,3,1,1|4|
+    1||13|6|4,4,3,1,1|4|
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s0-e2-n1-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|9|5|4,3,1,1|4|
+    1|4|9|5|4,3,1,1|4|
+    1|3|13|6|4,4,3,1,1|4|
+    1|1|12|5|4,4,3,1|4|
+    1|1|12|5|4,4,3,1|4|
+    1||13|6|4,4,3,1,1|4|
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s1-e0-n0-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST RANGE BETWEEN 1 PRECEDING AND CURRENT ROW ) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1|||1|||
+    1|4|8|2|4,4|4|4
+    1|4|8|2|4,4|4|4
+    1|3|11|3|4,4,3|4|3
+    1|1|2|2|1,1|1|1
+    1|1|2|2|1,1|1|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s1-e0-n0-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST RANGE BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE TIES) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1|||1|||
+    1|4|4|1|4|4|4
+    1|4|4|1|4|4|4
+    1|3|11|3|4,4,3|4|3
+    1|1|1|1|1|1|1
+    1|1|1|1|1|1|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s1-e0-n1-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST RANGE BETWEEN 1 PRECEDING AND CURRENT ROW ) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|8|2|4,4|4|4
+    1|4|8|2|4,4|4|4
+    1|3|11|3|4,4,3|4|3
+    1|1|2|2|1,1|1|1
+    1|1|2|2|1,1|1|1
+    1|||1|||
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s1-e0-n1-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST RANGE BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE TIES) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|4|1|4|4|4
+    1|4|4|1|4|4|4
+    1|3|11|3|4,4,3|4|3
+    1|1|1|1|1|1|1
+    1|1|1|1|1|1|1
+    1|||1|||
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s1-e1-n0-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING ) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1|||1|||
+    1|4|11|3|4,4,3|4|3
+    1|4|11|3|4,4,3|4|3
+    1|3|11|3|4,4,3|4|3
+    1|1|2|2|1,1|1|1
+    1|1|2|2|1,1|1|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s1-e1-n0-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1|||1|||
+    1|4|7|2|4,3|4|3
+    1|4|7|2|4,3|4|3
+    1|3|11|3|4,4,3|4|3
+    1|1|1|1|1|1|1
+    1|1|1|1|1|1|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s1-e1-n1-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING ) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|11|3|4,4,3|4|3
+    1|4|11|3|4,4,3|4|3
+    1|3|11|3|4,4,3|4|3
+    1|1|2|2|1,1|1|1
+    1|1|2|2|1,1|1|1
+    1|||1|||
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s1-e1-n1-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|7|2|4,3|4|3
+    1|4|7|2|4,3|4|3
+    1|3|11|3|4,4,3|4|3
+    1|1|1|1|1|1|1
+    1|1|1|1|1|1|1
+    1|||1|||
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s1-e2-n0-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST RANGE BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING ) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1||13|6|4,4,3,1,1||1
+    1|4|13|5|4,4,3,1,1|4|1
+    1|4|13|5|4,4,3,1,1|4|1
+    1|3|13|5|4,4,3,1,1|4|1
+    1|1|2|2|1,1|1|1
+    1|1|2|2|1,1|1|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s1-e2-n0-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST RANGE BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1||13|6|4,4,3,1,1||1
+    1|4|9|4|4,3,1,1|4|1
+    1|4|9|4|4,3,1,1|4|1
+    1|3|13|5|4,4,3,1,1|4|1
+    1|1|1|1|1|1|1
+    1|1|1|1|1|1|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s1-e2-n1-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST RANGE BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING ) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|13|6|4,4,3,1,1|4|
+    1|4|13|6|4,4,3,1,1|4|
+    1|3|13|6|4,4,3,1,1|4|
+    1|1|2|3|1,1|1|
+    1|1|2|3|1,1|1|
+    1|||1|||
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s1-e2-n1-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST RANGE BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|9|5|4,3,1,1|4|
+    1|4|9|5|4,3,1,1|4|
+    1|3|13|6|4,4,3,1,1|4|
+    1|1|1|2|1|1|
+    1|1|1|2|1|1|
+    1|||1|||
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s2-e0-n0-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST RANGE BETWEEN CURRENT ROW AND CURRENT ROW ) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1|||1|||
+    1|4|8|2|4,4|4|4
+    1|4|8|2|4,4|4|4
+    1|3|3|1|3|3|3
+    1|1|2|2|1,1|1|1
+    1|1|2|2|1,1|1|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s2-e0-n0-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST RANGE BETWEEN CURRENT ROW AND CURRENT ROW EXCLUDE TIES) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1|||1|||
+    1|4|4|1|4|4|4
+    1|4|4|1|4|4|4
+    1|3|3|1|3|3|3
+    1|1|1|1|1|1|1
+    1|1|1|1|1|1|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s2-e0-n1-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST RANGE BETWEEN CURRENT ROW AND CURRENT ROW ) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|8|2|4,4|4|4
+    1|4|8|2|4,4|4|4
+    1|3|3|1|3|3|3
+    1|1|2|2|1,1|1|1
+    1|1|2|2|1,1|1|1
+    1|||1|||
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s2-e0-n1-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST RANGE BETWEEN CURRENT ROW AND CURRENT ROW EXCLUDE TIES) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|4|1|4|4|4
+    1|4|4|1|4|4|4
+    1|3|3|1|3|3|3
+    1|1|1|1|1|1|1
+    1|1|1|1|1|1|1
+    1|||1|||
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s2-e1-n0-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST RANGE BETWEEN CURRENT ROW AND 1 FOLLOWING ) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1|||1|||
+    1|4|11|3|4,4,3|4|3
+    1|4|11|3|4,4,3|4|3
+    1|3|3|1|3|3|3
+    1|1|2|2|1,1|1|1
+    1|1|2|2|1,1|1|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s2-e1-n0-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST RANGE BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1|||1|||
+    1|4|7|2|4,3|4|3
+    1|4|7|2|4,3|4|3
+    1|3|3|1|3|3|3
+    1|1|1|1|1|1|1
+    1|1|1|1|1|1|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s2-e1-n1-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST RANGE BETWEEN CURRENT ROW AND 1 FOLLOWING ) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|11|3|4,4,3|4|3
+    1|4|11|3|4,4,3|4|3
+    1|3|3|1|3|3|3
+    1|1|2|2|1,1|1|1
+    1|1|2|2|1,1|1|1
+    1|||1|||
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s2-e1-n1-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST RANGE BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|7|2|4,3|4|3
+    1|4|7|2|4,3|4|3
+    1|3|3|1|3|3|3
+    1|1|1|1|1|1|1
+    1|1|1|1|1|1|1
+    1|||1|||
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s2-e2-n0-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING ) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1||13|6|4,4,3,1,1||1
+    1|4|13|5|4,4,3,1,1|4|1
+    1|4|13|5|4,4,3,1,1|4|1
+    1|3|5|3|3,1,1|3|1
+    1|1|2|2|1,1|1|1
+    1|1|2|2|1,1|1|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s2-e2-n0-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS FIRST RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS FIRST;
+}
+expect unordered {
+    1||13|6|4,4,3,1,1||1
+    1|4|9|4|4,3,1,1|4|1
+    1|4|9|4|4,3,1,1|4|1
+    1|3|5|3|3,1,1|3|1
+    1|1|1|1|1|1|1
+    1|1|1|1|1|1|1
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s2-e2-n1-x0 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING ) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|13|6|4,4,3,1,1|4|
+    1|4|13|6|4,4,3,1,1|4|
+    1|3|5|4|3,1,1|3|
+    1|1|2|3|1,1|1|
+    1|1|2|3|1,1|1|
+    1|||1|||
+    2|7|7|1|7|7|7
+}
+
+@setup anchored_shapes
+test anchored-window-desc-m2-s2-e2-n1-x1 {
+    SELECT p, k, sum(k) OVER w, count(*) OVER w, group_concat(k,',') OVER w, first_value(k) OVER w, last_value(k) OVER w FROM t WINDOW w AS (PARTITION BY p ORDER BY k DESC NULLS LAST RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE TIES) ORDER BY p, k DESC NULLS LAST;
+}
+expect unordered {
+    1|4|9|5|4,3,1,1|4|
+    1|4|9|5|4,3,1,1|4|
+    1|3|5|4|3,1,1|3|
+    1|1|1|2|1|1|
+    1|1|1|2|1|1|
+    1|||1|||
+    2|7|7|1|7|7|7
+}

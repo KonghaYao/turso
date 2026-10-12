@@ -1,0 +1,520 @@
+@database :memory:
+
+test r21-pk-auto-nocase-index-count {
+    CREATE TABLE t(a TEXT PRIMARY KEY,b INT UNIQUE,UNIQUE(a COLLATE NOCASE));
+    SELECT count(*) FROM sqlite_schema WHERE type='index' AND tbl_name='t';
+}
+expect {
+    3
+}
+
+test r21-pk-auto-nocase-enforcement {
+    CREATE TABLE t(a TEXT PRIMARY KEY,b INT UNIQUE,UNIQUE(a COLLATE NOCASE));
+    INSERT INTO t VALUES('a',1),('b',2);
+    INSERT INTO t VALUES('b',2) ON CONFLICT(b) DO UPDATE SET a='A';
+}
+expect error {
+    UNIQUE constraint failed: .*
+}
+
+test r21-pk-only-index-count {
+    CREATE TABLE t(a TEXT PRIMARY KEY,b INT UNIQUE);
+    SELECT count(*) FROM sqlite_schema WHERE type='index' AND tbl_name='t';
+}
+expect {
+    2
+}
+
+test r21-pk-only-enforcement {
+    CREATE TABLE t(a TEXT PRIMARY KEY,b INT UNIQUE);
+    INSERT INTO t VALUES('a',1),('b',2);
+    UPDATE t SET a='a' WHERE b=2;
+}
+expect error {
+    UNIQUE constraint failed: .*
+}
+
+test r21-same-binary-index-count {
+    CREATE TABLE t(a TEXT PRIMARY KEY,b,UNIQUE(a COLLATE BINARY));
+    SELECT count(*) FROM sqlite_schema WHERE type='index' AND tbl_name='t';
+}
+expect {
+    1
+}
+
+test r21-same-binary-enforcement {
+    CREATE TABLE t(a TEXT PRIMARY KEY,b,UNIQUE(a COLLATE BINARY));
+    INSERT INTO t VALUES('a',1);
+    INSERT INTO t VALUES('A',2);
+    SELECT quote(a)||':'||quote(b) FROM t ORDER BY rowid;
+}
+expect {
+    'a':1
+    'A':2
+}
+
+test r21-inherited-nocase-index-count {
+    CREATE TABLE t(a TEXT COLLATE NOCASE PRIMARY KEY,b,UNIQUE(a));
+    SELECT count(*) FROM sqlite_schema WHERE type='index' AND tbl_name='t';
+}
+expect {
+    1
+}
+
+test r21-inherited-nocase-enforcement {
+    CREATE TABLE t(a TEXT COLLATE NOCASE PRIMARY KEY,b,UNIQUE(a));
+    INSERT INTO t VALUES('a',1);
+    INSERT INTO t VALUES('A',2);
+}
+expect error {
+    UNIQUE constraint failed: .*
+}
+
+test r21-explicit-inherited-nocase-index-count {
+    CREATE TABLE t(a TEXT COLLATE NOCASE PRIMARY KEY,b,UNIQUE(a COLLATE NOCASE));
+    SELECT count(*) FROM sqlite_schema WHERE type='index' AND tbl_name='t';
+}
+expect {
+    1
+}
+
+test r21-explicit-inherited-nocase-enforcement {
+    CREATE TABLE t(a TEXT COLLATE NOCASE PRIMARY KEY,b,UNIQUE(a COLLATE NOCASE));
+    INSERT INTO t VALUES('a',1);
+    INSERT INTO t VALUES('A',2);
+}
+expect error {
+    UNIQUE constraint failed: .*
+}
+
+test r21-override-binary-index-count {
+    CREATE TABLE t(a TEXT COLLATE NOCASE,b,UNIQUE(a COLLATE BINARY),UNIQUE(a));
+    SELECT count(*) FROM sqlite_schema WHERE type='index' AND tbl_name='t';
+}
+expect {
+    2
+}
+
+test r21-override-binary-enforcement {
+    CREATE TABLE t(a TEXT COLLATE NOCASE,b,UNIQUE(a COLLATE BINARY),UNIQUE(a));
+    INSERT INTO t VALUES('a',1);
+    INSERT INTO t VALUES('A',2);
+}
+expect error {
+    UNIQUE constraint failed: .*
+}
+
+test r21-asc-desc-index-count {
+    CREATE TABLE t(a TEXT,b,PRIMARY KEY(a ASC),UNIQUE(a DESC));
+    SELECT count(*) FROM sqlite_schema WHERE type='index' AND tbl_name='t';
+}
+expect {
+    1
+}
+
+test r21-asc-desc-enforcement {
+    CREATE TABLE t(a TEXT,b,PRIMARY KEY(a ASC),UNIQUE(a DESC));
+    INSERT INTO t VALUES('a',1);
+    INSERT INTO t VALUES('a',2);
+}
+expect error {
+    UNIQUE constraint failed: .*
+}
+
+test r21-desc-asc-index-count {
+    CREATE TABLE t(a TEXT,b,UNIQUE(a DESC),PRIMARY KEY(a ASC));
+    SELECT count(*) FROM sqlite_schema WHERE type='index' AND tbl_name='t';
+}
+expect {
+    1
+}
+
+test r21-desc-asc-enforcement {
+    CREATE TABLE t(a TEXT,b,UNIQUE(a DESC),PRIMARY KEY(a ASC));
+    INSERT INTO t VALUES('a',1);
+    INSERT INTO t VALUES('a',2);
+}
+expect error {
+    UNIQUE constraint failed: .*
+}
+
+test r21-composite-sort-index-count {
+    CREATE TABLE t(a TEXT,b,PRIMARY KEY(a,b),UNIQUE(a DESC,b ASC));
+    SELECT count(*) FROM sqlite_schema WHERE type='index' AND tbl_name='t';
+}
+expect {
+    1
+}
+
+test r21-composite-sort-enforcement {
+    CREATE TABLE t(a TEXT,b,PRIMARY KEY(a,b),UNIQUE(a DESC,b ASC));
+    INSERT INTO t VALUES('a',1);
+    INSERT INTO t VALUES('a',1);
+}
+expect error {
+    UNIQUE constraint failed: .*
+}
+
+test r21-composite-reordered-index-count {
+    CREATE TABLE t(a TEXT,b,PRIMARY KEY(a,b),UNIQUE(b,a));
+    SELECT count(*) FROM sqlite_schema WHERE type='index' AND tbl_name='t';
+}
+expect {
+    2
+}
+
+test r21-composite-reordered-enforcement {
+    CREATE TABLE t(a TEXT,b,PRIMARY KEY(a,b),UNIQUE(b,a));
+    INSERT INTO t VALUES('a',1);
+    INSERT INTO t VALUES('a',1);
+}
+expect error {
+    UNIQUE constraint failed: .*
+}
+
+test r21-composite-collation-index-count {
+    CREATE TABLE t(a TEXT,b,PRIMARY KEY(a,b),UNIQUE(a COLLATE NOCASE,b));
+    SELECT count(*) FROM sqlite_schema WHERE type='index' AND tbl_name='t';
+}
+expect {
+    2
+}
+
+test r21-composite-collation-enforcement {
+    CREATE TABLE t(a TEXT,b,PRIMARY KEY(a,b),UNIQUE(a COLLATE NOCASE,b));
+    INSERT INTO t VALUES('a',1);
+    INSERT INTO t VALUES('A',1);
+}
+expect error {
+    UNIQUE constraint failed: .*
+}
+
+test r21-duplicate-unique-index-count {
+    CREATE TABLE t(a TEXT,b,UNIQUE(a),UNIQUE(a));
+    SELECT count(*) FROM sqlite_schema WHERE type='index' AND tbl_name='t';
+}
+expect {
+    1
+}
+
+test r21-duplicate-unique-enforcement {
+    CREATE TABLE t(a TEXT,b,UNIQUE(a),UNIQUE(a));
+    INSERT INTO t VALUES('a',1);
+    INSERT INTO t VALUES('a',2);
+}
+expect error {
+    UNIQUE constraint failed: .*
+}
+
+test r21-unique-before-pk-index-count {
+    CREATE TABLE t(a TEXT UNIQUE PRIMARY KEY,b);
+    SELECT count(*) FROM sqlite_schema WHERE type='index' AND tbl_name='t';
+}
+expect {
+    1
+}
+
+test r21-unique-before-pk-enforcement {
+    CREATE TABLE t(a TEXT UNIQUE PRIMARY KEY,b);
+    INSERT INTO t VALUES('a',1);
+    INSERT INTO t VALUES('a',2);
+}
+expect error {
+    UNIQUE constraint failed: .*
+}
+
+test r21-null-unique-index-count {
+    CREATE TABLE t(a TEXT,b,UNIQUE(a),UNIQUE(a COLLATE NOCASE));
+    SELECT count(*) FROM sqlite_schema WHERE type='index' AND tbl_name='t';
+}
+expect {
+    2
+}
+
+test r21-null-unique-enforcement {
+    CREATE TABLE t(a TEXT,b,UNIQUE(a),UNIQUE(a COLLATE NOCASE));
+    INSERT INTO t VALUES(NULL,1);
+    INSERT INTO t VALUES(NULL,2);
+    SELECT quote(a)||':'||quote(b) FROM t ORDER BY rowid;
+}
+expect {
+    NULL:1
+    NULL:2
+}
+
+test r21-null-pk-rowid-table-index-count {
+    CREATE TABLE t(a TEXT PRIMARY KEY,b,UNIQUE(a COLLATE NOCASE));
+    SELECT count(*) FROM sqlite_schema WHERE type='index' AND tbl_name='t';
+}
+expect {
+    2
+}
+
+test r21-null-pk-rowid-table-enforcement {
+    CREATE TABLE t(a TEXT PRIMARY KEY,b,UNIQUE(a COLLATE NOCASE));
+    INSERT INTO t VALUES(NULL,1);
+    INSERT INTO t VALUES(NULL,2);
+    SELECT quote(a)||':'||quote(b) FROM t ORDER BY rowid;
+}
+expect {
+    NULL:1
+    NULL:2
+}
+
+test r21-rowid-alias-index-count {
+    CREATE TABLE t(a INTEGER PRIMARY KEY,b,UNIQUE(a));
+    SELECT count(*) FROM sqlite_schema WHERE type='index' AND tbl_name='t';
+}
+expect {
+    1
+}
+
+test r21-rowid-alias-enforcement {
+    CREATE TABLE t(a INTEGER PRIMARY KEY,b,UNIQUE(a));
+    INSERT INTO t VALUES(1,1);
+    INSERT INTO t VALUES(1,2);
+}
+expect error {
+    UNIQUE constraint failed: .*
+}
+
+test r21-rtrim-distinct-index-count {
+    CREATE TABLE t(a TEXT PRIMARY KEY,b,UNIQUE(a COLLATE RTRIM));
+    SELECT count(*) FROM sqlite_schema WHERE type='index' AND tbl_name='t';
+}
+expect {
+    2
+}
+
+test r21-rtrim-distinct-enforcement {
+    CREATE TABLE t(a TEXT PRIMARY KEY,b,UNIQUE(a COLLATE RTRIM));
+    INSERT INTO t VALUES('a',1);
+    INSERT INTO t VALUES('a ',2);
+}
+expect error {
+    UNIQUE constraint failed: .*
+}
+
+test r21-different-conflict-different-collation-index-count {
+    CREATE TABLE t(a TEXT,b,UNIQUE(a) ON CONFLICT IGNORE,UNIQUE(a COLLATE NOCASE) ON CONFLICT FAIL);
+    SELECT count(*) FROM sqlite_schema WHERE type='index' AND tbl_name='t';
+}
+expect {
+    2
+}
+
+test r21-different-conflict-different-collation-enforcement {
+    CREATE TABLE t(a TEXT,b,UNIQUE(a) ON CONFLICT IGNORE,UNIQUE(a COLLATE NOCASE) ON CONFLICT FAIL);
+    INSERT INTO t VALUES('a',1);
+    INSERT INTO t VALUES('A',2);
+}
+expect error {
+    UNIQUE constraint failed: .*
+}
+
+test r21-different-conflict-same-key-enforcement {
+    CREATE TABLE t(a TEXT,b,UNIQUE(a) ON CONFLICT IGNORE,UNIQUE(a) ON CONFLICT FAIL);
+}
+expect error {
+    conflicting ON CONFLICT clauses specified
+}
+
+test r21-insert-ignore-retains-rows {
+    CREATE TABLE t(a TEXT PRIMARY KEY,b,UNIQUE(a COLLATE NOCASE));
+    INSERT INTO t VALUES('a',1),('b',2);
+    INSERT OR IGNORE INTO t VALUES('A',3);
+    SELECT a||':'||b FROM t ORDER BY b;
+}
+expect {
+    a:1
+    b:2
+}
+
+test r21-update-ignore-retains-rows {
+    CREATE TABLE t(a TEXT PRIMARY KEY,b,UNIQUE(a COLLATE NOCASE));
+    INSERT INTO t VALUES('a',1),('b',2);
+    UPDATE OR IGNORE t SET a='A' WHERE b=2;
+    SELECT a||':'||b FROM t ORDER BY b;
+}
+expect {
+    a:1
+    b:2
+}
+
+test r21-tuple-upsert-enforcement {
+    CREATE TABLE t(a TEXT PRIMARY KEY,b INT UNIQUE,UNIQUE(a COLLATE NOCASE));
+    INSERT INTO t VALUES('a',1),('b',2);
+    INSERT INTO t VALUES('b',2) ON CONFLICT(b) DO UPDATE SET (a,b)=('A',2);
+}
+expect error {
+    UNIQUE constraint failed: .*
+}
+
+test r21-nocase-upsert-target-updates-existing-row {
+    CREATE TABLE t(a TEXT PRIMARY KEY,b INT,UNIQUE(a COLLATE NOCASE));
+    INSERT INTO t VALUES('a',1);
+    INSERT INTO t VALUES('A',2) ON CONFLICT(a COLLATE NOCASE) DO UPDATE SET b=excluded.b;
+    SELECT quote(a),b FROM t;
+}
+expect {
+    'a'|2
+}
+
+test r21-binary-upsert-target-does-not-catch-nocase-conflict {
+    CREATE TABLE t(a TEXT PRIMARY KEY,b INT,UNIQUE(a COLLATE NOCASE));
+    INSERT INTO t VALUES('a',1);
+    INSERT INTO t VALUES('A',2) ON CONFLICT(a COLLATE BINARY) DO UPDATE SET b=excluded.b;
+}
+expect error {
+    UNIQUE constraint failed: .*
+}
+
+test r21-declared-nocase-upsert-target-inherits-collation {
+    CREATE TABLE t(a TEXT COLLATE NOCASE UNIQUE,b INT);
+    INSERT INTO t VALUES('a',1);
+    INSERT INTO t VALUES('A',2) ON CONFLICT(a) DO UPDATE SET b=excluded.b;
+    SELECT quote(a),b FROM t;
+}
+expect {
+    'a'|2
+}
+
+test r21-retained-desc-index-order {
+    CREATE TABLE t(a TEXT,b,UNIQUE(a DESC),PRIMARY KEY(a ASC));
+    PRAGMA index_xinfo(sqlite_autoindex_t_1);
+}
+expect {
+    0|0|a|1|BINARY|1
+    1|-1||0|BINARY|0
+}
+
+test r21-nc-rtrim-metadata {
+    CREATE TABLE t(x TEXT,y TEXT,UNIQUE(x COLLATE NOCASE),UNIQUE(x COLLATE RTRIM));
+    PRAGMA index_list(t);
+    PRAGMA index_xinfo(sqlite_autoindex_t_1);
+    PRAGMA index_xinfo(sqlite_autoindex_t_2);
+}
+expect {
+    0|sqlite_autoindex_t_2|1|u|0
+    1|sqlite_autoindex_t_1|1|u|0
+    0|0|x|0|NOCASE|1
+    1|-1||0|BINARY|0
+    0|0|x|0|RTRIM|1
+    1|-1||0|BINARY|0
+}
+
+test r21-nc-rtrim-collision {
+    CREATE TABLE t(x TEXT,y TEXT,UNIQUE(x COLLATE NOCASE),UNIQUE(x COLLATE RTRIM));
+    INSERT INTO t VALUES('a ','original');
+    INSERT INTO t VALUES('a','duplicate');
+}
+expect error {
+    UNIQUE constraint failed: t\.x
+}
+
+test r21-nc-rtrim-ignore-rows {
+    CREATE TABLE t(x TEXT,y TEXT,UNIQUE(x COLLATE NOCASE),UNIQUE(x COLLATE RTRIM));
+    INSERT INTO t VALUES('a ','original');
+    INSERT OR IGNORE INTO t VALUES('a','duplicate');
+    SELECT quote(x)||':'||y FROM t ORDER BY rowid;
+}
+expect {
+    'a ':original
+}
+
+test r21-rtrim-nc-metadata {
+    CREATE TABLE t(x TEXT,y TEXT,UNIQUE(x COLLATE RTRIM),UNIQUE(x COLLATE NOCASE));
+    PRAGMA index_list(t);
+    PRAGMA index_xinfo(sqlite_autoindex_t_1);
+    PRAGMA index_xinfo(sqlite_autoindex_t_2);
+}
+expect {
+    0|sqlite_autoindex_t_2|1|u|0
+    1|sqlite_autoindex_t_1|1|u|0
+    0|0|x|0|RTRIM|1
+    1|-1||0|BINARY|0
+    0|0|x|0|NOCASE|1
+    1|-1||0|BINARY|0
+}
+
+test r21-rtrim-nc-collision {
+    CREATE TABLE t(x TEXT,y TEXT,UNIQUE(x COLLATE RTRIM),UNIQUE(x COLLATE NOCASE));
+    INSERT INTO t VALUES('A','original');
+    INSERT INTO t VALUES('a','duplicate');
+}
+expect error {
+    UNIQUE constraint failed: t\.x
+}
+
+test r21-rtrim-nc-ignore-rows {
+    CREATE TABLE t(x TEXT,y TEXT,UNIQUE(x COLLATE RTRIM),UNIQUE(x COLLATE NOCASE));
+    INSERT INTO t VALUES('A','original');
+    INSERT OR IGNORE INTO t VALUES('a','duplicate');
+    SELECT quote(x)||':'||y FROM t ORDER BY rowid;
+}
+expect {
+    'A':original
+}
+
+test r21-same-nocase-metadata {
+    CREATE TABLE t(x TEXT,y TEXT,UNIQUE(x COLLATE NOCASE),UNIQUE(x COLLATE NOCASE));
+    PRAGMA index_list(t);
+    PRAGMA index_xinfo(sqlite_autoindex_t_1);
+}
+expect {
+    0|sqlite_autoindex_t_1|1|u|0
+    0|0|x|0|NOCASE|1
+    1|-1||0|BINARY|0
+}
+
+test r21-same-nocase-collision {
+    CREATE TABLE t(x TEXT,y TEXT,UNIQUE(x COLLATE NOCASE),UNIQUE(x COLLATE NOCASE));
+    INSERT INTO t VALUES('A','original');
+    INSERT INTO t VALUES('a','duplicate');
+}
+expect error {
+    UNIQUE constraint failed: t\.x
+}
+
+test r21-same-nocase-ignore-rows {
+    CREATE TABLE t(x TEXT,y TEXT,UNIQUE(x COLLATE NOCASE),UNIQUE(x COLLATE NOCASE));
+    INSERT INTO t VALUES('A','original');
+    INSERT OR IGNORE INTO t VALUES('a','duplicate');
+    SELECT quote(x)||':'||y FROM t ORDER BY rowid;
+}
+expect {
+    'A':original
+}
+
+test r21-nc-rtrim-abort-collision {
+    CREATE TABLE t(x TEXT,y TEXT,UNIQUE(x COLLATE NOCASE),UNIQUE(x COLLATE RTRIM));
+    INSERT INTO t VALUES('a ','original');
+    BEGIN;
+    INSERT INTO t VALUES('z','before-statement');
+    INSERT OR ABORT INTO t VALUES('b','before-conflict'),('a','conflict'),('c','after-conflict');
+}
+expect error {
+    UNIQUE constraint failed: t\.x
+}
+
+test r21-nc-rtrim-fail-collision {
+    CREATE TABLE t(x TEXT,y TEXT,UNIQUE(x COLLATE NOCASE),UNIQUE(x COLLATE RTRIM));
+    INSERT INTO t VALUES('a ','original');
+    BEGIN;
+    INSERT INTO t VALUES('z','before-statement');
+    INSERT OR FAIL INTO t VALUES('b','before-conflict'),('a','conflict'),('c','after-conflict');
+}
+expect error {
+    UNIQUE constraint failed: t\.x
+}
+
+test r21-nocase-duplicate-pk-ownership {
+    CREATE TABLE t(x TEXT COLLATE NOCASE,y,UNIQUE(x),UNIQUE(x COLLATE NOCASE),PRIMARY KEY(x));
+    PRAGMA index_list(t);
+    PRAGMA index_xinfo(sqlite_autoindex_t_1);
+}
+expect {
+    0|sqlite_autoindex_t_1|1|pk|0
+    0|0|x|0|NOCASE|1
+    1|-1||0|BINARY|0
+}

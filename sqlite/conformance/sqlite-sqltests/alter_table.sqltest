@@ -1,5 +1,17 @@
 @database :memory:
 
+test alter-table-rename-preserves-schema-and-autoindex-name-case {
+    CREATE TABLE "Parent Key"(id TEXT UNIQUE);
+    ALTER TABLE "Parent Key" RENAME TO "Renamed Key";
+    SELECT name,tbl_name FROM sqlite_schema WHERE type IN ('table','index') ORDER BY rowid;
+    PRAGMA index_list('Renamed Key');
+}
+expect {
+    Renamed Key|Renamed Key
+    sqlite_autoindex_Renamed Key_1|Renamed Key
+    0|sqlite_autoindex_Renamed Key_1|1|u|0
+}
+
 @cross-check-integrity
 test alter-table-rename-table {
     CREATE TABLE t1 (x INTEGER PRIMARY KEY, u);

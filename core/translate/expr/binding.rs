@@ -292,8 +292,7 @@ pub fn bind_and_rewrite_expr<'a>(
 
                     // `resolved` holds the accepted binding (at most one).
                     // `identifier_matched` is true once *any* scope produced a table whose
-                    // identifier equals `tbl`; it distinguishes "no such table" from
-                    // "no such column" in error reporting below.
+                    // identifier equals `tbl`.
                     let mut resolved: Option<(TableInternalId, QualifiedMatch)> = None;
                     let mut identifier_matched = false;
 
@@ -403,16 +402,6 @@ pub fn bind_and_rewrite_expr<'a>(
 
                     // --- Error reporting. ---
                     if resolved.is_none() && !identifier_matched {
-                        // No scope contains a table with this identifier. Normally we
-                        // report "no such table", but there is one case where SQLite
-                        // reports "no such column" instead: when the identifier names a
-                        // CTE that was preplanned for subquery FROM visibility and kept
-                        // as a definition-only outer ref. The CTE *name* is valid in
-                        // principle; it's the column access through it that isn't,
-                        // because the CTE hasn't been brought into this scope's FROM.
-                        // The `cte_id`/`cte_select` check restricts this to real CTE
-                        // definition refs so any other future use of `cte_definition_only`
-                        // still falls through to "no such table".
                         let is_definition_only_cte = referenced_tables
                             .find_outer_query_ref_by_identifier(&normalized_table_name)
                             .is_some_and(|outer_ref| {
@@ -457,12 +446,20 @@ pub fn bind_and_rewrite_expr<'a>(
                             referenced_tables.mark_column_used(m.table_id, m.col_idx);
                             return Ok(WalkControl::Continue);
                         }
-                        crate::bail_parse_error!("no such table: {}", normalized_table_name);
+                        crate::bail_parse_error!(
+                            "no such column: {}.{}",
+                            tbl.as_str(),
+                            id.as_str()
+                        );
                     }
                     // Identifier matched somewhere but no column/rowid binding was
                     // produced — the table exists, the column doesn't.
                     let Some((tbl_id, binding)) = resolved else {
-                        crate::bail_parse_error!("no such column: {}", normalized_id);
+                        crate::bail_parse_error!(
+                            "no such column: {}.{}",
+                            tbl.as_str(),
+                            id.as_str()
+                        );
                     };
 
                     match binding {

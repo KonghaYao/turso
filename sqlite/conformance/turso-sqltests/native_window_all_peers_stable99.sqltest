@@ -1,0 +1,1366 @@
+@database :memory:
+
+# Verbatim all_peers setup and every exact original matrix expansion.
+setup all_peers {
+    CREATE TABLE tap(k INT, v INT);
+    INSERT INTO tap VALUES (7,1),(7,2),(7,3),(7,4);
+}
+
+@setup all_peers
+test fixed-original-all-peers-m1-s1-e1-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1|1|1
+    2|2|1
+    3|3|1
+    4|4|1
+}
+
+@setup all_peers
+test fixed-original-all-peers-m1-s1-e1-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m1-s1-e2-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1|1|1
+    2|2|1
+    3|3|1
+    4|4|1
+}
+
+@setup all_peers
+test fixed-original-all-peers-m1-s1-e2-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m1-s1-e3-x1 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY v;
+}
+expect {
+    1|10|4
+    2|10|4
+    3|10|4
+    4|10|4
+}
+
+@setup all_peers
+test fixed-original-all-peers-m1-s1-e3-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1|1|1
+    2|2|1
+    3|3|1
+    4|4|1
+}
+
+@setup all_peers
+test fixed-original-all-peers-m1-s1-e3-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m1-s2-e1-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k ROWS BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1|1|1
+    2|2|1
+    3|3|1
+    4|4|1
+}
+
+@setup all_peers
+test fixed-original-all-peers-m1-s2-e1-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k ROWS BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m1-s2-e2-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1|1|1
+    2|2|1
+    3|3|1
+    4|4|1
+}
+
+@setup all_peers
+test fixed-original-all-peers-m1-s2-e2-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m1-s2-e3-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k ROWS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1|1|1
+    2|2|1
+    3|3|1
+    4|4|1
+}
+
+@setup all_peers
+test fixed-original-all-peers-m1-s2-e3-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k ROWS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m1-s3-e1-x1 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k ROWS BETWEEN CURRENT ROW AND CURRENT ROW )
+    ORDER BY v;
+}
+expect {
+    1|1|1
+    2|2|1
+    3|3|1
+    4|4|1
+}
+
+@setup all_peers
+test fixed-original-all-peers-m1-s3-e1-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k ROWS BETWEEN CURRENT ROW AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1|1|1
+    2|2|1
+    3|3|1
+    4|4|1
+}
+
+@setup all_peers
+test fixed-original-all-peers-m1-s3-e1-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k ROWS BETWEEN CURRENT ROW AND CURRENT ROW EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m1-s3-e2-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1|1|1
+    2|2|1
+    3|3|1
+    4|4|1
+}
+
+@setup all_peers
+test fixed-original-all-peers-m1-s3-e2-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m1-s3-e3-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1|1|1
+    2|2|1
+    3|3|1
+    4|4|1
+}
+
+@setup all_peers
+test fixed-original-all-peers-m1-s3-e3-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m1-s4-e1-x1 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k ROWS BETWEEN 1 FOLLOWING AND CURRENT ROW )
+    ORDER BY v;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup all_peers
+test fixed-original-all-peers-m1-s4-e1-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k ROWS BETWEEN 1 FOLLOWING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY v;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup all_peers
+test fixed-original-all-peers-m1-s4-e1-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k ROWS BETWEEN 1 FOLLOWING AND CURRENT ROW EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup all_peers
+test fixed-original-all-peers-m1-s4-e2-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m1-s4-e2-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m1-s4-e3-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k ROWS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m1-s4-e3-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k ROWS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s1-e1-x1 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW )
+    ORDER BY v;
+}
+expect {
+    1|10|4
+    2|10|4
+    3|10|4
+    4|10|4
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s1-e1-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1|1|1
+    2|2|1
+    3|3|1
+    4|4|1
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s1-e1-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s1-e2-x1 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING )
+    ORDER BY v;
+}
+expect {
+    1|10|4
+    2|10|4
+    3|10|4
+    4|10|4
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s1-e2-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1|1|1
+    2|2|1
+    3|3|1
+    4|4|1
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s1-e2-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s1-e3-x1 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY v;
+}
+expect {
+    1|10|4
+    2|10|4
+    3|10|4
+    4|10|4
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s1-e3-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1|1|1
+    2|2|1
+    3|3|1
+    4|4|1
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s1-e3-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s2-e1-x1 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW )
+    ORDER BY v;
+}
+expect {
+    1|10|4
+    2|10|4
+    3|10|4
+    4|10|4
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s2-e1-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1|1|1
+    2|2|1
+    3|3|1
+    4|4|1
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s2-e1-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s2-e2-x1 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING )
+    ORDER BY v;
+}
+expect {
+    1|10|4
+    2|10|4
+    3|10|4
+    4|10|4
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s2-e2-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1|1|1
+    2|2|1
+    3|3|1
+    4|4|1
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s2-e2-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s2-e3-x1 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY v;
+}
+expect {
+    1|10|4
+    2|10|4
+    3|10|4
+    4|10|4
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s2-e3-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1|1|1
+    2|2|1
+    3|3|1
+    4|4|1
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s2-e3-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s3-e1-x1 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN CURRENT ROW AND CURRENT ROW )
+    ORDER BY v;
+}
+expect {
+    1|10|4
+    2|10|4
+    3|10|4
+    4|10|4
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s3-e1-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN CURRENT ROW AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1|1|1
+    2|2|1
+    3|3|1
+    4|4|1
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s3-e1-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN CURRENT ROW AND CURRENT ROW EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s3-e2-x1 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING )
+    ORDER BY v;
+}
+expect {
+    1|10|4
+    2|10|4
+    3|10|4
+    4|10|4
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s3-e2-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1|1|1
+    2|2|1
+    3|3|1
+    4|4|1
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s3-e2-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s3-e3-x1 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING )
+    ORDER BY v;
+}
+expect {
+    1|10|4
+    2|10|4
+    3|10|4
+    4|10|4
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s3-e3-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1|1|1
+    2|2|1
+    3|3|1
+    4|4|1
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s3-e3-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s4-e1-x1 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND CURRENT ROW )
+    ORDER BY v;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s4-e1-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY v;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s4-e1-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND CURRENT ROW EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s4-e2-x1 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND 1 FOLLOWING )
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s4-e2-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s4-e2-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND 1 FOLLOWING EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s4-e3-x1 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING )
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s4-e3-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m2-s4-e3-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s1-e1-x1 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW )
+    ORDER BY v;
+}
+expect {
+    1|10|4
+    2|10|4
+    3|10|4
+    4|10|4
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s1-e1-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1|1|1
+    2|2|1
+    3|3|1
+    4|4|1
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s1-e1-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s1-e2-x1 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING )
+    ORDER BY v;
+}
+expect {
+    1|10|4
+    2|10|4
+    3|10|4
+    4|10|4
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s1-e2-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1|1|1
+    2|2|1
+    3|3|1
+    4|4|1
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s1-e2-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s1-e3-x1 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY v;
+}
+expect {
+    1|10|4
+    2|10|4
+    3|10|4
+    4|10|4
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s1-e3-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1|1|1
+    2|2|1
+    3|3|1
+    4|4|1
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s1-e3-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s2-e1-x1 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 1 PRECEDING AND CURRENT ROW )
+    ORDER BY v;
+}
+expect {
+    1|10|4
+    2|10|4
+    3|10|4
+    4|10|4
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s2-e1-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1|1|1
+    2|2|1
+    3|3|1
+    4|4|1
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s2-e1-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s2-e2-x1 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING )
+    ORDER BY v;
+}
+expect {
+    1|10|4
+    2|10|4
+    3|10|4
+    4|10|4
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s2-e2-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1|1|1
+    2|2|1
+    3|3|1
+    4|4|1
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s2-e2-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s2-e3-x1 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY v;
+}
+expect {
+    1|10|4
+    2|10|4
+    3|10|4
+    4|10|4
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s2-e3-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1|1|1
+    2|2|1
+    3|3|1
+    4|4|1
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s2-e3-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s3-e1-x1 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN CURRENT ROW AND CURRENT ROW )
+    ORDER BY v;
+}
+expect {
+    1|10|4
+    2|10|4
+    3|10|4
+    4|10|4
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s3-e1-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN CURRENT ROW AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1|1|1
+    2|2|1
+    3|3|1
+    4|4|1
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s3-e1-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN CURRENT ROW AND CURRENT ROW EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s3-e2-x1 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN CURRENT ROW AND 1 FOLLOWING )
+    ORDER BY v;
+}
+expect {
+    1|10|4
+    2|10|4
+    3|10|4
+    4|10|4
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s3-e2-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1|1|1
+    2|2|1
+    3|3|1
+    4|4|1
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s3-e2-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s3-e3-x1 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING )
+    ORDER BY v;
+}
+expect {
+    1|10|4
+    2|10|4
+    3|10|4
+    4|10|4
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s3-e3-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1|1|1
+    2|2|1
+    3|3|1
+    4|4|1
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s3-e3-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s4-e1-x1 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND CURRENT ROW )
+    ORDER BY v;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s4-e1-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY v;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s4-e1-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND CURRENT ROW EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s4-e2-x1 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND 1 FOLLOWING )
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s4-e2-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s4-e2-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND 1 FOLLOWING EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s4-e3-x1 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING )
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s4-e3-x2 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}
+
+@setup all_peers
+test fixed-original-all-peers-m3-s4-e3-x3 {
+    SELECT v, sum(v) OVER w, count(*) OVER w
+    FROM tap
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING EXCLUDE GROUP)
+    ORDER BY v;
+}
+expect {
+    1||0
+    2||0
+    3||0
+    4||0
+}

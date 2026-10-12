@@ -1,0 +1,122 @@
+@database :memory:
+
+# Hand-derived fixed rows from matrix families. This file contains no matrix
+# blocks or runtime reference comparison.
+setup composite_join_rows {
+    CREATE TABLE jl(id INTEGER PRIMARY KEY, k INTEGER, k2 INTEGER, flag INTEGER);
+    CREATE TABLE jr(id INTEGER PRIMARY KEY, k INTEGER, k2 INTEGER, flag INTEGER);
+    CREATE INDEX jl_key ON jl(k,k2);
+    CREATE INDEX jr_key ON jr(k,k2);
+    INSERT INTO jl VALUES (1,1,1,1),(2,1,2,0),(3,NULL,1,1),(4,2,2,1);
+    INSERT INTO jr VALUES (10,1,1,0),(11,1,1,1),(12,1,2,0),(13,3,1,1),(14,NULL,1,0);
+}
+
+# join/hash.sqltest: FULL, reversed composite equality, residual ON filter,
+# null-extended rows filtered by WHERE, and LIMIT/OFFSET.
+@setup composite_join_rows
+test fixed-full-reversed-composite-residual-offset {
+    SELECT jl.id,jr.id FROM jl FULL OUTER JOIN jr
+      ON jr.k2=jl.k2 AND jr.k=jl.k AND jr.flag=1
+    WHERE (jl.id <= 4 OR jl.id IS NULL) AND (jr.flag=1 OR jl.flag=1)
+    ORDER BY jl.id,jr.id LIMIT 3 OFFSET 1;
+}
+expect {
+    1|11
+    3|
+    4|
+}
+
+setup real_window_rows {
+    CREATE TABLE wr(k REAL);
+    INSERT INTO wr VALUES (0.5),(1.0),(1.5),(3.25),(4.0),(100.0);
+}
+
+# window/frame_matrix_edge.sqltest: DESC RANGE with fractional start/end.
+@setup real_window_rows
+test fixed-desc-range-fractional-offsets {
+    SELECT k,count(*) OVER w,printf('%.2f',sum(k) OVER w) FROM wr
+    WINDOW w AS (ORDER BY k DESC RANGE BETWEEN 0.5 PRECEDING AND 1.5 FOLLOWING)
+    ORDER BY k DESC;
+}
+expect {
+    100.0|1|100.00
+    4.0|2|7.25
+    3.25|1|3.25
+    1.5|3|3.00
+    1.0|3|3.00
+    0.5|2|1.50
+}
+
+setup nocase_window_rows {
+    CREATE TABLE wn(id INTEGER PRIMARY KEY,k TEXT);
+    INSERT INTO wn VALUES (1,'a'),(2,'A'),(3,'b'),(4,'B'),(5,'B'),(6,'c');
+}
+
+# window/frame_matrix_edge.sqltest: NOCASE peers, GROUPS and EXCLUDE GROUP.
+@setup nocase_window_rows
+test fixed-nocase-groups-exclude-next-peer {
+    SELECT id,sum(id) OVER
+      (ORDER BY k COLLATE NOCASE GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE GROUP)
+    FROM wn ORDER BY id;
+}
+expect {
+    1|12
+    2|12
+    3|6
+    4|6
+    5|6
+    6|
+}
+
+setup mixed_window_rows {
+    CREATE TABLE wm(id INTEGER PRIMARY KEY,k INTEGER,v INTEGER);
+    INSERT INTO wm VALUES (1,1,2),(2,1,4),(3,2,8),(4,3,16);
+}
+
+# window/frame_matrix_edge.sqltest: separate ROWS/GROUPS buffers in one SELECT.
+@setup mixed_window_rows
+test fixed-multiple-independent-window-frames {
+    SELECT id,sum(v) OVER (ORDER BY k,id ROWS BETWEEN 1 PRECEDING AND CURRENT ROW),
+           count(*) OVER (ORDER BY k GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING)
+    FROM wm ORDER BY id;
+}
+expect {
+    1|2|3
+    2|6|3
+    3|12|2
+    4|24|1
+}
+
+setup hash_rows {
+    CREATE TABLE hl(id INTEGER PRIMARY KEY,k INTEGER,k2 INTEGER,flag INTEGER);
+    CREATE TABLE hr(id INTEGER PRIMARY KEY,k INTEGER,k2 INTEGER,flag INTEGER);
+    INSERT INTO hl VALUES (1,1,1,1),(2,1,2,0),(3,2,2,1),(4,NULL,1,1);
+    INSERT INTO hr VALUES (10,1,1,1),(11,1,2,1),(12,2,2,1),(13,2,2,0),(14,NULL,1,1);
+    ANALYZE;
+    DELETE FROM sqlite_stat1;
+    INSERT INTO sqlite_stat1(tbl,idx,stat) VALUES
+      ('hl',NULL,'1000'),('hr',NULL,'100000');
+    ANALYZE sqlite_schema;
+}
+
+# join/hash.sqltest: require actual hash plan before checking composite join rows.
+@setup hash_rows
+test fixed-composite-hash-plan {
+    EXPLAIN QUERY PLAN SELECT count(*) FROM hl AS l JOIN hr AS r
+      ON l.k=r.k AND l.k2=r.k2 WHERE l.flag=1;
+}
+expect pattern {
+    HASH JOIN hr AS r
+}
+
+@setup hash_rows
+test fixed-composite-hash-result {
+    SELECT l.id,r.id FROM hl AS l JOIN hr AS r
+      ON l.k=r.k AND l.k2=r.k2
+    WHERE l.flag=1 ORDER BY l.id,r.id;
+}
+expect {
+    1|10
+    3|12
+    3|13
+}

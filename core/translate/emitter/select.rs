@@ -10,13 +10,14 @@ use crate::{
             MaterializedBuildInput, MaterializedBuildInputMode, MaterializedColumnRef,
             OperationMode, ResultSetColumn, TableMask, TranslateCtx,
         },
+        expr::{walk_expr, WalkControl},
         group_by::{group_by_agg_phase, group_by_emit_row_phase, EmitGroupBy, GroupByRowSource},
         main_loop::{init_distinct, CloseLoop, InitLoop, LoopBodyEmitter, OpenLoop},
         order_by::EmitOrderBy,
         plan::{
             BitSet, Distinctness, EphemeralRowidMode, EvalAt, IndexMethodQuery, JoinOrderMember,
-            Operation, QueryDestination, Scan, Search, SeekKeyComponent, SelectPlan,
-            SimpleAggregate,
+            Operation, Plan, QueryDestination, Scan, Search, SeekKeyComponent, SelectPlan,
+            SimpleAggregate, SubqueryEvalPhase, SubqueryState,
         },
         planner::table_mask_from_expr,
         select::emit_simple_count,
@@ -38,7 +39,26 @@ pub fn emit_program_for_select(
     resolver: &Resolver,
     plan: SelectPlan,
 ) -> Result<()> {
-    emit_program_for_select_with_resolver(program, resolver.fork(), plan)
+    let mut select_resolver = resolver.fork();
+    if program.is_nested() && resolver.expr_to_reg_cache_enabled {
+        select_resolver.expr_to_reg_cache.extend(
+            resolver
+                .expr_to_reg_cache
+                .iter()
+                .filter(|cached| match cached.expr.as_ref() {
+                    Expr::Column { table, .. } | Expr::RowId { table, .. } => plan
+                        .table_references
+                        .find_outer_query_ref_by_internal_id(*table)
+                        .is_some(),
+                    _ => false,
+                })
+                .cloned(),
+        );
+        if !select_resolver.expr_to_reg_cache.is_empty() {
+            select_resolver.enable_expr_to_reg_cache();
+        }
+    }
+    emit_program_for_select_with_resolver(program, select_resolver, plan)
 }
 
 pub fn emit_program_for_select_with_resolver(
@@ -104,7 +124,7 @@ pub fn emit_query<'a>(
 
     // Handle VALUES clause - emit values after subqueries are prepared
     if !plan.values.is_empty() {
-        init_limit(program, t_ctx, &plan.limit, &plan.offset)?;
+        init_limit(program, t_ctx, &plan.limit, &plan.offset, None)?;
         let reg_result_cols_start = emit_values(program, plan, t_ctx)?;
         program.preassign_label_to_next_insn(after_main_loop_label);
         return Ok(reg_result_cols_start);
@@ -117,8 +137,15 @@ pub fn emit_query<'a>(
     // we need to ensure non-aggregate columns are only emitted once.
     // This flag helps track whether we've already emitted these columns.
     let has_ungrouped_nonagg_cols = !plan.aggregates.is_empty()
-        && plan.group_by.is_none()
-        && plan.result_columns.iter().any(|c| !c.contains_aggregates);
+        && plan
+            .group_by
+            .as_ref()
+            .is_none_or(|group_by| group_by.exprs.is_empty())
+        && (plan
+            .result_columns
+            .iter()
+            .any(|column| !column.contains_aggregates)
+            || !collect_ungrouped_bare_columns(plan)?.is_empty());
 
     if has_ungrouped_nonagg_cols {
         let flag = program.alloc_register();
@@ -206,7 +233,21 @@ pub fn emit_query<'a>(
         emit_explain!(program, false, crate::translate::eqp::EqpDetail::Distinct);
     }
 
-    init_limit(program, t_ctx, &plan.limit, &plan.offset)?;
+    // Ungrouped aggregates produce one output row even when the source loop reads
+    // none. A zero LIMIT must bypass that row, rather than only the source loop.
+    let skip_ungrouped_aggregate_output = (!plan.aggregates.is_empty()
+        && plan
+            .group_by
+            .as_ref()
+            .is_none_or(|group_by| group_by.exprs.is_empty()))
+    .then(|| program.allocate_label());
+    init_limit(
+        program,
+        t_ctx,
+        &plan.limit,
+        &plan.offset,
+        skip_ungrouped_aggregate_output,
+    )?;
 
     // No rows will be read from source table loops if there is a constant false condition eg. WHERE 0
     // however an aggregation might still happen,
@@ -237,6 +278,9 @@ pub fn emit_query<'a>(
         // Without resolving this label before the early return, bytecode assembly fails
         // with an unresolved IfNot target.
         program.preassign_label_to_next_insn(after_main_loop_label);
+        if let Some(skip_output) = skip_ungrouped_aggregate_output {
+            program.preassign_label_to_next_insn(skip_output);
+        }
         return Ok(t_ctx.reg_result_cols_start.unwrap());
     }
 
@@ -294,7 +338,128 @@ pub fn emit_query<'a>(
         EmitOrderBy::emit(program, t_ctx, plan)?;
     }
 
+    if let Some(skip_output) = skip_ungrouped_aggregate_output {
+        program.preassign_label_to_next_insn(skip_output);
+    }
     Ok(t_ctx.reg_result_cols_start.unwrap())
+}
+
+pub(crate) fn collect_ungrouped_bare_columns(plan: &SelectPlan) -> Result<Vec<Expr>> {
+    let mut columns = Vec::new();
+    let mut seen_columns = HashSet::default();
+    let mut expressions: Vec<_> = plan
+        .result_columns
+        .iter()
+        .map(|column| &column.expr)
+        .chain(
+            plan.group_by
+                .iter()
+                .flat_map(|group_by| group_by.having.iter().flatten()),
+        )
+        .map(|expression| (expression, plan))
+        .collect();
+    while let Some((expression, expression_plan)) = expressions.pop() {
+        walk_expr(expression, &mut |expression| {
+            if plan
+                .aggregates
+                .iter()
+                .any(|aggregate| aggregate.original_expr == *expression)
+            {
+                return Ok(WalkControl::SkipChildren);
+            }
+            if let Expr::SubqueryResult { subquery_id, .. } = expression {
+                if let Some(subquery) = expression_plan
+                    .non_from_clause_subqueries
+                    .iter()
+                    .find(|subquery| subquery.internal_id == *subquery_id)
+                {
+                    if !std::ptr::eq(expression_plan, plan)
+                        || subquery.eval_phase == SubqueryEvalPhase::UngroupedAggregateOutput
+                    {
+                        if let SubqueryState::Unevaluated {
+                            plan: Some(subquery_plan),
+                        } = &subquery.state
+                        {
+                            collect_subquery_bare_column_expressions(
+                                subquery_plan,
+                                &mut expressions,
+                            );
+                        }
+                    }
+                }
+                return Ok(WalkControl::SkipChildren);
+            }
+            let column_key = match expression {
+                Expr::Column { table, column, .. } => Some((*table, Some(*column))),
+                Expr::RowId { table, .. } => Some((*table, None)),
+                _ => None,
+            };
+            if let Some((table, column)) = column_key {
+                if plan
+                    .table_references
+                    .joined_tables()
+                    .iter()
+                    .any(|table_ref| table_ref.internal_id == table)
+                {
+                    if seen_columns.insert((table, column)) {
+                        columns.push(expression.clone());
+                    }
+                    return Ok(WalkControl::SkipChildren);
+                }
+            }
+            Ok(WalkControl::Continue)
+        })?;
+    }
+    Ok(columns)
+}
+
+fn collect_subquery_bare_column_expressions<'a>(
+    plan: &'a Plan,
+    expressions: &mut Vec<(&'a Expr, &'a SelectPlan)>,
+) {
+    match plan {
+        Plan::Select(select) => collect_select_bare_column_expressions(select, expressions),
+        Plan::CompoundSelect {
+            left, right_most, ..
+        } => {
+            for (select, _) in left {
+                collect_select_bare_column_expressions(select, expressions);
+            }
+            collect_select_bare_column_expressions(right_most, expressions);
+        }
+        Plan::RecursiveCte(recursive) => {
+            collect_subquery_bare_column_expressions(&recursive.initial_query, expressions);
+            collect_subquery_bare_column_expressions(&recursive.recursive_query, expressions);
+        }
+        Plan::Delete(_) | Plan::Update(_) => unreachable!("DML plans cannot be subqueries"),
+    }
+}
+
+fn collect_select_bare_column_expressions<'a>(
+    plan: &'a SelectPlan,
+    expressions: &mut Vec<(&'a Expr, &'a SelectPlan)>,
+) {
+    expressions.extend(
+        plan.result_columns
+            .iter()
+            .map(|column| &column.expr)
+            .chain(plan.where_clause.iter().map(|term| &term.expr))
+            .chain(plan.group_by.iter().flat_map(|group_by| {
+                group_by
+                    .exprs
+                    .iter()
+                    .chain(group_by.having.iter().flatten())
+            }))
+            .chain(
+                plan.order_by
+                    .iter()
+                    .map(|(expression, _, _)| expression.as_ref()),
+            )
+            .chain(plan.limit.iter().map(|expression| expression.as_ref()))
+            .chain(plan.offset.iter().map(|expression| expression.as_ref()))
+            .chain(plan.values.iter().flatten())
+            .map(|expression| (expression, plan)),
+    );
 }
 
 #[derive(Debug, Clone)]

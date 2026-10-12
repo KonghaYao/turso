@@ -27,6 +27,20 @@ expect {
     0
 }
 
+@cross-check-integrity
+test drop-table-mixed-case-removes-schema-entries {
+    CREATE TABLE "MiXeD Name" (x);
+    CREATE INDEX "MiXeD Index" ON "MiXeD Name"(x);
+    DROP TABLE "mixed name";
+    SELECT count(*) FROM sqlite_schema WHERE name IN ('MiXeD Name', 'MiXeD Index');
+    CREATE TABLE "MiXeD Name" (x);
+    SELECT count(*) FROM sqlite_schema WHERE name = 'MiXeD Name';
+}
+expect {
+    0
+    1
+}
+
 # Test DROP TABLE IF EXISTS on existing table
 @cross-check-integrity
 test drop-table-if-exists-1 {
@@ -117,4 +131,3 @@ test drop-table-fk-disabled-ok {
 expect {
     0
 }
-

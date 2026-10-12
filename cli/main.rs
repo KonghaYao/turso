@@ -76,6 +76,19 @@ fn run_sync_server(app: app::Limbo) -> anyhow::Result<()> {
 }
 
 fn main() -> anyhow::Result<()> {
+    const CLI_STACK_SIZE: usize = 64 * 1024 * 1024;
+
+    let worker = std::thread::Builder::new()
+        .name("turso-cli".into())
+        .stack_size(CLI_STACK_SIZE)
+        .spawn(run)?;
+    match worker.join() {
+        Ok(result) => result,
+        Err(payload) => std::panic::resume_unwind(payload),
+    }
+}
+
+fn run() -> anyhow::Result<()> {
     #[cfg(feature = "mvcc_repl")]
     {
         use clap::Parser as _;

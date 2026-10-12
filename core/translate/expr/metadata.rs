@@ -263,6 +263,7 @@ pub(super) fn try_emit_expression_index_value(
     referenced_tables: Option<&TableReferences>,
     expr: &ast::Expr,
     target_register: usize,
+    resolver: &Resolver,
 ) -> Result<bool> {
     let Some(referenced_tables) = referenced_tables else {
         return Ok(false);
@@ -292,7 +293,52 @@ pub(super) fn try_emit_expression_index_value(
     else {
         return Ok(false);
     };
+    let expression_done = if referenced_tables.outer_join_may_null_extend(table_id) {
+        let matched_row = program.allocate_label();
+        let expression_done = program.allocate_label();
+        let rowid_register = program.alloc_register();
+        program.emit_insn(Insn::IdxRowId {
+            cursor_id,
+            dest: rowid_register,
+        });
+        program.emit_insn(Insn::NotNull {
+            reg: rowid_register,
+            target_pc: matched_row,
+        });
+        let mut null_row_expr = expr.clone();
+        walk_expr_mut(&mut null_row_expr, &mut |expression| {
+            match expression {
+                ast::Expr::Column { table, .. } | ast::Expr::RowId { table, .. }
+                    if *table == table_id =>
+                {
+                    *expression = ast::Expr::Literal(ast::Literal::Null);
+                }
+                _ => {}
+            }
+            Ok(WalkControl::Continue)
+        })?;
+        let mut null_row_resolver = resolver.fork_with_expr_cache();
+        null_row_resolver.expr_to_reg_cache_enabled = false;
+        translate_expr_no_constant_opt(
+            program,
+            None,
+            &null_row_expr,
+            target_register,
+            &null_row_resolver,
+            NoConstantOptReason::RegisterReuse,
+        )?;
+        program.emit_insn(Insn::Goto {
+            target_pc: expression_done,
+        });
+        program.preassign_label_to_next_insn(matched_row);
+        Some(expression_done)
+    } else {
+        None
+    };
     program.emit_column_or_rowid(cursor_id, expr_pos, target_register);
+    if let Some(expression_done) = expression_done {
+        program.preassign_label_to_next_insn(expression_done);
+    }
     Ok(true)
 }
 

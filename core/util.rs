@@ -1916,7 +1916,7 @@ fn append_view_column_schema(
 
 fn view_source_from_select_table(
     select_table: &ast::SelectTable,
-    schema: &Schema,
+    source_columns: &dyn Fn(&ast::QualifiedName) -> Result<Vec<Column>>,
     ctes: &HashMap<String, ViewColumnSchema>,
     tables: &mut Vec<ViewTable>,
 ) -> Result<ViewSource> {
@@ -1943,27 +1943,20 @@ fn view_source_from_select_table(
                 db_name: name.db_name.as_ref().map(|db| normalize_ident(db.as_str())),
                 alias: table_alias,
             });
-            let columns = schema
-                .get_table(&table_name)
-                .map(|table| {
-                    table
-                        .columns()
-                        .iter()
-                        .cloned()
-                        .map(|column| ViewColumn {
-                            table_index,
-                            column,
-                        })
-                        .collect()
+            let columns = source_columns(name)?
+                .into_iter()
+                .map(|column| ViewColumn {
+                    table_index,
+                    column,
                 })
-                .unwrap_or_default();
+                .collect();
             Ok(ViewSource {
                 qualifiers,
                 columns,
             })
         }
         ast::SelectTable::Select(select, alias) => {
-            let derived = extract_view_columns_inner(select, schema, ctes)?;
+            let derived = extract_view_columns_inner(select, source_columns, ctes)?;
             Ok(ViewSource {
                 qualifiers: alias
                     .as_ref()
@@ -1973,7 +1966,7 @@ fn view_source_from_select_table(
             })
         }
         ast::SelectTable::Sub(from, alias) => {
-            let sources = view_sources_from_clause(from, schema, ctes, tables)?;
+            let sources = view_sources_from_clause(from, source_columns, ctes, tables)?;
             Ok(ViewSource {
                 qualifiers: alias
                     .as_ref()
@@ -1994,20 +1987,13 @@ fn view_source_from_select_table(
                 db_name: name.db_name.as_ref().map(|db| normalize_ident(db.as_str())),
                 alias: table_alias,
             });
-            let columns = schema
-                .get_table(&table_name)
-                .map(|table| {
-                    table
-                        .columns()
-                        .iter()
-                        .cloned()
-                        .map(|column| ViewColumn {
-                            table_index,
-                            column,
-                        })
-                        .collect()
+            let columns = source_columns(name)?
+                .into_iter()
+                .map(|column| ViewColumn {
+                    table_index,
+                    column,
                 })
-                .unwrap_or_default();
+                .collect();
             Ok(ViewSource {
                 qualifiers,
                 columns,
@@ -2037,11 +2023,11 @@ fn view_output_column(source: &ViewColumn) -> ViewColumn {
 
 fn view_sources_from_clause(
     from: &ast::FromClause,
-    schema: &Schema,
+    source_columns: &dyn Fn(&ast::QualifiedName) -> Result<Vec<Column>>,
     ctes: &HashMap<String, ViewColumnSchema>,
     tables: &mut Vec<ViewTable>,
 ) -> Result<Vec<(ViewSource, Vec<String>)>> {
-    let first = view_source_from_select_table(&from.select, schema, ctes, tables)?;
+    let first = view_source_from_select_table(&from.select, source_columns, ctes, tables)?;
     let mut visible_names: Vec<String> = first
         .columns
         .iter()
@@ -2051,7 +2037,7 @@ fn view_sources_from_clause(
     let mut sources = vec![(first, Vec::new())];
 
     for join in &from.joins {
-        let right = view_source_from_select_table(&join.table, schema, ctes, tables)?;
+        let right = view_source_from_select_table(&join.table, source_columns, ctes, tables)?;
         let natural = matches!(
             join.operator,
             ast::JoinOperator::TypedJoin(Some(join_type))
@@ -2153,13 +2139,13 @@ fn deduplicate_view_column_name(column: &mut ViewColumn, counts: &mut HashMap<St
 
 fn extract_view_columns_inner(
     select_stmt: &ast::Select,
-    schema: &Schema,
+    source_columns: &dyn Fn(&ast::QualifiedName) -> Result<Vec<Column>>,
     outer_ctes: &HashMap<String, ViewColumnSchema>,
 ) -> Result<ViewColumnSchema> {
     let mut ctes = outer_ctes.clone();
     if let Some(with) = &select_stmt.with {
         for cte in &with.ctes {
-            let mut derived = extract_view_columns_inner(&cte.select, schema, &ctes)?;
+            let mut derived = extract_view_columns_inner(&cte.select, source_columns, &ctes)?;
             for (column, explicit_name) in derived.columns.iter_mut().zip(&cte.columns) {
                 column.column.name = Some(explicit_name.col_name.as_str().to_string());
             }
@@ -2171,6 +2157,19 @@ fn extract_view_columns_inner(
     let mut columns = Vec::new();
     let mut column_name_counts = HashMap::default();
 
+    if let ast::OneSelect::Values(rows) = &select_stmt.body.select {
+        if let Some(row) = rows.first() {
+            columns.extend(row.iter().enumerate().map(|(index, _)| ViewColumn {
+                table_index: usize::MAX,
+                column: Column::new_default_text(
+                    Some(format!("column{}", index + 1)),
+                    "TEXT".into(),
+                    None,
+                ),
+            }));
+        }
+        return Ok(ViewColumnSchema { tables, columns });
+    }
     let ast::OneSelect::Select {
         from,
         columns: select_columns,
@@ -2182,7 +2181,7 @@ fn extract_view_columns_inner(
 
     let sources = from
         .as_ref()
-        .map(|from| view_sources_from_clause(from, schema, &ctes, &mut tables))
+        .map(|from| view_sources_from_clause(from, source_columns, &ctes, &mut tables))
         .transpose()?
         .unwrap_or_default();
 
@@ -2219,6 +2218,7 @@ fn extract_view_columns_inner(
                     .filter(|alias| !matches!(alias, ast::As::ImplicitColumnName(_)))
                     .map(|alias| alias.name().as_str().to_string())
                     .or_else(|| extract_column_name_from_expr(expr))
+                    .or_else(|| alias.as_ref().map(|alias| alias.name().as_str().to_owned()))
                     .unwrap_or_else(|| expr.to_string());
                 let mut column =
                     source_column
@@ -2277,7 +2277,56 @@ pub fn extract_view_columns(
     select_stmt: &ast::Select,
     schema: &Schema,
 ) -> Result<ViewColumnSchema> {
-    extract_view_columns_inner(select_stmt, schema, &HashMap::default())
+    let visiting = std::cell::RefCell::new(HashSet::default());
+    extract_view_columns_with_sources(select_stmt, &|name| {
+        view_schema_source_columns(schema, name, &visiting)
+    })
+}
+
+pub(crate) fn extract_view_columns_with_sources(
+    select_stmt: &ast::Select,
+    source_columns: &dyn Fn(&ast::QualifiedName) -> Result<Vec<Column>>,
+) -> Result<ViewColumnSchema> {
+    extract_view_columns_inner(select_stmt, source_columns, &HashMap::default())
+}
+
+fn view_schema_source_columns(
+    schema: &Schema,
+    name: &ast::QualifiedName,
+    visiting: &std::cell::RefCell<HashSet<String>>,
+) -> Result<Vec<Column>> {
+    let normalized = normalize_ident(name.name.as_str());
+    if let Some(table) = schema.get_table(&normalized) {
+        return Ok(table.columns().to_vec());
+    }
+    let Some(view) = schema.views.get(&normalized) else {
+        return Ok(Vec::new());
+    };
+    if !visiting.borrow_mut().insert(normalized.clone()) {
+        return Err(LimboError::ParseError(format!(
+            "view {normalized} is circularly defined"
+        )));
+    }
+    let result = extract_view_columns_with_sources(&view.select_stmt, &|source| {
+        view_schema_source_columns(schema, source, visiting)
+    });
+    visiting.borrow_mut().remove(&normalized);
+    let mut columns = result?.flat_columns();
+    apply_view_explicit_columns(&view.sql, &mut columns)?;
+    Ok(columns)
+}
+
+pub(crate) fn apply_view_explicit_columns(sql: &str, columns: &mut [Column]) -> Result<()> {
+    let ast::Stmt::CreateView {
+        columns: explicit, ..
+    } = parse_rename_view(sql)?
+    else {
+        unreachable!()
+    };
+    for (column, name) in columns.iter_mut().zip(explicit) {
+        column.name = Some(name.col_name.as_str().to_owned());
+    }
+    Ok(())
 }
 
 pub fn rewrite_fk_parent_cols_if_self_ref(
@@ -3494,6 +3543,581 @@ mod rename_column_view {
 }
 
 pub use rename_column_view::{rewrite_view_sql_for_column_rename, RewrittenView};
+
+pub fn rewrite_view_sql_for_table_rename(
+    view_sql: &str,
+    old_table: &str,
+    new_table: &str,
+    target_database: usize,
+    resolve_database: &impl Fn(&ast::QualifiedName) -> Result<usize>,
+) -> Result<Option<RewrittenView>> {
+    let mut statement = parse_rename_view(view_sql)?;
+    let original_statement = statement.clone();
+    let ast::Stmt::CreateView { select, .. } = &mut statement else {
+        unreachable!();
+    };
+    let original = select.clone();
+    let rewrite = ViewTableRename {
+        old_table,
+        new_table,
+        target_database,
+        resolve_database,
+        selected_site: None,
+        site_count: std::cell::Cell::new(0),
+        strip_source: false,
+    };
+    rewrite.select(select, &[], &[])?;
+    if *select == original {
+        return Ok(None);
+    }
+    let site_count = rewrite.site_count.get();
+    let mut marker = "__turso_rename_probe__".to_owned();
+    while view_sql.to_ascii_lowercase().contains(&marker) {
+        marker.push('_');
+    }
+    let mut expected = HashMap::default();
+    for site in 0..site_count {
+        let mut probe = original_statement.clone();
+        let ast::Stmt::CreateView { select, .. } = &mut probe else {
+            unreachable!();
+        };
+        let rewrite = ViewTableRename {
+            old_table,
+            new_table: &marker,
+            target_database,
+            resolve_database,
+            selected_site: Some(site),
+            site_count: std::cell::Cell::new(0),
+            strip_source: false,
+        };
+        rewrite.select(select, &[], &[])?;
+        strip_rename_view_source(&mut probe)?;
+        if expected.insert(format!("{probe:?}"), site).is_some() {
+            return Err(LimboError::InternalError(
+                "duplicate rename AST site".into(),
+            ));
+        }
+    }
+    let spellings = [
+        old_table.to_owned(),
+        format!("\"{}\"", old_table.replace('"', "\"\"")),
+        format!("'{}'", old_table.replace('\'', "''")),
+        format!("`{}`", old_table.replace('`', "``")),
+        format!("[{old_table}]"),
+    ];
+    let mut edits = Vec::new();
+    let mut found = vec![false; site_count];
+    for (start, _) in view_sql.char_indices() {
+        for spelling in &spellings {
+            let end = start + spelling.len();
+            if spelling.is_empty()
+                || !view_sql
+                    .get(start..end)
+                    .is_some_and(|text| text.eq_ignore_ascii_case(spelling))
+            {
+                continue;
+            }
+            let range = start..end;
+            let probe_sql = render_view_rename(view_sql, std::slice::from_ref(&range), &marker);
+            let Ok(mut probe) = parse_rename_view(&probe_sql) else {
+                continue;
+            };
+            strip_rename_view_source(&mut probe)?;
+            if let Some(site) = expected.get(&format!("{probe:?}")) {
+                if std::mem::replace(&mut found[*site], true) {
+                    return Err(LimboError::InternalError(
+                        "ambiguous rename source site".into(),
+                    ));
+                }
+                edits.push(range);
+            }
+        }
+    }
+    if found.iter().any(|found| !found) {
+        return Err(LimboError::InternalError(
+            "missing rename source site".into(),
+        ));
+    }
+    edits.sort_by_key(|range| range.start);
+    if edits.windows(2).any(|pair| pair[0].end > pair[1].start) {
+        return Err(LimboError::InternalError(
+            "overlapping rename source sites".into(),
+        ));
+    }
+    let sql = render_view_rename(view_sql, &edits, new_table);
+    let final_statement = parse_rename_view(&sql)?;
+    let mut checked = final_statement.clone();
+    strip_rename_view_source(&mut checked)?;
+    strip_rename_view_source(&mut statement)?;
+    if checked != statement {
+        return Err(LimboError::InternalError(
+            "view rename changed unexpected AST positions".into(),
+        ));
+    }
+    let ast::Stmt::CreateView { select, .. } = final_statement else {
+        return Err(LimboError::InternalError(
+            "invalid rewritten CREATE VIEW".to_owned(),
+        ));
+    };
+    Ok(Some(RewrittenView {
+        sql,
+        select_stmt: select,
+        columns: Vec::new(),
+    }))
+}
+
+pub(crate) fn view_definition_sql(input: &str) -> Result<String> {
+    use turso_parser::lexer::Lexer;
+    use turso_parser::token::TokenType;
+
+    let mut parser = Parser::new(input.as_bytes());
+    let mut original = match parser.next_cmd()? {
+        Some(
+            ast::Cmd::Stmt(statement)
+            | ast::Cmd::Explain(statement)
+            | ast::Cmd::ExplainQueryPlan {
+                stmt: statement, ..
+            },
+        ) => statement,
+        None => return Err(LimboError::InternalError("missing view definition".into())),
+    };
+    let ast::Stmt::CreateView {
+        view_name,
+        temporary,
+        if_not_exists,
+        ..
+    } = &mut original
+    else {
+        unreachable!()
+    };
+    let qualified = view_name.db_name.take().is_some();
+    *temporary = false;
+    *if_not_exists = false;
+    let mut offset = 0;
+    let mut next_token = || -> Result<(usize, TokenType)> {
+        loop {
+            let start = offset;
+            let mut lexer = Lexer::new(&input.as_bytes()[start..]);
+            let token = lexer
+                .next()
+                .transpose()?
+                .ok_or_else(|| LimboError::InternalError("missing view header token".into()))?;
+            offset = input.len() - lexer.remaining().len();
+            if token.token_type == TokenType::TK_NONE {
+                continue;
+            }
+            if token.token_type == TokenType::TK_LBRACKET {
+                offset += input.as_bytes()[offset..]
+                    .iter()
+                    .position(|byte| *byte == b']')
+                    .ok_or_else(|| LimboError::InternalError("unterminated view name".into()))?
+                    + 1;
+            }
+            return Ok((start, token.token_type));
+        }
+    };
+    let mut token = next_token()?;
+    while token.1 != TokenType::TK_VIEW {
+        token = next_token()?;
+    }
+    token = next_token()?;
+    if token.1 == TokenType::TK_IF {
+        next_token()?;
+        next_token()?;
+        token = next_token()?;
+    }
+    if qualified {
+        next_token()?;
+        token = next_token()?;
+    }
+    let suffix = input[token.0..].trim_end().trim_end_matches(';').trim_end();
+    let sql = format!("CREATE VIEW {suffix}");
+    if parse_rename_view(&sql)? != original {
+        return Err(LimboError::InternalError(
+            "view source does not match parsed definition".into(),
+        ));
+    }
+    Ok(sql)
+}
+
+fn parse_rename_view(sql: &str) -> Result<ast::Stmt> {
+    let mut parser = Parser::new(sql.as_bytes());
+    let Some(ast::Cmd::Stmt(statement @ ast::Stmt::CreateView { .. })) = parser.next_cmd()? else {
+        return Err(LimboError::InternalError(
+            "expected CREATE VIEW during table rename".into(),
+        ));
+    };
+    if parser.next_cmd()?.is_some() {
+        return Err(LimboError::InternalError(
+            "multiple statements in view definition".into(),
+        ));
+    }
+    Ok(statement)
+}
+
+fn render_view_rename(sql: &str, ranges: &[std::ops::Range<usize>], name: &str) -> String {
+    let replacement = format!("\"{}\"", name.replace('"', "\"\""));
+    let mut result = String::with_capacity(sql.len());
+    let mut previous = 0;
+    for range in ranges {
+        result.push_str(&sql[previous..range.start]);
+        result.push_str(&replacement);
+        if sql.as_bytes().get(range.end) == Some(&b'"') {
+            result.push(' ');
+        }
+        previous = range.end;
+    }
+    result.push_str(&sql[previous..]);
+    result
+}
+
+fn strip_rename_view_source(statement: &mut ast::Stmt) -> Result<()> {
+    let ast::Stmt::CreateView { select, .. } = statement else {
+        unreachable!()
+    };
+    ViewTableRename {
+        old_table: "",
+        new_table: "",
+        target_database: 0,
+        resolve_database: &|_: &ast::QualifiedName| Ok(0),
+        selected_site: None,
+        site_count: std::cell::Cell::new(0),
+        strip_source: true,
+    }
+    .select(select, &[], &[])
+}
+
+struct ViewTableRename<'a, Resolve> {
+    old_table: &'a str,
+    new_table: &'a str,
+    target_database: usize,
+    resolve_database: &'a Resolve,
+    selected_site: Option<usize>,
+    site_count: std::cell::Cell<usize>,
+    strip_source: bool,
+}
+
+#[derive(Clone)]
+struct ViewRenameBinding {
+    qualifier: String,
+    database: Option<usize>,
+    rename: bool,
+}
+
+impl<Resolve: Fn(&ast::QualifiedName) -> Result<usize>> ViewTableRename<'_, Resolve> {
+    fn select(
+        &self,
+        select: &mut ast::Select,
+        inherited_ctes: &[String],
+        outer: &[Vec<ViewRenameBinding>],
+    ) -> Result<()> {
+        let mut ctes = inherited_ctes.to_vec();
+        if let Some(with) = &mut select.with {
+            ctes.extend(
+                with.ctes
+                    .iter()
+                    .map(|cte| normalize_ident(cte.tbl_name.as_str())),
+            );
+            for cte in &mut with.ctes {
+                self.select(&mut cte.select, &ctes, outer)?;
+            }
+        }
+        let scope = self.one_select(&mut select.body.select, &ctes, outer)?;
+        for compound in &mut select.body.compounds {
+            self.one_select(&mut compound.select, &ctes, outer)?;
+        }
+        for sorted in &mut select.order_by {
+            self.expr(&mut sorted.expr, &ctes, &scope)?;
+        }
+        if let Some(limit) = &mut select.limit {
+            self.expr(&mut limit.expr, &ctes, &scope)?;
+            if let Some(offset) = &mut limit.offset {
+                self.expr(offset, &ctes, &scope)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn one_select(
+        &self,
+        select: &mut ast::OneSelect,
+        ctes: &[String],
+        outer: &[Vec<ViewRenameBinding>],
+    ) -> Result<Vec<Vec<ViewRenameBinding>>> {
+        let mut scope = outer.to_vec();
+        match select {
+            ast::OneSelect::Select {
+                columns,
+                from,
+                where_clause,
+                group_by,
+                window_clause,
+                ..
+            } => {
+                if let Some(from) = from {
+                    let mut frame = Vec::new();
+                    self.bind_from(from, ctes, &mut frame)?;
+                    scope.push(frame);
+                    self.from(from, ctes, &scope)?;
+                } else {
+                    scope.push(Vec::new());
+                }
+                for column in columns {
+                    match column {
+                        ast::ResultColumn::Expr(expr, alias) => {
+                            if self.strip_source
+                                && matches!(alias, Some(ast::As::ImplicitColumnName(_)))
+                            {
+                                *alias = None;
+                            }
+                            self.expr(expr, ctes, &scope)?;
+                        }
+                        ast::ResultColumn::TableStar(name) => self.qualifier(name, None, &scope)?,
+                        ast::ResultColumn::Star => {}
+                    }
+                }
+                if let Some(expr) = where_clause {
+                    self.expr(expr, ctes, &scope)?;
+                }
+                if let Some(group) = group_by {
+                    for expr in &mut group.exprs {
+                        self.expr(expr, ctes, &scope)?;
+                    }
+                    if let Some(expr) = &mut group.having {
+                        self.expr(expr, ctes, &scope)?;
+                    }
+                }
+                for definition in window_clause {
+                    self.window(&mut definition.window, ctes, &scope)?;
+                }
+            }
+            ast::OneSelect::Values(rows) => {
+                for row in rows {
+                    for expr in row {
+                        self.expr(expr, ctes, &scope)?;
+                    }
+                }
+            }
+        }
+        Ok(scope)
+    }
+
+    fn from(
+        &self,
+        from: &mut ast::FromClause,
+        ctes: &[String],
+        scope: &[Vec<ViewRenameBinding>],
+    ) -> Result<()> {
+        self.table(&mut from.select, ctes, scope)?;
+        for join in &mut from.joins {
+            self.table(&mut join.table, ctes, scope)?;
+        }
+        for join in &mut from.joins {
+            if let Some(ast::JoinConstraint::On(expr)) = &mut join.constraint {
+                self.expr(expr, ctes, scope)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn table(
+        &self,
+        table: &mut ast::SelectTable,
+        ctes: &[String],
+        scope: &[Vec<ViewRenameBinding>],
+    ) -> Result<()> {
+        match table {
+            ast::SelectTable::Table(name, _, _) | ast::SelectTable::TableCall(name, _, _) => {
+                let target = self.target(name, ctes)?;
+                if target {
+                    self.replace_name(&mut name.name);
+                }
+                if let ast::SelectTable::TableCall(_, args, _) = table {
+                    for expr in args {
+                        self.expr(expr, ctes, scope)?;
+                    }
+                }
+            }
+            ast::SelectTable::Select(select, _) => {
+                self.select(select, ctes, &scope[..scope.len().saturating_sub(1)])?;
+            }
+            ast::SelectTable::Sub(from, _) => {
+                self.from(from, ctes, scope)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn target(&self, name: &ast::QualifiedName, ctes: &[String]) -> Result<bool> {
+        if self.strip_source
+            || normalize_ident(name.name.as_str()) != normalize_ident(self.old_table)
+            || (name.db_name.is_none() && ctes.contains(&normalize_ident(name.name.as_str())))
+        {
+            return Ok(false);
+        }
+        Ok((self.resolve_database)(name)? == self.target_database)
+    }
+
+    fn bind_from(
+        &self,
+        from: &ast::FromClause,
+        ctes: &[String],
+        frame: &mut Vec<ViewRenameBinding>,
+    ) -> Result<()> {
+        if self.strip_source {
+            return Ok(());
+        }
+        self.bind_table(&from.select, ctes, frame)?;
+        for join in &from.joins {
+            self.bind_table(&join.table, ctes, frame)?;
+        }
+        Ok(())
+    }
+
+    fn bind_table(
+        &self,
+        table: &ast::SelectTable,
+        ctes: &[String],
+        frame: &mut Vec<ViewRenameBinding>,
+    ) -> Result<()> {
+        match table {
+            ast::SelectTable::Table(name, alias, _)
+            | ast::SelectTable::TableCall(name, _, alias) => {
+                let is_cte =
+                    name.db_name.is_none() && ctes.contains(&normalize_ident(name.name.as_str()));
+                let database = if is_cte {
+                    None
+                } else {
+                    Some((self.resolve_database)(name)?)
+                };
+                frame.push(ViewRenameBinding {
+                    qualifier: alias.as_ref().map_or_else(
+                        || normalize_ident(name.name.as_str()),
+                        |alias| normalize_ident(alias.name().as_str()),
+                    ),
+                    database,
+                    rename: !is_cte
+                        && alias.is_none()
+                        && database == Some(self.target_database)
+                        && normalize_ident(name.name.as_str()) == normalize_ident(self.old_table),
+                });
+            }
+            ast::SelectTable::Select(_, Some(alias)) | ast::SelectTable::Sub(_, Some(alias)) => {
+                frame.push(ViewRenameBinding {
+                    qualifier: normalize_ident(alias.name().as_str()),
+                    database: None,
+                    rename: false,
+                });
+            }
+            ast::SelectTable::Sub(from, None) => self.bind_from(from, ctes, frame)?,
+            ast::SelectTable::Select(_, None) => {}
+        }
+        Ok(())
+    }
+
+    fn qualifier(
+        &self,
+        name: &mut ast::Name,
+        database: Option<usize>,
+        scope: &[Vec<ViewRenameBinding>],
+    ) -> Result<()> {
+        if self.strip_source {
+            return Ok(());
+        }
+        for frame in scope.iter().rev() {
+            let mut matches = frame.iter().filter(|binding| {
+                binding.qualifier == normalize_ident(name.as_str())
+                    && database.is_none_or(|database| binding.database == Some(database))
+            });
+            let Some(binding) = matches.next() else {
+                continue;
+            };
+            if matches.next().is_some() {
+                return Err(LimboError::ParseError(format!(
+                    "ambiguous table reference during rename: {name}"
+                )));
+            }
+            if binding.rename {
+                if frame
+                    .iter()
+                    .any(|other| other.qualifier == normalize_ident(self.new_table))
+                {
+                    return Err(LimboError::ParseError(format!(
+                        "cannot rename table {} to {}: ambiguous table qualifier",
+                        self.old_table, self.new_table
+                    )));
+                }
+                self.replace_name(name);
+            }
+            break;
+        }
+        Ok(())
+    }
+
+    fn replace_name(&self, name: &mut ast::Name) {
+        let site = self.site_count.get();
+        self.site_count.set(site + 1);
+        if self.selected_site.is_none_or(|selected| selected == site) {
+            *name = ast::Name::from_string(format!("\"{}\"", self.new_table.replace('"', "\"\"")));
+        }
+    }
+
+    fn expr(
+        &self,
+        expr: &mut ast::Expr,
+        ctes: &[String],
+        scope: &[Vec<ViewRenameBinding>],
+    ) -> Result<()> {
+        walk_expr_mut(expr, &mut |expr| {
+            match expr {
+                ast::Expr::Qualified(table, _) => self.qualifier(table, None, scope)?,
+                ast::Expr::DoublyQualified(database, table, _) if !self.strip_source => {
+                    let name = ast::QualifiedName {
+                        db_name: Some(database.clone()),
+                        name: table.clone(),
+                        alias: None,
+                    };
+                    let database_id = (self.resolve_database)(&name)?;
+                    self.qualifier(table, Some(database_id), scope)?;
+                }
+                ast::Expr::Subquery(select) | ast::Expr::Exists(select) => {
+                    self.select(select, ctes, scope)?
+                }
+                ast::Expr::InSelect { rhs, .. } => self.select(rhs, ctes, scope)?,
+                ast::Expr::InTable { rhs, .. } => {
+                    if self.target(rhs, ctes)? {
+                        self.replace_name(&mut rhs.name);
+                    }
+                }
+                _ => {}
+            }
+            Ok(WalkControl::Continue)
+        })?;
+        Ok(())
+    }
+
+    fn window(
+        &self,
+        window: &mut ast::Window,
+        ctes: &[String],
+        scope: &[Vec<ViewRenameBinding>],
+    ) -> Result<()> {
+        for expr in &mut window.partition_by {
+            self.expr(expr, ctes, scope)?;
+        }
+        for sorted in &mut window.order_by {
+            self.expr(&mut sorted.expr, ctes, scope)?;
+        }
+        if let Some(frame) = &mut window.frame_clause {
+            for bound in std::iter::once(&mut frame.start).chain(frame.end.iter_mut()) {
+                if let ast::FrameBound::Following(expr) | ast::FrameBound::Preceding(expr) = bound {
+                    self.expr(expr, ctes, scope)?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
 
 /// Rewrite table-qualified column references in a CHECK constraint expression,
 /// replacing the table name from `from` to `to`. For example, `t1.a > 0` becomes
@@ -5072,6 +5696,63 @@ pub mod tests {
     use crate::schema::{BTreeTable, Type as SchemaValueType};
     use turso_parser::ast::{self, Expr, FunctionTail, Literal, Name, Operator::*, Type, Variable};
     use turso_parser::parser::Parser;
+
+    #[test]
+    fn table_rename_view_database_scope_and_source() -> Result<()> {
+        let sql = "CREATE TEMP VIEW v AS SELECT main.t1.a,aux.t1.a,'t1' FROM main.t1,aux.t1";
+        let result = rewrite_view_sql_for_table_rename(sql, "t1", "t2", 0, &|name| {
+            Ok(
+                if name
+                    .db_name
+                    .as_ref()
+                    .is_some_and(|name| name.as_str() == "aux")
+                {
+                    2
+                } else {
+                    0
+                },
+            )
+        })?
+        .expect("main table is referenced");
+        assert_eq!(
+            result.sql,
+            "CREATE TEMP VIEW v AS SELECT main.\"t2\".a,aux.t1.a,'t1' FROM main.\"t2\",aux.t1"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn table_rename_view_probe_ignores_literal_alias_and_comments() -> Result<()> {
+        let sql =
+            "CREATE VIEW t1 AS SELECT /* t1 */ real.a,'t1',t1.a FROM t1 real,other t1 LIMIT 0,1";
+        let result = rewrite_view_sql_for_table_rename(sql, "t1", "new\"table", 0, &|_| Ok(0))?
+            .expect("table is referenced");
+        assert_eq!(result.sql, "CREATE VIEW t1 AS SELECT /* t1 */ real.a,'t1',t1.a FROM \"new\"\"table\" real,other t1 LIMIT 0,1");
+        Ok(())
+    }
+
+    #[test]
+    fn table_rename_view_preserves_crlf_and_brackets() -> Result<()> {
+        let sql = "CREATE VIEW v AS\r\nSELECT [odd ? 名].a+1 FROM [odd ? 名]\r\nWHERE a>0;";
+        let result = rewrite_view_sql_for_table_rename(sql, "odd ? 名", "new", 0, &|_| Ok(0))?
+            .expect("table is referenced");
+        assert_eq!(
+            result.sql,
+            "CREATE VIEW v AS\r\nSELECT \"new\".a+1 FROM \"new\"\r\nWHERE a>0;"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn table_rename_view_create_source_header() -> Result<()> {
+        assert_eq!(
+            view_definition_sql(
+                "EXPLAIN CREATE TEMP VIEW IF NOT EXISTS temp.[odd ?] AS select 1+2;"
+            )?,
+            "CREATE VIEW [odd ?] AS select 1+2"
+        );
+        Ok(())
+    }
 
     #[test]
     fn test_normalize_ident() {

@@ -13,6 +13,26 @@ expect {
 }
 
 @cross-check-integrity
+test savepoint-rollback-restores-distinct-unique-collations {
+    CREATE TABLE t(a TEXT PRIMARY KEY,b INT,UNIQUE(a COLLATE NOCASE));
+    INSERT INTO t VALUES('a',1);
+    SAVEPOINT sp;
+    UPDATE t SET a='z';
+    INSERT INTO t VALUES('A',2);
+    ROLLBACK TO sp;
+    RELEASE sp;
+    INSERT OR IGNORE INTO t VALUES('A',3);
+    INSERT INTO t VALUES('z',4);
+    SELECT a,b FROM t ORDER BY b;
+    PRAGMA integrity_check;
+}
+expect {
+    a|1
+    z|4
+    ok
+}
+
+@cross-check-integrity
 test savepoint-release-inside-begin-does-not-commit {
     CREATE TABLE t(x);
     BEGIN;

@@ -848,6 +848,8 @@ pub trait CursorTrait: Any + Send + Sync {
     /// share a btree (e.g. OpenDup cursors) when the btree structure is
     /// modified by another cursor (e.g. clear_btree via ResetSorter).
     fn invalidate_btree_cache(&mut self) {}
+
+    fn trip_on_rollback(&mut self, _error: LimboError) {}
     /// Opt into the pager's cursor_registry. Default no-op so non-BTreeCursor
     /// impls (MvccLazyCursor) stay out. Opt-in impls must unregister in Drop.
     fn register_with_pager(&self) {}
@@ -883,10 +885,12 @@ pub struct BTreeCursor {
     /// Rowid and record are stored before being consumed.
     pub has_record: bool,
     null_flag: bool,
+    logical_row_deleted: bool,
     /// Index internal pages are consumed on the way up, so we store going upwards flag in case
     /// we just moved to a parent page and the parent page is an internal index page which requires
     /// to be consumed.
     going_upwards: bool,
+    iteration_direction: IterationDirection,
     /// Information maintained across execution attempts when an operation yields due to I/O.
     state: CursorState,
     /// State machine for balancing.
@@ -914,6 +918,7 @@ pub struct BTreeCursor {
     context: Option<CursorContext>,
     /// Store whether the Cursor is in a valid state. Meaning if it is pointing to a valid cell index or not
     pub valid_state: CursorValidState,
+    rollback_fault: Option<LimboError>,
     seek_state: CursorSeekState,
     /// Separate state to read a record with overflow pages. This separation from `state` is necessary as
     /// we can be in a function that relies on `state`, but also needs to process overflow pages
@@ -940,6 +945,7 @@ pub struct BTreeCursor {
     /// Advancing is only skipped if the cursor is currently pointing to a valid record
     /// when next() is called.
     pub skip_advance: bool,
+    skip_advance_direction: IterationDirection,
     /// Reusable buffer for cell payloads during insert/update operations.
     /// This avoids allocating a new Vec for each write operation.
     reusable_cell_payload: crate::alloc::Vec<u8>,
@@ -1216,7 +1222,9 @@ impl BTreeCursor {
             payload_limits: PayloadLimits::new(usable_space),
             has_record: false,
             null_flag: false,
+            logical_row_deleted: false,
             going_upwards: false,
+            iteration_direction: IterationDirection::Forwards,
             state: CursorState::None,
             balance_state: BalanceState::default(),
             overflow_state: OverflowState::Start,
@@ -1231,6 +1239,7 @@ impl BTreeCursor {
             count: 0,
             context: None,
             valid_state,
+            rollback_fault: None,
             seek_state: CursorSeekState::Start,
             read_overflow_state: None,
             is_empty_table_state: EmptyTableState::Start,
@@ -1242,6 +1251,7 @@ impl BTreeCursor {
             seek_end_state: SeekEndState::Start,
             move_to_state: MoveToState::Start,
             skip_advance: false,
+            skip_advance_direction: IterationDirection::Forwards,
             reusable_cell_payload: crate::alloc::vec![],
             blob_cache: BlobCellCache::default(),
             blob_pinned_rowid: None,
@@ -2466,6 +2476,7 @@ impl BTreeCursor {
             let cell_count = contents.cell_count();
             if cell_count == 0 {
                 self.stack.set_cell_index(0);
+                self.set_has_record(false);
                 return Ok(IOResult::Done(SeekResult::NotFound));
             }
             self.start_table_leaf_search(cell_count, seek_op);
@@ -2770,6 +2781,7 @@ impl BTreeCursor {
             let contents = page.get_contents();
             let cell_count = contents.cell_count();
             if cell_count == 0 {
+                self.set_has_record(false);
                 return Ok(IOResult::Done(SeekResult::NotFound));
             }
 
@@ -6439,6 +6451,8 @@ impl BTreeCursor {
     fn clear_saved_seek(&mut self) {
         self.context = None;
         self.valid_state = CursorValidState::Valid;
+        self.logical_row_deleted = false;
+        self.skip_advance = false;
     }
 
     #[inline]
@@ -6471,7 +6485,20 @@ impl BTreeCursor {
             CursorContextKey::TableRowId(rowid) => SeekKey::TableRowId(rowid),
             CursorContextKey::IndexKeyRowId(ref record) => SeekKey::IndexKey(record.reborrow()),
         };
-        let res = self.seek(seek_key, ctx.seek_op)?;
+        let logical_row_deleted = self.logical_row_deleted;
+        let skip_advance = self.skip_advance;
+        let skip_advance_direction = self.skip_advance_direction;
+        let res = self.seek(seek_key, ctx.seek_op);
+        self.logical_row_deleted = logical_row_deleted;
+        self.skip_advance = skip_advance;
+        self.skip_advance_direction = skip_advance_direction;
+        let res = match res {
+            Ok(res) => res,
+            Err(error) => {
+                self.context = Some(ctx);
+                return Err(error);
+            }
+        };
         match res {
             IOResult::Done(res) => {
                 match res {
@@ -6486,6 +6513,9 @@ impl BTreeCursor {
                         io_yield_one!(Completion::new_yield());
                     }
                     SeekResult::NotFound => {
+                        if matches!(self.state, CursorState::None) {
+                            self.logical_row_deleted = true;
+                        }
                         // Saved row is gone (deleted by us, or by a peer).
                         // The seek positioned the stack at the next-greater
                         // cell, which is the correct iteration target for
@@ -6494,6 +6524,7 @@ impl BTreeCursor {
                         // landed cell instead of advancing past it — mirrors
                         // SQLite's CURSOR_SKIPNEXT (btree.c:915).
                         self.skip_advance = true;
+                        self.skip_advance_direction = ctx.seek_op.iteration_direction();
                         self.valid_state = CursorValidState::Valid;
                         Ok(IOResult::Done(()))
                     }
@@ -6625,16 +6656,23 @@ impl CursorTrait for BTreeCursor {
         len: usize,
         out: &mut crate::ValueBlob,
     ) -> IOResultOr<()> {
+        self.check_rollback_fault()?;
         self.blob_read_column_inherent(column, off, len, out)
     }
     fn blob_write_column(&mut self, column: usize, off: usize, data: &[u8]) -> IOResultOr<()> {
+        self.check_rollback_fault()?;
         self.blob_write_column_inherent(column, off, data)
     }
     fn blob_column_len(&mut self, column: usize) -> IOResultOr<usize> {
+        self.check_rollback_fault()?;
         self.blob_column_len_inherent(column)
     }
     #[cfg_attr(debug_assertions, instrument(skip_all, level = Level::DEBUG))]
     fn next(&mut self) -> IOResultOr<()> {
+        self.check_rollback_fault()?;
+        if !self.needs_restore() {
+            self.prepare_iteration_direction(IterationDirection::Forwards)?;
+        }
         if self.can_advance_within_leaf() {
             self.stack.advance();
             self.invalidate_record();
@@ -6653,6 +6691,8 @@ impl CursorTrait for BTreeCursor {
             match self.advance_state {
                 AdvanceState::Start => {
                     return_if_io!(self.restore_context());
+                    self.prepare_iteration_direction(IterationDirection::Forwards)?;
+                    self.logical_row_deleted = false;
                     // Set by DeleteState::RestoreContextAfterBalancing and by
                     // restore_context on NotFound: the cursor is already at
                     // the right iteration target, so return it without
@@ -6660,7 +6700,9 @@ impl CursorTrait for BTreeCursor {
                     // EOF), fall through to Advance.
                     if self.skip_advance {
                         self.skip_advance = false;
-                        if self.stack.current_page >= 0 {
+                        if self.skip_advance_direction == IterationDirection::Forwards
+                            && self.stack.current_page >= 0
+                        {
                             let mem_page = self.stack.top_ref();
                             let contents = mem_page.get_contents();
                             let cell_idx = self.stack.current_cell_index();
@@ -6687,11 +6729,17 @@ impl CursorTrait for BTreeCursor {
 
     #[inline(always)]
     fn next_row(&mut self) -> CursorStep {
+        if let Err(error) = self.check_rollback_fault() {
+            return CursorStep::Error(error.into());
+        }
         if self.null_flag {
             self.null_flag = false;
             return CursorStep::Empty;
         }
         if self.can_advance_within_leaf() {
+            if let Err(error) = self.prepare_iteration_direction(IterationDirection::Forwards) {
+                return CursorStep::Error(error.into());
+            }
             self.stack.advance();
             self.invalidate_record();
             return CursorStep::Row;
@@ -6704,6 +6752,9 @@ impl CursorTrait for BTreeCursor {
     }
 
     fn prev_row(&mut self) -> CursorStep {
+        if let Err(error) = self.check_rollback_fault() {
+            return CursorStep::Error(error.into());
+        }
         if self.null_flag {
             self.null_flag = false;
             return CursorStep::Empty;
@@ -6717,6 +6768,8 @@ impl CursorTrait for BTreeCursor {
 
     #[cfg_attr(debug_assertions, instrument(skip_all, level = Level::DEBUG))]
     fn last(&mut self) -> IOResultOr<()> {
+        self.check_rollback_fault()?;
+        self.iteration_direction = IterationDirection::Backwards;
         self.set_null_flag(false);
         if self.valid_state == CursorValidState::Invalid {
             return Ok(IOResult::Done(()));
@@ -6731,10 +6784,27 @@ impl CursorTrait for BTreeCursor {
 
     #[cfg_attr(debug_assertions, instrument(skip_all, level = Level::DEBUG))]
     fn prev(&mut self) -> IOResultOr<()> {
+        self.check_rollback_fault()?;
         loop {
             match self.advance_state {
                 AdvanceState::Start => {
                     return_if_io!(self.restore_context());
+                    self.prepare_iteration_direction(IterationDirection::Backwards)?;
+                    self.logical_row_deleted = false;
+                    if self.skip_advance {
+                        self.skip_advance = false;
+                        if self.skip_advance_direction == IterationDirection::Backwards
+                            && self.stack.current_page >= 0
+                        {
+                            let contents = self.stack.top_ref().get_contents();
+                            let cell_idx = self.stack.current_cell_index();
+                            if cell_idx >= 0 && cell_idx < contents.cell_count() as i32 {
+                                self.set_has_record(true);
+                                self.read_overflow_state = None;
+                                return Ok(IOResult::Done(()));
+                            }
+                        }
+                    }
                     self.advance_state = AdvanceState::Advance;
                 }
                 AdvanceState::Advance => {
@@ -6750,10 +6820,11 @@ impl CursorTrait for BTreeCursor {
     #[cfg_attr(debug_assertions, instrument(skip(self), level = Level::DEBUG))]
     #[inline(always)]
     fn rowid(&mut self) -> IOResultOr<Option<i64>> {
+        self.check_rollback_fault()?;
         if self.needs_restore() {
             return rowid_general(self);
         }
-        if self.get_null_flag() {
+        if self.get_null_flag() || self.logical_row_deleted {
             return Ok(IOResult::Done(None));
         }
         return if self.has_record() {
@@ -6800,6 +6871,9 @@ impl CursorTrait for BTreeCursor {
 
     #[cfg_attr(debug_assertions, instrument(skip(self, key), level = Level::DEBUG))]
     fn seek(&mut self, key: SeekKey<'_>, op: SeekOp) -> IOResultOr<SeekResult> {
+        self.check_rollback_fault()?;
+        self.logical_row_deleted = false;
+        self.iteration_direction = op.iteration_direction();
         self.skip_advance = false;
         // Empty trace to capture the span information
         tracing::trace!("");
@@ -6818,6 +6892,9 @@ impl CursorTrait for BTreeCursor {
 
     #[cfg_attr(debug_assertions, instrument(skip(self, registers), level = Level::DEBUG))]
     fn seek_unpacked(&mut self, registers: &[Register], op: SeekOp) -> IOResultOr<SeekResult> {
+        self.check_rollback_fault()?;
+        self.logical_row_deleted = false;
+        self.iteration_direction = op.iteration_direction();
         self.skip_advance = false;
         // Empty trace to capture the span information
         tracing::trace!("");
@@ -6836,46 +6913,25 @@ impl CursorTrait for BTreeCursor {
 
     #[cfg_attr(debug_assertions, instrument(skip(self), level = Level::DEBUG))]
     fn record(&mut self) -> IOResultOr<Option<&ImmutableRecord>> {
+        self.check_rollback_fault()?;
         // Mirrors sqlite3BtreeRestoreCursorPosition called at btree read
         // entry points (btree.c:5315, etc).
         if self.needs_restore() {
             return_if_io!(self.restore_context());
         }
-        if !self.has_record() {
+        if self.logical_row_deleted {
             return Ok(IOResult::Done(None));
         }
-        let invalidated = self
-            .reusable_immutable_record
-            .as_ref()
-            .is_none_or(|record| record.is_invalidated());
-        if !invalidated {
-            return Ok(IOResult::Done(self.reusable_immutable_record.as_ref()));
-        }
-
-        let page = self.stack.top_ref();
-        let contents = page.get_contents();
-        let cell_idx = self.stack.current_cell_index();
-        let (payload, payload_size, first_overflow_page) =
-            contents.cell_read_payload_ptr(cell_idx as usize, self.payload_limits)?;
-        if let Some(next_page) = first_overflow_page {
-            return_if_io!(self.process_overflow_read(payload, next_page, payload_size))
-        } else {
-            let record = self
-                .get_immutable_record_or_create()?
-                .expect("record was allocated above");
-            record.invalidate();
-            crate::with_btree_allocation_site!(RecordPayload, record.start_serialization(payload))?;
-        };
-
-        Ok(IOResult::Done(self.reusable_immutable_record.as_ref()))
+        self.record_physical()
     }
 
     #[inline(always)]
     fn record_payload(&mut self) -> IOResultOr<Option<&[u8]>> {
+        self.check_rollback_fault()?;
         if self.needs_restore() {
             return restore_record_payload(self);
         }
-        if self.null_flag || !self.has_record() {
+        if self.null_flag || self.logical_row_deleted || !self.has_record() {
             return Ok(IOResult::Done(None));
         }
         let noted = self.noted_payload;
@@ -6915,6 +6971,7 @@ impl CursorTrait for BTreeCursor {
 
     #[cfg_attr(debug_assertions, instrument(skip_all, level = Level::DEBUG))]
     fn insert(&mut self, key: &BTreeKey) -> IOResultOr<()> {
+        self.check_rollback_fault()?;
         tracing::debug!(valid_state = ?self.valid_state, cursor_state = ?self.state, is_write_in_progress = self.is_write_in_progress());
         self.noted_payload = NotedPayload::NONE;
         // saveAllCursors at the head of sqlite3BtreeInsert (btree.c:9348).
@@ -6941,6 +6998,7 @@ impl CursorTrait for BTreeCursor {
     /// 9. SeekAfterBalancing -> adjust the cursor to a node that is closer to the deleted value. go to Finish
     /// 10. Finish -> Delete operation is done. Return CursorResult(Ok())
     fn delete(&mut self) -> IOResultOr<()> {
+        self.check_rollback_fault()?;
         self.noted_payload = NotedPayload::NONE;
         if let CursorState::None = &self.state {
             // saveAllCursors at the head of sqlite3BtreeDelete (btree.c:9841). The
@@ -7311,6 +7369,7 @@ impl CursorTrait for BTreeCursor {
                     // We need to make the next call to BTreeCursor::next() a no-op so that we don't skip over
                     // a row when deleting rows in a loop.
                     self.skip_advance = true;
+                    self.skip_advance_direction = IterationDirection::Forwards;
                     self.state = CursorState::None;
                     return Ok(IOResult::Done(()));
                 }
@@ -7333,6 +7392,7 @@ impl CursorTrait for BTreeCursor {
 
     #[cfg_attr(debug_assertions, instrument(skip_all, level = Level::DEBUG))]
     fn exists(&mut self, key: &Value) -> IOResultOr<bool> {
+        self.check_rollback_fault()?;
         let int_key = match key {
             Value::Numeric(Numeric::Integer(i)) => i,
             _ => unreachable!("btree tables are indexed by integers!"),
@@ -7350,6 +7410,7 @@ impl CursorTrait for BTreeCursor {
     /// this method only clears the tree’s contents. The root page remains
     /// allocated and is reset to an empty leaf page.
     fn clear_btree(&mut self) -> IOResultOr<Option<usize>> {
+        self.check_rollback_fault()?;
         // First entry only — destroy_btree_contents yields IO and resumes
         // through this method, so guard with the same state==None gate it
         // uses for its own state machine. Every page in this btree is about
@@ -7375,6 +7436,7 @@ impl CursorTrait for BTreeCursor {
     /// For cases where the B-Tree should remain allocated but emptied, see [`btree_clear`].
     #[cfg_attr(debug_assertions, instrument(skip(self), level = Level::DEBUG))]
     fn btree_destroy(&mut self) -> IOResultOr<Option<usize>> {
+        self.check_rollback_fault()?;
         // See clear_btree for the state==None gate rationale.
         if matches!(self.state, CursorState::None) {
             self.pager.invalidate_peer_cursors(self);
@@ -7387,6 +7449,7 @@ impl CursorTrait for BTreeCursor {
     ///
     /// Only supposed to be used in the context of a simple Count Select Statement
     fn count(&mut self) -> IOResultOr<usize> {
+        self.check_rollback_fault()?;
         let mut mem_page;
         let mut contents;
 
@@ -7550,6 +7613,8 @@ impl CursorTrait for BTreeCursor {
 
     #[cfg_attr(debug_assertions, instrument(skip_all, level = Level::DEBUG))]
     fn rewind(&mut self) -> IOResultOr<()> {
+        self.check_rollback_fault()?;
+        self.iteration_direction = IterationDirection::Forwards;
         self.set_null_flag(false);
         if self.valid_state == CursorValidState::Invalid {
             return Ok(IOResult::Done(()));
@@ -7614,6 +7679,13 @@ impl CursorTrait for BTreeCursor {
         self.move_to_right_state.1 = None;
         self.invalidate_count_cache();
         self.blob_cache.reset();
+    }
+
+    fn trip_on_rollback(&mut self, error: LimboError) {
+        self.invalidate_btree_cache();
+        self.context = None;
+        self.read_overflow_state = None;
+        self.rollback_fault = Some(error);
     }
 
     fn note_external_row_write(&mut self, rowid: Option<i64>) {
@@ -7709,7 +7781,7 @@ impl CursorTrait for BTreeCursor {
             let rowid = contents.cell_table_leaf_read_rowid(cell_idx as usize)?;
             self.save_context(CursorContext {
                 key: CursorContextKey::TableRowId(rowid),
-                seek_op: SeekOp::GE { eq_only: true },
+                seek_op: self.position_restore_op(),
             });
             return Ok(IOResult::Done(SavePositionResult::Saved));
         }
@@ -7717,7 +7789,7 @@ impl CursorTrait for BTreeCursor {
         // payload size so wide-key indexes don't keep a page-sized buffer
         // per saved cursor.
         let cloned = {
-            let record = return_if_io!(self.record());
+            let record = return_if_io!(self.record_physical());
             let record = record.expect("has_record=true but record() returned None");
             let payload = record.get_payload();
             let mut owned = crate::with_btree_allocation_site!(
@@ -7732,7 +7804,7 @@ impl CursorTrait for BTreeCursor {
         };
         self.save_context(CursorContext {
             key: CursorContextKey::IndexKeyRowId(ImmutableRecordRef::from_owned_record(cloned)),
-            seek_op: SeekOp::GE { eq_only: true },
+            seek_op: self.position_restore_op(),
         });
         Ok(IOResult::Done(SavePositionResult::Saved))
     }
@@ -7753,6 +7825,7 @@ impl CursorTrait for BTreeCursor {
     }
 
     fn seek_end(&mut self) -> IOResultOr<()> {
+        self.check_rollback_fault()?;
         if self.valid_state == CursorValidState::Invalid {
             return Ok(IOResult::Done(()));
         }
@@ -7795,6 +7868,7 @@ impl CursorTrait for BTreeCursor {
 
     #[cfg_attr(debug_assertions, instrument(skip_all, level = Level::DEBUG))]
     fn seek_to_last(&mut self) -> IOResultOr<()> {
+        self.check_rollback_fault()?;
         loop {
             match self.seek_to_last_state {
                 SeekToLastState::Start => {
@@ -7842,6 +7916,42 @@ impl BTreeCursor {
         Ok(IOResult::Done(record.map(ImmutableRecord::get_payload)))
     }
 
+    #[inline]
+    fn check_rollback_fault(&self) -> Result<()> {
+        match &self.rollback_fault {
+            Some(error) => Err(error.clone()),
+            None => Ok(()),
+        }
+    }
+
+    fn position_restore_op(&self) -> SeekOp {
+        match self.iteration_direction {
+            IterationDirection::Forwards => SeekOp::GE { eq_only: true },
+            IterationDirection::Backwards => SeekOp::LE { eq_only: true },
+        }
+    }
+
+    fn prepare_iteration_direction(&mut self, direction: IterationDirection) -> Result<()> {
+        if self.iteration_direction != direction && self.stack.current_page > 0 {
+            for level in 0..self.stack.current_page as usize {
+                let contents = self.stack.get_page_contents_at_level(level).unwrap();
+                if contents.page_type()? != PageType::IndexInterior {
+                    continue;
+                }
+                let cell_count = contents.cell_count() as i32;
+                let cell_idx = &mut self.stack.node_states[level].cell_idx;
+                if *cell_idx < cell_count {
+                    match direction {
+                        IterationDirection::Forwards => *cell_idx += 1,
+                        IterationDirection::Backwards => *cell_idx -= 1,
+                    }
+                }
+            }
+        }
+        self.iteration_direction = direction;
+        Ok(())
+    }
+
     /// True when the next cell is on the same leaf page and no resumable
     /// state is pending, so advancing cannot yield and `next()` can skip
     /// its state machine. Every pending flag routes to the full path,
@@ -7881,9 +7991,41 @@ impl BTreeCursor {
             || !matches!(self.valid_state, CursorValidState::Valid)
             || self.needs_restore()
             || self.skip_advance
+            || self.logical_row_deleted
             || !self.has_record
             || self.read_overflow_state.is_some()
             || self.iteration_pending_descent.is_some()
+    }
+
+    fn record_physical(&mut self) -> IOResultOr<Option<&ImmutableRecord>> {
+        self.check_rollback_fault()?;
+        if !self.has_record() {
+            return Ok(IOResult::Done(None));
+        }
+        let invalidated = self
+            .reusable_immutable_record
+            .as_ref()
+            .is_none_or(|record| record.is_invalidated());
+        if !invalidated {
+            return Ok(IOResult::Done(self.reusable_immutable_record.as_ref()));
+        }
+
+        let page = self.stack.top_ref();
+        let contents = page.get_contents();
+        let cell_idx = self.stack.current_cell_index();
+        let (payload, payload_size, first_overflow_page) =
+            contents.cell_read_payload_ptr(cell_idx as usize, self.payload_limits)?;
+        if let Some(next_page) = first_overflow_page {
+            return_if_io!(self.process_overflow_read(payload, next_page, payload_size))
+        } else {
+            let record = self
+                .get_immutable_record_or_create()?
+                .expect("record was allocated above");
+            record.invalidate();
+            crate::with_btree_allocation_site!(RecordPayload, record.start_serialization(payload))?;
+        };
+
+        Ok(IOResult::Done(self.reusable_immutable_record.as_ref()))
     }
 }
 
@@ -10724,6 +10866,221 @@ mod tests {
         (db, temp_dir)
     }
 
+    #[cfg(all(not(nightly), feature = "allocation_metric"))]
+    mod stable_rollback_allocation_fault {
+        use super::*;
+        use crate::alloc::{current_allocation_site, AllocationSite, BTreeAllocationSite};
+        use std::alloc::{GlobalAlloc, Layout, System};
+        use std::cell::Cell;
+        use test_log::test;
+
+        thread_local! {
+            static SAVED_CURSOR_FAULT: Cell<(bool, usize)> = const { Cell::new((false, 0)) };
+        }
+
+        struct SavedCursorFailureAllocator;
+
+        #[global_allocator]
+        static ALLOCATOR: SavedCursorFailureAllocator = SavedCursorFailureAllocator;
+
+        unsafe impl GlobalAlloc for SavedCursorFailureAllocator {
+            unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+                if deny_saved_cursor_allocation(layout.size()) {
+                    std::ptr::null_mut()
+                } else {
+                    unsafe { System.alloc(layout) }
+                }
+            }
+
+            unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+                if deny_saved_cursor_allocation(layout.size()) {
+                    std::ptr::null_mut()
+                } else {
+                    unsafe { System.alloc_zeroed(layout) }
+                }
+            }
+
+            unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+                if deny_saved_cursor_allocation(new_size) {
+                    std::ptr::null_mut()
+                } else {
+                    unsafe { System.realloc(pointer, layout, new_size) }
+                }
+            }
+
+            unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
+                unsafe { System.dealloc(pointer, layout) }
+            }
+        }
+
+        fn deny_saved_cursor_allocation(size: usize) -> bool {
+            if size == 0 {
+                return false;
+            }
+            SAVED_CURSOR_FAULT
+                .try_with(|state| {
+                    let (armed, hits) = state.get();
+                    if armed
+                        && current_allocation_site()
+                            == Some(AllocationSite::BTree(
+                                BTreeAllocationSite::SavedCursorRecord,
+                            ))
+                    {
+                        state.set((false, hits + 1));
+                        true
+                    } else {
+                        false
+                    }
+                })
+                .unwrap_or(false)
+        }
+
+        struct SavedCursorFaultGuard;
+
+        impl SavedCursorFaultGuard {
+            fn arm() -> Self {
+                assert_eq!(current_allocation_site(), None);
+                SAVED_CURSOR_FAULT.with(|state| state.set((true, 0)));
+                Self
+            }
+        }
+
+        impl Drop for SavedCursorFaultGuard {
+            fn drop(&mut self) {
+                SAVED_CURSOR_FAULT.with(|state| {
+                    let (_, hits) = state.get();
+                    state.set((false, hits));
+                });
+            }
+        }
+
+        #[test]
+        fn stable_rollback_saves_index_position_or_reports_allocation_failure_after_cleanup() {
+            for savepoint in [false, true] {
+                for inject_fault in [false, true] {
+                    SAVED_CURSOR_FAULT.with(|state| state.set((false, 0)));
+                    let database = Database::open_file(
+                        Arc::new(MemoryIO::new()),
+                        "stable-rollback-save-fault.db",
+                        Arc::new(SqliteDialect),
+                    )
+                    .unwrap();
+                    let connection = database.connect().unwrap();
+                    connection.execute("CREATE TABLE t1(i,h); CREATE INDEX i1 ON t1(h); INSERT INTO t1 VALUES(1,'a'),(2,'b'),(3,'c'),(4,'d');").unwrap();
+                    connection
+                        .execute(if savepoint {
+                            "BEGIN; SAVEPOINT one; DELETE FROM t1 WHERE i%2==1;"
+                        } else {
+                            "BEGIN; DELETE FROM t1 WHERE i%2==1;"
+                        })
+                        .unwrap();
+                    let mut reader = connection
+                        .prepare("SELECT i FROM t1 WHERE i%2==0 ORDER BY h DESC;")
+                        .unwrap();
+                    loop {
+                        match reader.step().unwrap() {
+                            StepResult::Row => break,
+                            StepResult::IO => reader._io().step().unwrap(),
+                            StepResult::Yield => continue,
+                            other => panic!("unexpected reader step: {other:?}"),
+                        }
+                    }
+                    let fault_guard = inject_fault.then(SavedCursorFaultGuard::arm);
+                    if inject_fault {
+                        let mut ordinary = Vec::<u8>::new();
+                        ordinary.try_reserve_exact(8).unwrap();
+                        ordinary.push(17);
+                        ordinary.try_reserve_exact(1024).unwrap();
+                        assert_eq!(ordinary[0], 17);
+                        let layout = Layout::from_size_align(32, 8).unwrap();
+                        unsafe {
+                            let pointer = std::alloc::alloc_zeroed(layout);
+                            assert!(!pointer.is_null());
+                            assert!(std::slice::from_raw_parts(pointer, 32)
+                                .iter()
+                                .all(|value| *value == 0));
+                            std::alloc::dealloc(pointer, layout);
+                        }
+                        std::thread::spawn(|| {
+                            crate::with_btree_allocation_site!(SavedCursorRecord, {
+                                let mut ordinary = Vec::<u8>::new();
+                                ordinary.try_reserve_exact(64).unwrap();
+                                assert!(ordinary.capacity() >= 64);
+                            });
+                        })
+                        .join()
+                        .unwrap();
+                        SAVED_CURSOR_FAULT.with(|state| assert_eq!(state.get(), (true, 0)));
+                    }
+                    let rollback_result = connection.execute(if savepoint {
+                        "ROLLBACK TO one;"
+                    } else {
+                        "ROLLBACK;"
+                    });
+                    drop(fault_guard);
+                    let (armed, hits) = SAVED_CURSOR_FAULT.with(Cell::get);
+                    assert!(!armed);
+                    assert_eq!(hits, usize::from(inject_fault));
+                    assert_eq!(reader.row().unwrap().get::<i64>(0).unwrap(), 4);
+                    if inject_fault {
+                        assert!(matches!(rollback_result, Err(LimboError::OutOfMemory)));
+                        assert!(matches!(reader.step(), Err(LimboError::OutOfMemory)));
+                        assert!(connection.get_auto_commit());
+                    } else {
+                        rollback_result.unwrap();
+                        let mut remaining = Vec::new();
+                        loop {
+                            match reader.step().unwrap() {
+                                StepResult::Row => {
+                                    remaining.push(reader.row().unwrap().get::<i64>(0).unwrap())
+                                }
+                                StepResult::Done => break,
+                                StepResult::IO => reader._io().step().unwrap(),
+                                StepResult::Yield => continue,
+                                other => panic!("unexpected reader step: {other:?}"),
+                            }
+                        }
+                        assert_eq!(remaining, vec![2]);
+                        assert_eq!(connection.get_auto_commit(), !savepoint);
+                    }
+                    let rows = connection
+                        .prepare("SELECT i FROM t1 ORDER BY i;")
+                        .unwrap()
+                        .run_collect_rows()
+                        .unwrap();
+                    let values: Vec<i64> =
+                        rows.iter().map(|row| row[0].as_int().unwrap()).collect();
+                    assert_eq!(values, vec![1, 2, 3, 4]);
+                    if !connection.get_auto_commit() {
+                        connection.execute("ROLLBACK;").unwrap();
+                    }
+                    connection.execute("BEGIN; UPDATE t1 SET h='changed' WHERE i=2; DELETE FROM t1 WHERE i=4; ROLLBACK;").unwrap();
+                    let integrity = connection
+                        .prepare("PRAGMA integrity_check;")
+                        .unwrap()
+                        .run_collect_rows()
+                        .unwrap();
+                    assert_eq!(integrity[0][0].to_string(), "ok");
+                    if inject_fault {
+                        assert!(matches!(reader.step(), Err(LimboError::OutOfMemory)));
+                    }
+                    let second = database.connect().unwrap();
+                    second
+                        .execute("BEGIN IMMEDIATE; UPDATE t1 SET h='other' WHERE i=4; ROLLBACK;")
+                        .unwrap();
+                    let rows = second
+                        .prepare("SELECT i FROM t1 ORDER BY i;")
+                        .unwrap()
+                        .run_collect_rows()
+                        .unwrap();
+                    let values: Vec<i64> =
+                        rows.iter().map(|row| row[0].as_int().unwrap()).collect();
+                    assert_eq!(values, vec![1, 2, 3, 4]);
+                }
+            }
+        }
+    }
+
     /// Deterministic coverage for the allocation-failure window created by routing
     /// overflow-cell payloads through `TursoAllocator`: in
     /// `OverwriteCellState::ClearOverflowPagesAndOverwrite`, `drop_cell` mutates the
@@ -10777,6 +11134,60 @@ mod tests {
 
         fn disarm_fault() {
             FAIL_SITE.with(|slot| slot.set(None));
+        }
+
+        #[test]
+        fn rollback_saves_index_position_or_reports_allocation_failure_after_cleanup() {
+            for savepoint in [false, true] {
+                let io: Arc<dyn IO> = Arc::new(MemoryIO::new());
+                let database =
+                    Database::open_file(io, "rollback-save-fault.db", Arc::new(SqliteDialect))
+                        .unwrap();
+                let connection = database.connect().unwrap();
+                connection.execute("CREATE TABLE t1(i,h); CREATE INDEX i1 ON t1(h); INSERT INTO t1 VALUES(1,'a'),(2,'b'),(3,'c'),(4,'d');").unwrap();
+                connection
+                    .execute(if savepoint {
+                        "BEGIN; SAVEPOINT one; DELETE FROM t1 WHERE i%2==1;"
+                    } else {
+                        "BEGIN; DELETE FROM t1 WHERE i%2==1;"
+                    })
+                    .unwrap();
+                let mut reader = connection
+                    .prepare("SELECT i FROM t1 WHERE i%2==0 ORDER BY h DESC;")
+                    .unwrap();
+                loop {
+                    match reader.step().unwrap() {
+                        crate::StepResult::Row => break,
+                        crate::StepResult::IO => reader._io().step().unwrap(),
+                        other => panic!("unexpected reader step: {other:?}"),
+                    }
+                }
+                arm_fault(BTreeAllocationSite::SavedCursorRecord);
+                let rollback_result = connection.execute(if savepoint {
+                    "ROLLBACK TO one;"
+                } else {
+                    "ROLLBACK;"
+                });
+                disarm_fault();
+                assert!(matches!(rollback_result, Err(LimboError::OutOfMemory)));
+                assert!(matches!(reader.step(), Err(LimboError::OutOfMemory)));
+                assert!(connection.get_auto_commit());
+                let rows = connection
+                    .prepare("SELECT count(*) FROM t1;")
+                    .unwrap()
+                    .run_collect_rows()
+                    .unwrap();
+                assert_eq!(rows[0][0].as_int(), Some(4));
+                connection
+                    .execute("BEGIN; UPDATE t1 SET h='changed' WHERE i=2; ROLLBACK;")
+                    .unwrap();
+                let integrity = connection
+                    .prepare("PRAGMA integrity_check;")
+                    .unwrap()
+                    .run_collect_rows()
+                    .unwrap();
+                assert_eq!(integrity[0][0].to_string(), "ok");
+            }
         }
 
         #[test]
@@ -14381,6 +14792,138 @@ mod tests {
         use crate::storage::btree::SavePositionResult;
         use test_log::test;
 
+        #[test]
+        fn index_bookmark_follows_direction_changes_and_signed_skip() {
+            let database = Database::open_file(
+                Arc::new(MemoryIO::new()),
+                "direction-bookmark.db",
+                Arc::new(SqliteDialect),
+            )
+            .unwrap();
+            let connection = database.connect().unwrap();
+            connection
+                .execute("CREATE TABLE t1(i,h); CREATE INDEX i1 ON t1(h);")
+                .unwrap();
+            let prefix = "abcdefghij".repeat(70);
+            for value in 1..=40 {
+                connection
+                    .execute(format!(
+                        "INSERT INTO t1 VALUES({value},'{prefix}{value:02X}');"
+                    ))
+                    .unwrap();
+            }
+            connection
+                .execute("BEGIN; SELECT count(*) FROM t1;")
+                .unwrap();
+            let pager = connection.pager.load().clone();
+            let index = connection.schema.read().indexes["t1"][0].clone();
+            let mut cursor = Box::new(
+                BTreeCursor::new_index(pager.clone(), index.root_page, &index, 1).unwrap(),
+            );
+            cursor.register_with_pager();
+            for backwards in [false, true] {
+                let registers = [
+                    Register::Value(Value::from_text(format!("{prefix}14"))),
+                    Register::Value(Value::from_i64(20)),
+                ];
+                let key = ImmutableRecord::from_registers(&registers, registers.len()).unwrap();
+                run_until_done(
+                    || {
+                        cursor.seek(
+                            SeekKey::IndexKey(key.as_record_ref()),
+                            if backwards {
+                                SeekOp::GE { eq_only: true }
+                            } else {
+                                SeekOp::LE { eq_only: true }
+                            },
+                        )
+                    },
+                    &pager,
+                )
+                .unwrap();
+                run_until_done(
+                    || {
+                        if backwards {
+                            cursor.prev()
+                        } else {
+                            cursor.next()
+                        }
+                    },
+                    &pager,
+                )
+                .unwrap();
+                let expected = if backwards { 19 } else { 21 };
+                assert_eq!(
+                    run_until_done(|| cursor.rowid(), &pager).unwrap(),
+                    Some(expected)
+                );
+                run_until_done(|| cursor.try_save_position_for_external_balance(), &pager).unwrap();
+                cursor.invalidate_btree_cache();
+                assert_eq!(
+                    run_until_done(|| cursor.rowid(), &pager).unwrap(),
+                    Some(expected)
+                );
+                run_until_done(
+                    || {
+                        if backwards {
+                            cursor.prev()
+                        } else {
+                            cursor.next()
+                        }
+                    },
+                    &pager,
+                )
+                .unwrap();
+                assert_eq!(
+                    run_until_done(|| cursor.rowid(), &pager).unwrap(),
+                    Some(if backwards { 18 } else { 22 })
+                );
+            }
+            for backwards in [false, true] {
+                let rowid = if backwards { 20 } else { 21 };
+                let registers = [
+                    Register::Value(Value::from_text(format!("{prefix}{rowid:02X}"))),
+                    Register::Value(Value::from_i64(rowid)),
+                ];
+                let key = ImmutableRecord::from_registers(&registers, registers.len()).unwrap();
+                run_until_done(
+                    || {
+                        cursor.seek(
+                            SeekKey::IndexKey(key.as_record_ref()),
+                            if backwards {
+                                SeekOp::GE { eq_only: true }
+                            } else {
+                                SeekOp::LE { eq_only: true }
+                            },
+                        )
+                    },
+                    &pager,
+                )
+                .unwrap();
+                run_until_done(|| cursor.try_save_position_for_external_balance(), &pager).unwrap();
+                connection
+                    .execute(format!("DELETE FROM t1 WHERE i={rowid};"))
+                    .unwrap();
+                run_until_done(
+                    || {
+                        if backwards {
+                            cursor.prev()
+                        } else {
+                            cursor.next()
+                        }
+                    },
+                    &pager,
+                )
+                .unwrap();
+                assert_eq!(
+                    run_until_done(|| cursor.rowid(), &pager).unwrap(),
+                    Some(if backwards { 19 } else { 22 })
+                );
+            }
+            drop(cursor);
+            connection.execute("ROLLBACK;").unwrap();
+        }
+
         /// Boxed cursor pinned to its heap location for the duration of the
         /// test — register_cursor stores raw pointers, so the cursor must
         /// not be moved after registration.
@@ -14661,6 +15204,17 @@ mod tests {
             .unwrap();
             run_until_done(|| writer.delete(), pager.deref()).unwrap();
 
+            for _ in 0..2 {
+                assert_eq!(run_until_done(|| peer.rowid(), &pager).unwrap(), None);
+                assert!(run_until_done(
+                    || Ok(peer.record()?.map(|record| record.is_none())),
+                    &pager,
+                )
+                .unwrap());
+            }
+            insert_record(&mut writer, &pager, 11, Value::from_i64(11)).unwrap();
+            assert_eq!(run_until_done(|| peer.rowid(), &pager).unwrap(), None);
+
             // First access after a peer wipe-out triggers restore_context's
             // NotFound branch and sets skip_advance.
             run_until_done(|| peer.next(), pager.deref()).unwrap();
@@ -14669,6 +15223,128 @@ mod tests {
                 Some(6),
                 "next() after peer deletion of our row must land on the next-greater rowid"
             );
+        }
+
+        #[test]
+        fn deleted_index_row_stays_null_across_peer_writes_until_advance() {
+            for payload_size in [16, 6000] {
+                for backwards in [false, true] {
+                    for delete_all in [false, true] {
+                        let database = Database::open_file(
+                            Arc::new(MemoryIO::new()),
+                            "deleted-index-bookmark.db",
+                            Arc::new(SqliteDialect),
+                        )
+                        .unwrap();
+                        let connection = database.connect().unwrap();
+                        connection
+                            .execute("CREATE TABLE t1(i,h); CREATE INDEX i1 ON t1(h);")
+                            .unwrap();
+                        let prefix = "x".repeat(payload_size);
+                        for rowid in 1..=40 {
+                            connection
+                                .execute(format!(
+                                    "INSERT INTO t1 VALUES({rowid},'{prefix}{rowid:02X}');"
+                                ))
+                                .unwrap();
+                        }
+                        connection
+                            .execute("BEGIN; SELECT count(*) FROM t1;")
+                            .unwrap();
+                        let pager = connection.pager.load().clone();
+                        let index = connection.schema.read().indexes["t1"][0].clone();
+                        let mut cursor = Box::new(
+                            BTreeCursor::new_index(pager.clone(), index.root_page, &index, 1)
+                                .unwrap(),
+                        );
+                        cursor.register_with_pager();
+                        run_until_done(
+                            || {
+                                if backwards {
+                                    cursor.last()
+                                } else {
+                                    cursor.rewind()
+                                }
+                            },
+                            &pager,
+                        )
+                        .unwrap();
+                        while run_until_done(|| cursor.rowid(), &pager).unwrap() != Some(20) {
+                            run_until_done(
+                                || {
+                                    if backwards {
+                                        cursor.prev()
+                                    } else {
+                                        cursor.next()
+                                    }
+                                },
+                                &pager,
+                            )
+                            .unwrap();
+                            assert!(cursor.has_record());
+                        }
+                        connection
+                            .execute(if delete_all {
+                                "DELETE FROM t1 WHERE i>0;"
+                            } else {
+                                "DELETE FROM t1 WHERE i=20;"
+                            })
+                            .unwrap();
+                        for _ in 0..2 {
+                            assert_eq!(run_until_done(|| cursor.rowid(), &pager).unwrap(), None);
+                            assert!(run_until_done(
+                                || Ok(cursor.record()?.map(|record| record.is_none())),
+                                &pager,
+                            )
+                            .unwrap());
+                            assert!(run_until_done(
+                                || Ok(cursor.record_payload()?.map(|record| record.is_none())),
+                                &pager,
+                            )
+                            .unwrap());
+                        }
+                        connection
+                            .execute(if backwards {
+                                "DELETE FROM t1 WHERE i=40;"
+                            } else {
+                                "DELETE FROM t1 WHERE i=1;"
+                            })
+                            .unwrap();
+                        assert_eq!(run_until_done(|| cursor.rowid(), &pager).unwrap(), None);
+                        for offset in 1..=2 {
+                            run_until_done(
+                                || {
+                                    if backwards {
+                                        cursor.prev()
+                                    } else {
+                                        cursor.next()
+                                    }
+                                },
+                                &pager,
+                            )
+                            .unwrap();
+                            let expected = if delete_all {
+                                None
+                            } else {
+                                Some(if backwards { 20 - offset } else { 20 + offset })
+                            };
+                            assert_eq!(
+                                run_until_done(|| cursor.rowid(), &pager).unwrap(),
+                                expected
+                            );
+                        }
+                        connection
+                            .execute(format!(
+                                "INSERT INTO t1(rowid,i,h) VALUES(50,50,'{prefix}32');"
+                            ))
+                            .unwrap();
+                        run_until_done(|| cursor.last(), &pager).unwrap();
+                        assert_eq!(run_until_done(|| cursor.rowid(), &pager).unwrap(), Some(50));
+                        drop(cursor);
+                        connection.execute("ROLLBACK;").unwrap();
+                    }
+                }
+            }
         }
 
         #[test]

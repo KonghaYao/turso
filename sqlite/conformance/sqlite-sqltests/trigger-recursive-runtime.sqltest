@@ -1,0 +1,181 @@
+@database :memory:
+
+test recursive-trigger-enabled-chain {
+    PRAGMA recursive_triggers=ON;
+    CREATE TABLE chain(value INTEGER);
+    CREATE TRIGGER advance AFTER INSERT ON chain WHEN NEW.value<5 BEGIN
+        INSERT INTO chain VALUES(NEW.value+1);
+    END;
+    INSERT INTO chain VALUES(1);
+    SELECT value FROM chain ORDER BY value;
+}
+expect {
+    1
+    2
+    3
+    4
+    5
+}
+
+test recursive-trigger-off-distinct-triggers {
+    PRAGMA recursive_triggers=OFF;
+    CREATE TABLE first(value INTEGER);
+    CREATE TABLE second(value INTEGER);
+    CREATE TRIGGER first_insert AFTER INSERT ON first BEGIN
+        INSERT INTO second VALUES(NEW.value+1);
+    END;
+    CREATE TRIGGER second_insert AFTER INSERT ON second BEGIN
+        INSERT INTO first VALUES(NEW.value+1);
+    END;
+    INSERT INTO first VALUES(1);
+    SELECT 'first', value FROM first UNION ALL SELECT 'second', value FROM second ORDER BY 1,2;
+}
+expect {
+    first|1
+    first|3
+    second|2
+}
+
+test recursive-trigger-update-old-new {
+    PRAGMA recursive_triggers=ON;
+    CREATE TABLE counter(value INTEGER);
+    CREATE TABLE audit(before_value INTEGER, after_value INTEGER);
+    INSERT INTO counter VALUES(0);
+    CREATE TRIGGER advance AFTER UPDATE ON counter WHEN NEW.value<5 BEGIN
+        UPDATE counter SET value=NEW.value+1;
+        INSERT INTO audit VALUES(OLD.value,NEW.value);
+    END;
+    UPDATE counter SET value=1;
+    SELECT value FROM counter;
+    SELECT before_value,after_value FROM audit ORDER BY after_value;
+}
+expect {
+    5
+    0|1
+    1|2
+    2|3
+    3|4
+}
+
+test recursive-trigger-loop-reuses-parameters {
+    PRAGMA recursive_triggers=ON;
+    CREATE TABLE chain(value INTEGER);
+    CREATE TABLE audit(value INTEGER);
+    CREATE TRIGGER advance AFTER INSERT ON chain WHEN NEW.value<3 BEGIN
+        INSERT INTO chain VALUES(NEW.value+1);
+        INSERT INTO audit VALUES(NEW.value);
+    END;
+    INSERT INTO chain VALUES(1),(1);
+    SELECT value,count(*) FROM chain GROUP BY value ORDER BY value;
+    SELECT value,count(*) FROM audit GROUP BY value ORDER BY value;
+    SELECT changes();
+}
+expect {
+    1|2
+    2|2
+    3|2
+    1|2
+    2|2
+    2
+}
+
+test recursive-trigger-depth-error {
+    PRAGMA recursive_triggers=ON;
+    CREATE TABLE chain(value INTEGER);
+    CREATE TRIGGER advance AFTER INSERT ON chain BEGIN
+        INSERT INTO chain VALUES(NEW.value+1);
+    END;
+    INSERT INTO chain VALUES(1);
+}
+expect error { too many levels of trigger recursion }
+
+test recursive-trigger-thousand-frames {
+    PRAGMA recursive_triggers=ON;
+    CREATE TABLE chain(value INTEGER);
+    CREATE TRIGGER advance AFTER INSERT ON chain WHEN NEW.value<1000 BEGIN
+        INSERT INTO chain VALUES(NEW.value+1);
+    END;
+    INSERT INTO chain VALUES(1);
+    SELECT count(*),min(value),max(value) FROM chain;
+}
+expect {
+    1000|1|1000
+}
+
+test recursive-trigger-when-counts-depth {
+    PRAGMA recursive_triggers=ON;
+    CREATE TABLE chain(value INTEGER);
+    CREATE TRIGGER advance AFTER INSERT ON chain WHEN NEW.value<1001 BEGIN
+        INSERT INTO chain VALUES(NEW.value+1);
+    END;
+    INSERT INTO chain VALUES(1);
+}
+expect error { too many levels of trigger recursion }
+
+test recursive-trigger-toggle {
+    PRAGMA recursive_triggers=OFF;
+    CREATE TABLE chain(value INTEGER);
+    CREATE TRIGGER advance AFTER INSERT ON chain WHEN NEW.value<4 BEGIN
+        INSERT INTO chain VALUES(NEW.value+1);
+    END;
+    INSERT INTO chain VALUES(1);
+    SELECT count(*) FROM chain;
+    DELETE FROM chain;
+    PRAGMA recursive_triggers=ON;
+    INSERT INTO chain VALUES(1);
+    SELECT count(*) FROM chain;
+    DELETE FROM chain;
+    PRAGMA recursive_triggers=OFF;
+    INSERT INTO chain VALUES(1);
+    SELECT count(*) FROM chain;
+}
+expect {
+    2
+    4
+    2
+}
+
+test recursive-trigger-mutual-recursion {
+    PRAGMA recursive_triggers=ON;
+    CREATE TABLE first(value INTEGER);
+    CREATE TABLE second(value INTEGER);
+    CREATE TRIGGER first_insert AFTER INSERT ON first WHEN NEW.value<6 BEGIN
+        INSERT INTO second VALUES(NEW.value+1);
+    END;
+    CREATE TRIGGER second_insert AFTER INSERT ON second WHEN NEW.value<6 BEGIN
+        INSERT INTO first VALUES(NEW.value+1);
+    END;
+    INSERT INTO first VALUES(1);
+    SELECT 'first',value FROM first UNION ALL SELECT 'second',value FROM second ORDER BY 1,2;
+}
+expect {
+    first|1
+    first|3
+    first|5
+    second|2
+    second|4
+    second|6
+}
+
+test recursive-trigger-ignore-unwind {
+    PRAGMA recursive_triggers=ON;
+    CREATE TABLE chain(value INTEGER);
+    CREATE TABLE audit(value INTEGER);
+    CREATE TRIGGER advance AFTER INSERT ON chain BEGIN
+        SELECT CASE WHEN NEW.value=3 THEN RAISE(IGNORE) END;
+        INSERT INTO chain VALUES(NEW.value+1);
+        INSERT INTO audit VALUES(NEW.value);
+    END;
+    INSERT INTO chain VALUES(1);
+    SELECT value FROM chain ORDER BY value;
+    SELECT value FROM audit ORDER BY value;
+    SELECT changes();
+}
+expect {
+    1
+    2
+    3
+    1
+    2
+    1
+}

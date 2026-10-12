@@ -1,0 +1,3462 @@
+@database :memory:
+
+# Generated from frozen join/hash.sqltest typed INSERT rows;
+# fixed expectations come solely from independent Python enumeration.
+setup anchored_hash_rows {
+    CREATE TABLE matrix_left(id INTEGER PRIMARY KEY, k, k2, flag, payload);
+    CREATE TABLE matrix_right(id INTEGER PRIMARY KEY, k, k2, flag, payload);
+    INSERT INTO matrix_left VALUES
+        (1, 1, 1, 1, 'l1'),
+        (2, 1.0, 2, 0, NULL),
+        (3, '1', 1, 1, 'l3'),
+        (4, NULL, 1, 0, 'l4'),
+        (5, 2, NULL, 1, 'l5'),
+        (6, 2, 2, NULL, 'l6'),
+        (7, 'x', 1, 1, NULL),
+        (8, X'31', 1, 0, 'l8');
+    INSERT INTO matrix_right VALUES
+        (10, 1, 1, 0, 'r10'),
+        (11, 1.0, 2, 1, NULL),
+        (12, '1', 2, 0, 'r12'),
+        (13, NULL, 1, 1, 'r13'),
+        (14, 2, NULL, 0, NULL),
+        (15, 2, 2, 1, 'r15'),
+        (16, 2, 2, 1, 'r16'),
+        (17, 'y', 1, NULL, 'r17'),
+        (18, X'31', 1, 1, 'r18');
+    -- These estimates make Turso choose a hash join while the test data stays small.
+    ANALYZE;
+    DELETE FROM sqlite_stat1;
+    INSERT INTO sqlite_stat1(tbl, idx, stat) VALUES
+        ('matrix_left', NULL, '1000'),
+        ('matrix_right', NULL, '100000');
+    ANALYZE sqlite_schema;
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c0-f0-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    1|11|1|1.0|1|2|l1|
+    2|10|1.0|1|2|1||r10
+    2|11|1.0|1.0|2|2||
+    3|12|1|1|1|2|l3|r12
+    5|14|2|2|||l5|
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    6|14|2|2|2||l6|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c0-f0-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    1|11|1|1.0|1|2|l1|
+    2|10|1.0|1|2|1||r10
+    2|11|1.0|1.0|2|2||
+    3|12|1|1|1|2|l3|r12
+    5|14|2|2|||l5|
+    5|15|2|2||2|l5|r15
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c0-f0-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    2|11|1.0|1.0|2|2||
+    3|12|1|1|1|2|l3|r12
+    5|14|2|2|||l5|
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c0-f1-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    1|11|1|1.0|1|2|l1|
+    3|12|1|1|1|2|l3|r12
+    5|14|2|2|||l5|
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c0-f1-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    1|11|1|1.0|1|2|l1|
+    3|12|1|1|1|2|l3|r12
+    5|14|2|2|||l5|
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c0-f1-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    5|14|2|2|||l5|
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c0-f2-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|11|1|1.0|1|2|l1|
+    2|11|1.0|1.0|2|2||
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c0-f2-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|11|1|1.0|1|2|l1|
+    2|11|1.0|1.0|2|2||
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c0-f2-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    5|16|2|2||2|l5|r16
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c0-f3-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    2|10|1.0|1|2|1||r10
+    2|11|1.0|1.0|2|2||
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c0-f3-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    2|10|1.0|1|2|1||r10
+    2|11|1.0|1.0|2|2||
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c0-f3-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c0-f4-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|11|1|1.0|1|2|l1|
+    2|11|1.0|1.0|2|2||
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c0-f4-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|11|1|1.0|1|2|l1|
+    2|11|1.0|1.0|2|2||
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c0-f4-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    6|14|2|2|2||l6|
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c0-f5-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3|12|1|1|1|2|l3|r12
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c0-f5-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3|12|1|1|1|2|l3|r12
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c0-f5-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c1-f0-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    1|11|1|1.0|1|2|l1|
+    2|10|1.0|1|2|1||r10
+    2|11|1.0|1.0|2|2||
+    3|12|1|1|1|2|l3|r12
+    5|14|2|2|||l5|
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    6|14|2|2|2||l6|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c1-f0-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    1|11|1|1.0|1|2|l1|
+    2|10|1.0|1|2|1||r10
+    2|11|1.0|1.0|2|2||
+    3|12|1|1|1|2|l3|r12
+    5|14|2|2|||l5|
+    5|15|2|2||2|l5|r15
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c1-f0-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    2|11|1.0|1.0|2|2||
+    3|12|1|1|1|2|l3|r12
+    5|14|2|2|||l5|
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c1-f1-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    1|11|1|1.0|1|2|l1|
+    3|12|1|1|1|2|l3|r12
+    5|14|2|2|||l5|
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c1-f1-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    1|11|1|1.0|1|2|l1|
+    3|12|1|1|1|2|l3|r12
+    5|14|2|2|||l5|
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c1-f1-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    5|14|2|2|||l5|
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c1-f2-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|11|1|1.0|1|2|l1|
+    2|11|1.0|1.0|2|2||
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c1-f2-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|11|1|1.0|1|2|l1|
+    2|11|1.0|1.0|2|2||
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c1-f2-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    5|16|2|2||2|l5|r16
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c1-f3-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    2|10|1.0|1|2|1||r10
+    2|11|1.0|1.0|2|2||
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c1-f3-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    2|10|1.0|1|2|1||r10
+    2|11|1.0|1.0|2|2||
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c1-f3-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c1-f4-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|11|1|1.0|1|2|l1|
+    2|11|1.0|1.0|2|2||
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c1-f4-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|11|1|1.0|1|2|l1|
+    2|11|1.0|1.0|2|2||
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c1-f4-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    6|14|2|2|2||l6|
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c1-f5-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3|12|1|1|1|2|l3|r12
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c1-f5-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3|12|1|1|1|2|l3|r12
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c1-f5-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c2-f0-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c2-f0-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c2-f0-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c2-f1-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c2-f1-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c2-f1-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c2-f2-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    2|11|1.0|1.0|2|2||
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c2-f2-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    2|11|1.0|1.0|2|2||
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c2-f2-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c2-f3-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    2|11|1.0|1.0|2|2||
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c2-f3-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    2|11|1.0|1.0|2|2||
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c2-f3-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c2-f4-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    2|11|1.0|1.0|2|2||
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c2-f4-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    2|11|1.0|1.0|2|2||
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c2-f4-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c2-f5-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c2-f5-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c2-f5-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c3-f0-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c3-f0-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c3-f0-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c3-f1-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c3-f1-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c3-f1-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c3-f2-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    2|11|1.0|1.0|2|2||
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c3-f2-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    2|11|1.0|1.0|2|2||
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c3-f2-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c3-f3-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    2|11|1.0|1.0|2|2||
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c3-f3-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    2|11|1.0|1.0|2|2||
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c3-f3-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c3-f4-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    2|11|1.0|1.0|2|2||
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c3-f4-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    2|11|1.0|1.0|2|2||
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c3-f4-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c3-f5-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c3-f5-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j0-c3-f5-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c0-f0-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    1|11|1|1.0|1|2|l1|
+    2|10|1.0|1|2|1||r10
+    2|11|1.0|1.0|2|2||
+    3|12|1|1|1|2|l3|r12
+    4||||1||l4|
+    5|14|2|2|||l5|
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    6|14|2|2|2||l6|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    7||x||1|||
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c0-f0-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    1|11|1|1.0|1|2|l1|
+    2|10|1.0|1|2|1||r10
+    2|11|1.0|1.0|2|2||
+    3|12|1|1|1|2|l3|r12
+    4||||1||l4|
+    5|14|2|2|||l5|
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c0-f0-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    2|11|1.0|1.0|2|2||
+    3|12|1|1|1|2|l3|r12
+    4||||1||l4|
+    5|14|2|2|||l5|
+    5|15|2|2||2|l5|r15
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c0-f1-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    1|11|1|1.0|1|2|l1|
+    3|12|1|1|1|2|l3|r12
+    5|14|2|2|||l5|
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c0-f1-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    1|11|1|1.0|1|2|l1|
+    3|12|1|1|1|2|l3|r12
+    5|14|2|2|||l5|
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c0-f1-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    5|14|2|2|||l5|
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c0-f2-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|11|1|1.0|1|2|l1|
+    2|11|1.0|1.0|2|2||
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c0-f2-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|11|1|1.0|1|2|l1|
+    2|11|1.0|1.0|2|2||
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c0-f2-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    5|16|2|2||2|l5|r16
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c0-f3-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    2|10|1.0|1|2|1||r10
+    2|11|1.0|1.0|2|2||
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c0-f3-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    2|10|1.0|1|2|1||r10
+    2|11|1.0|1.0|2|2||
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c0-f3-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c0-f4-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|11|1|1.0|1|2|l1|
+    2|11|1.0|1.0|2|2||
+    4||||1||l4|
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c0-f4-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|11|1|1.0|1|2|l1|
+    2|11|1.0|1.0|2|2||
+    4||||1||l4|
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c0-f4-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c0-f5-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3|12|1|1|1|2|l3|r12
+    4||||1||l4|
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    7||x||1|||
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c0-f5-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3|12|1|1|1|2|l3|r12
+    4||||1||l4|
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+    6|15|2|2|2|2|l6|r15
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c0-f5-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    4||||1||l4|
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c1-f0-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    1|11|1|1.0|1|2|l1|
+    2|10|1.0|1|2|1||r10
+    2|11|1.0|1.0|2|2||
+    3|12|1|1|1|2|l3|r12
+    4||||1||l4|
+    5|14|2|2|||l5|
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    6|14|2|2|2||l6|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    7||x||1|||
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c1-f0-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    1|11|1|1.0|1|2|l1|
+    2|10|1.0|1|2|1||r10
+    2|11|1.0|1.0|2|2||
+    3|12|1|1|1|2|l3|r12
+    4||||1||l4|
+    5|14|2|2|||l5|
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c1-f0-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    2|11|1.0|1.0|2|2||
+    3|12|1|1|1|2|l3|r12
+    4||||1||l4|
+    5|14|2|2|||l5|
+    5|15|2|2||2|l5|r15
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c1-f1-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    1|11|1|1.0|1|2|l1|
+    3|12|1|1|1|2|l3|r12
+    5|14|2|2|||l5|
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c1-f1-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    1|11|1|1.0|1|2|l1|
+    3|12|1|1|1|2|l3|r12
+    5|14|2|2|||l5|
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c1-f1-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    5|14|2|2|||l5|
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c1-f2-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|11|1|1.0|1|2|l1|
+    2|11|1.0|1.0|2|2||
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c1-f2-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|11|1|1.0|1|2|l1|
+    2|11|1.0|1.0|2|2||
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c1-f2-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    5|16|2|2||2|l5|r16
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c1-f3-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    2|10|1.0|1|2|1||r10
+    2|11|1.0|1.0|2|2||
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c1-f3-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    2|10|1.0|1|2|1||r10
+    2|11|1.0|1.0|2|2||
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c1-f3-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c1-f4-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|11|1|1.0|1|2|l1|
+    2|11|1.0|1.0|2|2||
+    4||||1||l4|
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c1-f4-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|11|1|1.0|1|2|l1|
+    2|11|1.0|1.0|2|2||
+    4||||1||l4|
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c1-f4-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c1-f5-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3|12|1|1|1|2|l3|r12
+    4||||1||l4|
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    7||x||1|||
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c1-f5-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3|12|1|1|1|2|l3|r12
+    4||||1||l4|
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+    6|15|2|2|2|2|l6|r15
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c1-f5-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    4||||1||l4|
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c2-f0-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3||1||1||l3|
+    4||||1||l4|
+    5||2||||l5|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    7||x||1|||
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c2-f0-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3||1||1||l3|
+    4||||1||l4|
+    5||2||||l5|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c2-f0-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    4||||1||l4|
+    5||2||||l5|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c2-f1-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    3||1||1||l3|
+    5||2||||l5|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c2-f1-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    3||1||1||l3|
+    5||2||||l5|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c2-f1-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c2-f2-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    2|11|1.0|1.0|2|2||
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c2-f2-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    2|11|1.0|1.0|2|2||
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c2-f2-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c2-f3-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    2|11|1.0|1.0|2|2||
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c2-f3-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    2|11|1.0|1.0|2|2||
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c2-f3-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c2-f4-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    2|11|1.0|1.0|2|2||
+    3||1||1||l3|
+    4||||1||l4|
+    5||2||||l5|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c2-f4-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    2|11|1.0|1.0|2|2||
+    3||1||1||l3|
+    4||||1||l4|
+    5||2||||l5|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c2-f4-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    5||2||||l5|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c2-f5-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3||1||1||l3|
+    4||||1||l4|
+    5||2||||l5|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    7||x||1|||
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c2-f5-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3||1||1||l3|
+    4||||1||l4|
+    5||2||||l5|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c2-f5-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    4||||1||l4|
+    5||2||||l5|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c3-f0-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3||1||1||l3|
+    4||||1||l4|
+    5||2||||l5|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    7||x||1|||
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c3-f0-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3||1||1||l3|
+    4||||1||l4|
+    5||2||||l5|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c3-f0-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    4||||1||l4|
+    5||2||||l5|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c3-f1-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    3||1||1||l3|
+    5||2||||l5|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c3-f1-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    3||1||1||l3|
+    5||2||||l5|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c3-f1-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c3-f2-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    2|11|1.0|1.0|2|2||
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c3-f2-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    2|11|1.0|1.0|2|2||
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c3-f2-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c3-f3-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    2|11|1.0|1.0|2|2||
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c3-f3-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    2|11|1.0|1.0|2|2||
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c3-f3-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c3-f4-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    2|11|1.0|1.0|2|2||
+    3||1||1||l3|
+    4||||1||l4|
+    5||2||||l5|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c3-f4-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    2|11|1.0|1.0|2|2||
+    3||1||1||l3|
+    4||||1||l4|
+    5||2||||l5|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c3-f4-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    5||2||||l5|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c3-f5-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3||1||1||l3|
+    4||||1||l4|
+    5||2||||l5|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    7||x||1|||
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c3-f5-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3||1||1||l3|
+    4||||1||l4|
+    5||2||||l5|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+}
+
+@setup anchored_hash_rows
+test anchored-j1-c3-f5-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    LEFT JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    4||||1||l4|
+    5||2||||l5|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c0-f0-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    |13||||1||r13
+    |17||y||1||r17
+    1|10|1|1|1|1|l1|r10
+    1|11|1|1.0|1|2|l1|
+    2|10|1.0|1|2|1||r10
+    2|11|1.0|1.0|2|2||
+    3|12|1|1|1|2|l3|r12
+    4||||1||l4|
+    5|14|2|2|||l5|
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    6|14|2|2|2||l6|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    7||x||1|||
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c0-f0-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    |13||||1||r13
+    |17||y||1||r17
+    1|10|1|1|1|1|l1|r10
+    1|11|1|1.0|1|2|l1|
+    2|10|1.0|1|2|1||r10
+    2|11|1.0|1.0|2|2||
+    3|12|1|1|1|2|l3|r12
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c0-f0-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    1|11|1|1.0|1|2|l1|
+    2|10|1.0|1|2|1||r10
+    2|11|1.0|1.0|2|2||
+    3|12|1|1|1|2|l3|r12
+    4||||1||l4|
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c0-f1-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    1|11|1|1.0|1|2|l1|
+    3|12|1|1|1|2|l3|r12
+    5|14|2|2|||l5|
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c0-f1-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    1|11|1|1.0|1|2|l1|
+    3|12|1|1|1|2|l3|r12
+    5|14|2|2|||l5|
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c0-f1-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    5|14|2|2|||l5|
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c0-f2-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    |13||||1||r13
+    1|11|1|1.0|1|2|l1|
+    2|11|1.0|1.0|2|2||
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c0-f2-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    |13||||1||r13
+    1|11|1|1.0|1|2|l1|
+    2|11|1.0|1.0|2|2||
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c0-f2-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c0-f3-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    |13||||1||r13
+    |17||y||1||r17
+    2|10|1.0|1|2|1||r10
+    2|11|1.0|1.0|2|2||
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c0-f3-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    |13||||1||r13
+    |17||y||1||r17
+    2|10|1.0|1|2|1||r10
+    2|11|1.0|1.0|2|2||
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c0-f3-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    2|11|1.0|1.0|2|2||
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c0-f4-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|11|1|1.0|1|2|l1|
+    2|11|1.0|1.0|2|2||
+    4||||1||l4|
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c0-f4-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|11|1|1.0|1|2|l1|
+    2|11|1.0|1.0|2|2||
+    4||||1||l4|
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c0-f4-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c0-f5-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id ;
+}
+expect {
+    |13||||1||r13
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3|12|1|1|1|2|l3|r12
+    4||||1||l4|
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    7||x||1|||
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c0-f5-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    |13||||1||r13
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3|12|1|1|1|2|l3|r12
+    4||||1||l4|
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c0-f5-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    3|12|1|1|1|2|l3|r12
+    4||||1||l4|
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+    6|15|2|2|2|2|l6|r15
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c1-f0-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    |13||||1||r13
+    |17||y||1||r17
+    1|10|1|1|1|1|l1|r10
+    1|11|1|1.0|1|2|l1|
+    2|10|1.0|1|2|1||r10
+    2|11|1.0|1.0|2|2||
+    3|12|1|1|1|2|l3|r12
+    4||||1||l4|
+    5|14|2|2|||l5|
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    6|14|2|2|2||l6|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    7||x||1|||
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c1-f0-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    |13||||1||r13
+    |17||y||1||r17
+    1|10|1|1|1|1|l1|r10
+    1|11|1|1.0|1|2|l1|
+    2|10|1.0|1|2|1||r10
+    2|11|1.0|1.0|2|2||
+    3|12|1|1|1|2|l3|r12
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c1-f0-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    1|11|1|1.0|1|2|l1|
+    2|10|1.0|1|2|1||r10
+    2|11|1.0|1.0|2|2||
+    3|12|1|1|1|2|l3|r12
+    4||||1||l4|
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c1-f1-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    1|11|1|1.0|1|2|l1|
+    3|12|1|1|1|2|l3|r12
+    5|14|2|2|||l5|
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c1-f1-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    1|11|1|1.0|1|2|l1|
+    3|12|1|1|1|2|l3|r12
+    5|14|2|2|||l5|
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c1-f1-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    5|14|2|2|||l5|
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c1-f2-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    |13||||1||r13
+    1|11|1|1.0|1|2|l1|
+    2|11|1.0|1.0|2|2||
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c1-f2-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    |13||||1||r13
+    1|11|1|1.0|1|2|l1|
+    2|11|1.0|1.0|2|2||
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c1-f2-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    5|15|2|2||2|l5|r15
+    5|16|2|2||2|l5|r16
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c1-f3-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    |13||||1||r13
+    |17||y||1||r17
+    2|10|1.0|1|2|1||r10
+    2|11|1.0|1.0|2|2||
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c1-f3-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    |13||||1||r13
+    |17||y||1||r17
+    2|10|1.0|1|2|1||r10
+    2|11|1.0|1.0|2|2||
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c1-f3-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    2|11|1.0|1.0|2|2||
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c1-f4-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|11|1|1.0|1|2|l1|
+    2|11|1.0|1.0|2|2||
+    4||||1||l4|
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c1-f4-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|11|1|1.0|1|2|l1|
+    2|11|1.0|1.0|2|2||
+    4||||1||l4|
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c1-f4-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c1-f5-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id ;
+}
+expect {
+    |13||||1||r13
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3|12|1|1|1|2|l3|r12
+    4||||1||l4|
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    7||x||1|||
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c1-f5-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    |13||||1||r13
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3|12|1|1|1|2|l3|r12
+    4||||1||l4|
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c1-f5-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    3|12|1|1|1|2|l3|r12
+    4||||1||l4|
+    5|14|2|2|||l5|
+    6|14|2|2|2||l6|
+    6|15|2|2|2|2|l6|r15
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c2-f0-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    |12||1||2||r12
+    |13||||1||r13
+    |14||2||||
+    |17||y||1||r17
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3||1||1||l3|
+    4||||1||l4|
+    5||2||||l5|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    7||x||1|||
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c2-f0-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    |12||1||2||r12
+    |13||||1||r13
+    |14||2||||
+    |17||y||1||r17
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3||1||1||l3|
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c2-f0-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    |17||y||1||r17
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3||1||1||l3|
+    4||||1||l4|
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c2-f1-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    3||1||1||l3|
+    5||2||||l5|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c2-f1-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    3||1||1||l3|
+    5||2||||l5|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c2-f1-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c2-f2-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    |13||||1||r13
+    2|11|1.0|1.0|2|2||
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c2-f2-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    |13||||1||r13
+    2|11|1.0|1.0|2|2||
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c2-f2-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c2-f3-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    |12||1||2||r12
+    |13||||1||r13
+    |14||2||||
+    |17||y||1||r17
+    2|11|1.0|1.0|2|2||
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c2-f3-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    |12||1||2||r12
+    |13||||1||r13
+    |14||2||||
+    |17||y||1||r17
+    2|11|1.0|1.0|2|2||
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c2-f3-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    |17||y||1||r17
+    2|11|1.0|1.0|2|2||
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c2-f4-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    |14||2||||
+    2|11|1.0|1.0|2|2||
+    3||1||1||l3|
+    4||||1||l4|
+    5||2||||l5|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c2-f4-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    |14||2||||
+    2|11|1.0|1.0|2|2||
+    3||1||1||l3|
+    4||||1||l4|
+    5||2||||l5|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c2-f4-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    4||||1||l4|
+    5||2||||l5|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c2-f5-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id ;
+}
+expect {
+    |12||1||2||r12
+    |13||||1||r13
+    |14||2||||
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3||1||1||l3|
+    4||||1||l4|
+    5||2||||l5|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    7||x||1|||
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c2-f5-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    |12||1||2||r12
+    |13||||1||r13
+    |14||2||||
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3||1||1||l3|
+    4||||1||l4|
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c2-f5-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON l.k = r.k AND l.k2 = r.k2
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3||1||1||l3|
+    4||||1||l4|
+    5||2||||l5|
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c3-f0-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    |12||1||2||r12
+    |13||||1||r13
+    |14||2||||
+    |17||y||1||r17
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3||1||1||l3|
+    4||||1||l4|
+    5||2||||l5|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    7||x||1|||
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c3-f0-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    |12||1||2||r12
+    |13||||1||r13
+    |14||2||||
+    |17||y||1||r17
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3||1||1||l3|
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c3-f0-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    |17||y||1||r17
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3||1||1||l3|
+    4||||1||l4|
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c3-f1-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    3||1||1||l3|
+    5||2||||l5|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c3-f1-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    3||1||1||l3|
+    5||2||||l5|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c3-f1-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.flag = 1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c3-f2-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    |13||||1||r13
+    2|11|1.0|1.0|2|2||
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c3-f2-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    |13||||1||r13
+    2|11|1.0|1.0|2|2||
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c3-f2-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.flag = 1)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    6|16|2|2|2|2|l6|r16
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c3-f3-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    |12||1||2||r12
+    |13||||1||r13
+    |14||2||||
+    |17||y||1||r17
+    2|11|1.0|1.0|2|2||
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c3-f3-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    |12||1||2||r12
+    |13||||1||r13
+    |14||2||||
+    |17||y||1||r17
+    2|11|1.0|1.0|2|2||
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c3-f3-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (l.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    |17||y||1||r17
+    2|11|1.0|1.0|2|2||
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c3-f4-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id ;
+}
+expect {
+    |14||2||||
+    2|11|1.0|1.0|2|2||
+    3||1||1||l3|
+    4||||1||l4|
+    5||2||||l5|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c3-f4-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    |14||2||||
+    2|11|1.0|1.0|2|2||
+    3||1||1||l3|
+    4||||1||l4|
+    5||2||||l5|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c3-f4-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (r.payload IS NULL)
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    4||||1||l4|
+    5||2||||l5|
+    7||x||1|||
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c3-f5-p0 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id ;
+}
+expect {
+    |12||1||2||r12
+    |13||||1||r13
+    |14||2||||
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3||1||1||l3|
+    4||||1||l4|
+    5||2||||l5|
+    6|15|2|2|2|2|l6|r15
+    6|16|2|2|2|2|l6|r16
+    7||x||1|||
+    8|18|1|1|1|1|l8|r18
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c3-f5-p1 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id LIMIT 7;
+}
+expect {
+    |12||1||2||r12
+    |13||||1||r13
+    |14||2||||
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3||1||1||l3|
+    4||||1||l4|
+}
+
+@setup anchored_hash_rows
+test anchored-j2-c3-f5-p2 {
+    SELECT l.id, r.id, l.k, r.k, l.k2, r.k2, l.payload, r.payload
+    FROM matrix_left AS l
+    FULL OUTER JOIN matrix_right AS r ON r.k2 = l.k2 AND r.k = l.k
+    WHERE (l.id <= 8 OR l.id IS NULL) AND (coalesce(l.flag, -1) <> coalesce(r.flag, -1))
+    ORDER BY l.id, r.id LIMIT 5 OFFSET 3;
+}
+expect {
+    1|10|1|1|1|1|l1|r10
+    2|11|1.0|1.0|2|2||
+    3||1||1||l3|
+    4||||1||l4|
+    5||2||||l5|
+}

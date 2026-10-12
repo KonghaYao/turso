@@ -28,6 +28,10 @@
 #include <strings.h>
 #include <stdlib.h>
 
+#ifdef TURSO_SQLITE_TEST_API
+#include "turso_test_tcl.h"
+#endif
+
 /* Tcl_Size was introduced in Tcl 9.0; fall back to int for 8.x */
 #ifndef TCL_SIZE_MAX
 typedef int Tcl_Size;
@@ -369,12 +373,32 @@ static void tcl_scalar_bridge(void *ctx, int argc, void **argv)
 
     /* Convert the Tcl result to an SQL value. */
     Tcl_Obj    *result = Tcl_GetObjResult(interp);
+    const char *type_name = result->typePtr ? result->typePtr->name : "";
+    int         result_type = SQLITE_TEXT;
     Tcl_WideInt ival;
     double      dval;
 
-    if (Tcl_GetWideIntFromObj(NULL, result, &ival) == TCL_OK) {
+    if (strcmp(type_name, "bytearray") == 0 && result->bytes == NULL) {
+        Tcl_Size length;
+        unsigned char *bytes = Tcl_GetByteArrayFromObj(result, &length);
+        sqlite3_result_blob(ctx, bytes, length, SQLITE_TRANSIENT);
+        return;
+    }
+
+    if (strcmp(type_name, "int") == 0 || strcmp(type_name, "wideInt") == 0 ||
+        (result->bytes == NULL &&
+         (strcmp(type_name, "boolean") == 0 ||
+          strcmp(type_name, "booleanString") == 0))) {
+        result_type = SQLITE_INTEGER;
+    } else if (strcmp(type_name, "double") == 0) {
+        result_type = SQLITE_FLOAT;
+    }
+
+    if (result_type == SQLITE_INTEGER &&
+        Tcl_GetWideIntFromObj(NULL, result, &ival) == TCL_OK) {
         sqlite3_result_int64(ctx, (int64_t)ival);
-    } else if (Tcl_GetDoubleFromObj(NULL, result, &dval) == TCL_OK) {
+    } else if ((result_type == SQLITE_INTEGER || result_type == SQLITE_FLOAT) &&
+               Tcl_GetDoubleFromObj(NULL, result, &dval) == TCL_OK) {
         sqlite3_result_double(ctx, dval);
     } else {
         Tcl_Size    slen;
@@ -3351,6 +3375,10 @@ int Tursotcl_Init(Tcl_Interp *interp)
     }
 
     turso_enable_experimental();
+
+#ifdef TURSO_SQLITE_TEST_API
+    if (TursoTest_Init(interp) != TCL_OK) return TCL_ERROR;
+#endif
 
     Tcl_CreateObjCommand(interp, "sqlite3", TursoOpenCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "sqlite3_exec", TursoExecCmd, NULL, NULL);

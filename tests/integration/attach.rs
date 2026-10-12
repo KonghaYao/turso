@@ -676,6 +676,42 @@ fn test_attach_create_stores_canonical_schema_sql() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[turso_macros::test]
+fn test_attached_unique_collations_survive_alter_and_reattach(
+    tmp_db: TempDatabase,
+) -> anyhow::Result<()> {
+    let aux_path = tmp_db.path.with_extension("unique_attach.db");
+    let conn = tmp_db.connect_limbo();
+    conn.execute("CREATE TABLE t(a TEXT PRIMARY KEY,b INT)")?;
+    conn.execute("INSERT INTO t VALUES('A',99)")?;
+    conn.execute(format!("ATTACH '{}' AS aux", aux_path.display()))?;
+    conn.execute("CREATE TABLE aux.t(a TEXT PRIMARY KEY,b INT,UNIQUE(a COLLATE NOCASE))")?;
+    conn.execute("INSERT INTO aux.t VALUES('a',1)")?;
+    conn.execute("ALTER TABLE aux.t ADD COLUMN c INT DEFAULT 7")?;
+    conn.execute("DETACH aux")?;
+    conn.execute(format!("ATTACH '{}' AS aux", aux_path.display()))?;
+
+    let indexes: Vec<(i64,)> = conn
+        .exec_rows("SELECT count(*) FROM aux.sqlite_schema WHERE type='index' AND tbl_name='t'");
+    assert_eq!(indexes, vec![(2,)]);
+    let error = conn
+        .execute("INSERT INTO aux.t(a,b) VALUES('A',2)")
+        .unwrap_err();
+    assert!(error.to_string().contains("UNIQUE constraint failed"));
+    let aux_rows: Vec<(String, i64, i64)> = conn.exec_rows("SELECT a,b,c FROM aux.t");
+    assert_eq!(aux_rows, vec![("a".into(), 1, 7)]);
+    let main_rows: Vec<(String, i64)> = conn.exec_rows("SELECT a,b FROM main.t");
+    assert_eq!(main_rows, vec![("A".into(), 99)]);
+    conn.execute("DETACH aux")?;
+    conn.close()?;
+
+    let reopened = tmp_db.connect_limbo();
+    reopened.execute(format!("ATTACH '{}' AS aux", aux_path.display()))?;
+    let aux_rows: Vec<(String, i64, i64)> = reopened.exec_rows("SELECT a,b,c FROM aux.t");
+    assert_eq!(aux_rows, vec![("a".into(), 1, 7)]);
+    Ok(())
+}
+
 /// this test is very much same like `test_attach_create_stores_canonical_schema_sql` except
 /// we don't attach any db, rather access the main db as if it was attached
 #[test]

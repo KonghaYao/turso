@@ -6,6 +6,202 @@ use turso_core::{Connection, LimboError, Result, Statement, StepResult, Value};
 
 use crate::common::{assert_checkpoint_preserves_content, ExecRows, TempDatabase};
 
+#[turso_macros::test]
+fn test_typed_unique_conflict_policies(tmp_db: TempDatabase) {
+    let conn = tmp_db.connect_limbo();
+    conn.execute("CREATE TABLE typed_unique(value UNIQUE)")
+        .unwrap();
+    for (policy, expected) in [
+        ("FAIL", vec![(1_i64,), (2,), (4,)]),
+        ("ABORT", vec![(1_i64,), (4,)]),
+        ("ROLLBACK", vec![(1_i64,)]),
+    ] {
+        conn.execute("DELETE FROM typed_unique").unwrap();
+        conn.execute("INSERT INTO typed_unique VALUES(1)").unwrap();
+        conn.execute("BEGIN").unwrap();
+        conn.execute("INSERT INTO typed_unique VALUES(4)").unwrap();
+        let error = conn
+            .execute(format!(
+                "INSERT OR {policy} INTO typed_unique VALUES(2),(1),(3)"
+            ))
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            LimboError::ConstraintWithCode { code: 2067, .. }
+        ));
+        assert_eq!(error.sqlite_result_code(), 19);
+        assert_eq!(error.sqlite_extended_result_code(), 2067);
+        assert_eq!(
+            error.to_string(),
+            "UNIQUE constraint failed: typed_unique.value"
+        );
+        let actual: Vec<(i64,)> = conn.exec_rows("SELECT value FROM typed_unique ORDER BY value");
+        assert_eq!(actual, expected, "{policy}");
+        if policy != "ROLLBACK" {
+            conn.execute("ROLLBACK").unwrap();
+        }
+    }
+}
+
+#[turso_macros::test]
+fn test_typed_unique_scalar_and_tuple_upsert_abort(tmp_db: TempDatabase) {
+    let conn = tmp_db.connect_limbo();
+    conn.execute("CREATE TABLE typed_upsert(a PRIMARY KEY,b,c UNIQUE)")
+        .unwrap();
+    conn.execute("INSERT INTO typed_upsert VALUES(1,10,20),(2,30,40)")
+        .unwrap();
+    for (insert_rows, assignment) in [
+        ("(1,0,0)", "c=40"),
+        ("(1,0,0)", "(b,c)=(SELECT 99,40)"),
+        ("(1,0,0),(2,0,0)", "c=70"),
+        ("(1,0,0),(2,0,0)", "(b,c)=(SELECT 99,70)"),
+    ] {
+        for prepared in [false, true] {
+            conn.execute("BEGIN").unwrap();
+            conn.execute("INSERT INTO typed_upsert VALUES(3,50,60)")
+                .unwrap();
+            let sql = format!("INSERT INTO typed_upsert VALUES{insert_rows} ON CONFLICT(a) DO UPDATE SET {assignment}");
+            let error = if prepared {
+                conn.prepare(&sql)
+                    .unwrap()
+                    .run_with_row_callback(|_| Ok(()))
+                    .unwrap_err()
+            } else {
+                conn.execute(&sql).unwrap_err()
+            };
+            assert!(matches!(
+                error,
+                LimboError::ConstraintWithCode {
+                    code: 2067,
+                    nested_fail: false,
+                    ..
+                }
+            ));
+            assert_eq!(error.sqlite_result_code(), 19);
+            assert_eq!(error.sqlite_extended_result_code(), 2067);
+            assert_eq!(
+                error.to_string(),
+                "UNIQUE constraint failed: typed_upsert.c"
+            );
+            assert!(!conn.get_auto_commit());
+            let rows: Vec<(i64, i64, i64)> =
+                conn.exec_rows("SELECT a,b,c FROM typed_upsert ORDER BY a");
+            assert_eq!(rows, vec![(1, 10, 20), (2, 30, 40), (3, 50, 60)]);
+            conn.execute("ROLLBACK").unwrap();
+            let rows: Vec<(i64, i64, i64)> =
+                conn.exec_rows("SELECT a,b,c FROM typed_upsert ORDER BY a");
+            assert_eq!(rows, vec![(1, 10, 20), (2, 30, 40)]);
+        }
+    }
+}
+
+#[turso_macros::test]
+fn test_upsert_halt_distinguishes_primary_and_explicit_unique_indexes(tmp_db: TempDatabase) {
+    let conn = tmp_db.connect_limbo();
+    conn.execute("CREATE TABLE upsert_pk(a TEXT PRIMARY KEY, b, c UNIQUE)")
+        .unwrap();
+    conn.execute("INSERT INTO upsert_pk VALUES('one',10,20),('two',30,40)")
+        .unwrap();
+    let sql = "INSERT INTO upsert_pk VALUES('three',0,20) ON CONFLICT(c) DO UPDATE SET a='two'";
+    let rows = helper_read_all_rows(conn.query(format!("EXPLAIN {sql}")).unwrap().unwrap());
+    assert!(rows.iter().any(|row| row[1] == Value::Text("Halt".into())
+        && row[2] == Value::from_i64(1555)
+        && row[5] == Value::Text("upsert_pk.a".into())));
+    let error = conn.execute(sql).unwrap_err();
+    assert!(matches!(error, LimboError::Constraint(_)));
+    assert_eq!(error.sqlite_result_code(), 19);
+    assert_eq!(error.sqlite_extended_result_code(), 19);
+    conn.execute("CREATE UNIQUE INDEX explicit_same_pk ON upsert_pk(a)")
+        .unwrap();
+    let rows = helper_read_all_rows(conn.query(format!("EXPLAIN {sql}")).unwrap().unwrap());
+    for code in [1555, 2067] {
+        assert!(
+            rows.iter().any(|row| row[1] == Value::Text("Halt".into())
+                && row[2] == Value::from_i64(code)
+                && row[5] == Value::Text("upsert_pk.a".into())),
+            "missing source code {code}: {rows:?}"
+        );
+    }
+    let error = conn.execute(sql).unwrap_err();
+    assert!(matches!(
+        error,
+        LimboError::ConstraintWithCode { code: 2067, .. }
+    ));
+    assert_eq!(error.to_string(), "UNIQUE constraint failed: upsert_pk.a");
+    let rows: Vec<(String, i64, i64)> = conn.exec_rows("SELECT a,b,c FROM upsert_pk ORDER BY a");
+    assert_eq!(rows, vec![("one".into(), 10, 20), ("two".into(), 30, 40)]);
+}
+
+#[turso_macros::test]
+fn test_upsert_rowid_and_composite_primary_keys_keep_source_code(tmp_db: TempDatabase) {
+    let conn = tmp_db.connect_limbo();
+    for (definition, assignment, description) in [
+        (
+            "a INTEGER PRIMARY KEY,b,c UNIQUE",
+            "a=2",
+            "upsert_primary.a",
+        ),
+        (
+            "a,b,c UNIQUE,PRIMARY KEY(a,b)",
+            "(a,b)=(SELECT 2,30)",
+            "upsert_primary.(a, b)",
+        ),
+    ] {
+        conn.execute(format!("CREATE TABLE upsert_primary({definition})"))
+            .unwrap();
+        conn.execute("INSERT INTO upsert_primary VALUES(1,10,20),(2,30,40)")
+            .unwrap();
+        let sql = format!(
+            "INSERT INTO upsert_primary VALUES(3,0,20) ON CONFLICT(c) DO UPDATE SET {assignment}"
+        );
+        let rows = helper_read_all_rows(conn.query(format!("EXPLAIN {sql}")).unwrap().unwrap());
+        assert!(
+            rows.iter().any(|row| row[1] == Value::Text("Halt".into())
+                && row[2] == Value::from_i64(1555)
+                && row[5] == Value::Text(description.into())),
+            "{rows:?}"
+        );
+        let error = conn.execute(&sql).unwrap_err();
+        assert!(matches!(error, LimboError::Constraint(_)));
+        assert_eq!(error.sqlite_result_code(), 19);
+        assert_eq!(error.sqlite_extended_result_code(), 19);
+        let rows: Vec<(i64, i64, i64)> =
+            conn.exec_rows("SELECT a,b,c FROM upsert_primary ORDER BY a");
+        assert_eq!(rows, vec![(1, 10, 20), (2, 30, 40)]);
+        conn.execute("DROP TABLE upsert_primary").unwrap();
+    }
+}
+
+#[turso_macros::test]
+fn test_typed_unique_nested_fail_keeps_code_and_prior_rows(tmp_db: TempDatabase) {
+    let conn = tmp_db.connect_limbo();
+    conn.execute("CREATE TABLE typed_unique(value UNIQUE)")
+        .unwrap();
+    conn.execute("INSERT INTO typed_unique VALUES(1)").unwrap();
+    conn.execute("CREATE TABLE trigger_source(value)").unwrap();
+    conn.execute("CREATE TRIGGER typed_fail AFTER INSERT ON trigger_source BEGIN INSERT OR FAIL INTO typed_unique VALUES(2),(1),(3); END").unwrap();
+    let error = conn
+        .execute("INSERT INTO trigger_source VALUES(5)")
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        LimboError::ConstraintWithCode {
+            code: 2067,
+            nested_fail: true,
+            ..
+        }
+    ));
+    assert_eq!(error.sqlite_result_code(), 19);
+    assert_eq!(
+        error.to_string(),
+        "UNIQUE constraint failed: typed_unique.value"
+    );
+    let actual: Vec<(i64,)> = conn.exec_rows("SELECT value FROM typed_unique ORDER BY value");
+    assert_eq!(actual, vec![(1,), (2,)]);
+    let source: Vec<(i64,)> = conn.exec_rows("SELECT value FROM trigger_source");
+    assert_eq!(source, vec![(5,)]);
+}
+
 // Test a scenario where there are two concurrent deferred transactions:
 //
 // 1. Both transactions T1 and T2 start at the same time.
@@ -1566,7 +1762,10 @@ fn test_wal_savepoint_rollback_on_constraint_violation() {
     let result =
         conn.execute("UPDATE t SET val = 'modified', u = CASE WHEN id = 1000 THEN 1 ELSE u END");
     assert!(
-        matches!(result, Err(LimboError::Constraint(_))),
+        matches!(
+            result,
+            Err(LimboError::ConstraintWithCode { code: 2067, .. })
+        ),
         "Expected UNIQUE constraint violation, got: {result:?}"
     );
 
@@ -1804,7 +2003,10 @@ fn test_insert_or_rollback_unique_constraint_in_transaction(tmp_db: TempDatabase
 
     // INSERT OR ROLLBACK with unique constraint violation
     let result = conn.execute("INSERT OR ROLLBACK INTO t VALUES (3, 'alice')");
-    assert!(matches!(result, Err(LimboError::Constraint(_))));
+    assert!(matches!(
+        result,
+        Err(LimboError::ConstraintWithCode { code: 2067, .. })
+    ));
 
     // Verify that row 2 (bob) was rolled back
     let stmt = conn
@@ -1852,7 +2054,10 @@ fn test_insert_or_fail_unique_constraint(tmp_db: TempDatabase) {
 
     // INSERT OR FAIL - (3, 'charlie') succeeds, then (4, 'alice') fails
     let result = conn.execute("INSERT OR FAIL INTO t VALUES (3, 'charlie'), (4, 'alice')");
-    assert!(matches!(result, Err(LimboError::Constraint(_))));
+    assert!(matches!(
+        result,
+        Err(LimboError::ConstraintWithCode { code: 2067, .. })
+    ));
 
     // Verify charlie was inserted (FAIL keeps prior changes)
     let stmt = conn
@@ -1883,7 +2088,10 @@ fn test_update_or_fail_keeps_prior_changes(tmp_db: TempDatabase) {
 
     // UPDATE OR FAIL - try to set val=20 which conflicts with id=2
     let result = conn.execute("UPDATE OR FAIL t SET val = 20 WHERE id = 1");
-    assert!(matches!(result, Err(LimboError::Constraint(_))));
+    assert!(matches!(
+        result,
+        Err(LimboError::ConstraintWithCode { code: 2067, .. })
+    ));
 
     // Verify original values (single row update, so nothing before the error to keep)
     let stmt = conn
@@ -1912,7 +2120,10 @@ fn test_update_or_abort_rolls_back_statement(tmp_db: TempDatabase) {
 
     // UPDATE OR ABORT - try to set val=20 which conflicts with id=2
     let result = conn.execute("UPDATE OR ABORT t SET val = 20 WHERE id = 1");
-    assert!(matches!(result, Err(LimboError::Constraint(_))));
+    assert!(matches!(
+        result,
+        Err(LimboError::ConstraintWithCode { code: 2067, .. })
+    ));
 
     // Verify original values (ABORT rolls back statement)
     let stmt = conn
@@ -1945,7 +2156,10 @@ fn test_update_or_rollback_rolls_back_transaction(tmp_db: TempDatabase) {
 
     // UPDATE OR ROLLBACK causes the entire transaction to roll back
     let result = conn.execute("UPDATE OR ROLLBACK t SET val = 30 WHERE id = 2");
-    assert!(matches!(result, Err(LimboError::Constraint(_))));
+    assert!(matches!(
+        result,
+        Err(LimboError::ConstraintWithCode { code: 2067, .. })
+    ));
 
     // Verify that all changes were rolled back (including the first UPDATE)
     let stmt = conn
@@ -1978,7 +2192,10 @@ fn test_update_or_rollback_in_autocommit(tmp_db: TempDatabase) {
 
     // UPDATE OR ROLLBACK in autocommit mode
     let result = conn.execute("UPDATE OR ROLLBACK t SET val = 20 WHERE id = 1");
-    assert!(matches!(result, Err(LimboError::Constraint(_))));
+    assert!(matches!(
+        result,
+        Err(LimboError::ConstraintWithCode { code: 2067, .. })
+    ));
 
     // Verify original values
     let stmt = conn

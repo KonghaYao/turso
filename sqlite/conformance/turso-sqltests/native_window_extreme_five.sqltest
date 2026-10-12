@@ -1,0 +1,82 @@
+@database :memory:
+
+# Five independently fixed non-overflow original RANGE expansions; sixth is RED/HOLD.
+setup int_extremes {
+    CREATE TABLE tx(k INT);
+    INSERT INTO tx VALUES (-9223372036854775808),(-5),(0),(5),(9223372036854775807);
+}
+
+@setup int_extremes
+test anchored-original-extreme-range-asc-1 {
+    SELECT k, sum(k) OVER w, count(*) OVER w, min(k) OVER w, max(k) OVER w
+    FROM tx
+    WINDOW w AS (ORDER BY k ASC RANGE BETWEEN 2 PRECEDING AND CURRENT ROW)
+    ORDER BY k ASC;
+}
+expect {
+    -9223372036854775808|-9223372036854775808|1|-9223372036854775808|-9223372036854775808
+    -5|-5|1|-5|-5
+    0|0|1|0|0
+    5|5|1|5|5
+    9223372036854775807|9223372036854775807|1|9223372036854775807|9223372036854775807
+}
+
+@setup int_extremes
+test anchored-original-extreme-range-asc-2 {
+    SELECT k, sum(k) OVER w, count(*) OVER w, min(k) OVER w, max(k) OVER w
+    FROM tx
+    WINDOW w AS (ORDER BY k ASC RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING)
+    ORDER BY k ASC;
+}
+expect {
+    -9223372036854775808|-9223372036854775808|1|-9223372036854775808|-9223372036854775808
+    -5|-5|1|-5|-5
+    0|0|1|0|0
+    5|5|1|5|5
+    9223372036854775807|9223372036854775807|1|9223372036854775807|9223372036854775807
+}
+
+@setup int_extremes
+test anchored-original-extreme-range-asc-4 {
+    SELECT k, sum(k) OVER w, count(*) OVER w, min(k) OVER w, max(k) OVER w
+    FROM tx
+    WINDOW w AS (ORDER BY k ASC RANGE BETWEEN 100 PRECEDING AND 2 PRECEDING)
+    ORDER BY k ASC;
+}
+expect {
+    -9223372036854775808||0||
+    -5||0||
+    0|-5|1|-5|-5
+    5|-5|2|-5|0
+    9223372036854775807||0||
+}
+
+@setup int_extremes
+test anchored-original-extreme-range-desc-1 {
+    SELECT k, sum(k) OVER w, count(*) OVER w, min(k) OVER w, max(k) OVER w
+    FROM tx
+    WINDOW w AS (ORDER BY k DESC RANGE BETWEEN 2 PRECEDING AND CURRENT ROW)
+    ORDER BY k DESC;
+}
+expect {
+    9223372036854775807|9223372036854775807|1|9223372036854775807|9223372036854775807
+    5|5|1|5|5
+    0|0|1|0|0
+    -5|-5|1|-5|-5
+    -9223372036854775808|-9223372036854775808|1|-9223372036854775808|-9223372036854775808
+}
+
+@setup int_extremes
+test anchored-original-extreme-range-desc-2 {
+    SELECT k, sum(k) OVER w, count(*) OVER w, min(k) OVER w, max(k) OVER w
+    FROM tx
+    WINDOW w AS (ORDER BY k DESC RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING)
+    ORDER BY k DESC;
+}
+expect {
+    9223372036854775807|9223372036854775807|1|9223372036854775807|9223372036854775807
+    5|5|1|5|5
+    0|0|1|0|0
+    -5|-5|1|-5|-5
+    -9223372036854775808|-9223372036854775808|1|-9223372036854775808|-9223372036854775808
+}

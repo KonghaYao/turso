@@ -226,7 +226,7 @@ impl Statement {
             self.pager.cleanup_after_checkpoint_failure();
         }
         connection.cleanup_internal_temp_checkpoint();
-        let cleanup_error = if self.cleanup_state == CleanupState::Unentered {
+        let mut cleanup_error = if self.cleanup_state == CleanupState::Unentered {
             None
         } else {
             self.program
@@ -238,7 +238,9 @@ impl Statement {
                 )
                 .err()
         };
-        connection.rollback_current_txn_state(&self.pager, true);
+        if let Err(error) = connection.rollback_current_txn_state(&self.pager, true) {
+            cleanup_error = Some(error);
+        }
         connection.clear_named_savepoints();
         connection.clear_deferred_foreign_key_violations();
         connection.clear_mvcc_log_meta();

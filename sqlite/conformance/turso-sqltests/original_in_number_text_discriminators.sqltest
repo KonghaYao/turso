@@ -1,0 +1,39 @@
+@database :memory:
+
+setup comparison_keys {
+    CREATE TABLE number_outer(id INTEGER PRIMARY KEY, key1 INTEGER);
+    CREATE TABLE text_inner(key1 TEXT, amount INTEGER, group_id INTEGER);
+    INSERT INTO number_outer VALUES (1, 1);
+    INSERT INTO text_inner VALUES ('1', 10, 1), ('01', 20, 1);
+
+    CREATE TABLE nocase_outer(id INTEGER PRIMARY KEY, key1 TEXT COLLATE NOCASE);
+    CREATE TABLE binary_inner(key1 TEXT COLLATE BINARY, amount INTEGER);
+    CREATE TABLE nocase_inner(key1 TEXT COLLATE NOCASE, amount INTEGER);
+    INSERT INTO nocase_outer VALUES (1, 'a');
+    INSERT INTO binary_inner VALUES ('a', 10), ('A', 20);
+    INSERT INTO nocase_inner VALUES ('a', 10), ('A', 20);
+}
+
+# Extra discriminator, not an original matrix expansion: select only TEXT '01'.
+@setup comparison_keys
+test discriminating-leading-zero-numeric-affinity {
+    SELECT o.id FROM number_outer AS o
+    WHERE o.key1 IN (
+        SELECT i.key1 FROM text_inner AS i
+        WHERE i.amount > o.id AND i.key1 = '01'
+    ) ORDER BY o.id;
+}
+expect {
+    1
+}
+
+@setup comparison_keys
+test discriminating-leading-zero-cast-to-text {
+    SELECT o.id FROM number_outer AS o
+    WHERE CAST(o.key1 AS TEXT) IN (
+        SELECT i.key1 FROM text_inner AS i
+        WHERE i.amount > o.id AND i.key1 = '01'
+    ) ORDER BY o.id;
+}
+expect {
+}

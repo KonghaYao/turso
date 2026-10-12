@@ -6,7 +6,8 @@ use crate::statement::StatementOrigin;
 use crate::storage::{journal_mode, pager::SavepointResult};
 use crate::sync::{
     atomic::{
-        AtomicBool, AtomicI32, AtomicI64, AtomicIsize, AtomicU16, AtomicU64, AtomicU8, Ordering,
+        AtomicBool, AtomicI32, AtomicI64, AtomicIsize, AtomicU16, AtomicU64, AtomicU8, AtomicUsize,
+        Ordering,
     },
     Arc, Mutex, RwLock,
 };
@@ -413,6 +414,7 @@ pub struct Connection {
     /// that statement. COMMIT must roll back the whole transaction.
     pub(crate) poisoned_tx: AtomicBool,
     pub(super) last_insert_rowid: AtomicI64,
+    pub(super) last_insert_rowid_updates: AtomicU64,
     pub(crate) changes: AtomicI64,
     pub(crate) total_changes: AtomicI64,
     pub(crate) syms: parking_lot::RwLock<SymbolTable>,
@@ -519,6 +521,7 @@ pub struct Connection {
     pub(super) encryption_cipher_mode: AtomicCipherMode,
     pub(super) sync_mode: AtomicSyncMode,
     pub(super) temp_store: AtomicTempStore,
+    pub(super) hash_join_memory_budget: AtomicUsize,
     pub(super) data_sync_retry: AtomicBool,
     /// Busy handler for lock contention
     /// Default is BusyHandler::None (return SQLITE_BUSY immediately)
@@ -534,6 +537,8 @@ pub struct Connection {
     pub(super) is_mvcc_bootstrap_connection: AtomicBool,
     /// Whether pragma foreign_keys=ON for this connection
     pub(super) fk_pragma: AtomicBool,
+    pub(super) recursive_triggers_pragma: AtomicBool,
+    pub(crate) cursor_lock_registry: Arc<crate::vdbe::execute::CursorLockRegistry>,
     pub(crate) fk_deferred_violations: AtomicIsize,
     /// Number of active top-level write statements on this connection.
     ///
@@ -899,12 +904,16 @@ impl Connection {
     /// Drops the temp pager, clears the committed schema snapshot and
     /// the dirty-schema flag. Called by `set_temp_store` when the user
     /// changes `PRAGMA temp_store` outside of an explicit transaction.
-    fn reset_temp_database(&self) {
-        if let Some(temp_db) = self.temp.database.write().take() {
-            temp_db.pager.rollback_attached();
-        }
+    fn reset_temp_database(&self) -> Result<()> {
+        let temp_database = self.temp.database.write().take();
+        let rollback_result = if let Some(temp_db) = temp_database {
+            temp_db.pager.rollback_attached()
+        } else {
+            Ok(())
+        };
         *self.temp.committed_schema.write() = None;
         self.temp.schema_did_change.store(false, Ordering::Release);
+        rollback_result
     }
 
     /// Flag a temp-schema mutation within the current transaction so the
@@ -2081,6 +2090,16 @@ impl Connection {
         self.fk_pragma.load(Ordering::Acquire)
     }
 
+    pub fn set_recursive_triggers_enabled(&self, enable: bool) {
+        self.recursive_triggers_pragma
+            .store(enable, Ordering::Release);
+        self.bump_prepare_context_generation();
+    }
+
+    pub fn recursive_triggers_enabled(&self) -> bool {
+        self.recursive_triggers_pragma.load(Ordering::Acquire)
+    }
+
     pub fn set_check_constraints_ignored(&self, ignore: bool) {
         self.check_constraints_pragma
             .store(ignore, Ordering::Release);
@@ -2457,7 +2476,7 @@ impl Connection {
                         mv_store.rollback_tx(tx_id, pager.clone(), self, MAIN_DB_ID);
                     }
                 }
-                pager.rollback(false, self, true);
+                pager.rollback(false, self, true)?;
             }
             if let Some(err) = commit_err {
                 return Err(err);
@@ -2543,6 +2562,7 @@ impl Connection {
         }
         self.closed.store(true, Ordering::SeqCst);
         let pager = self.pager.load();
+        let mut rollback_result = Ok(());
 
         match self.get_tx_state() {
             TransactionState::None => {
@@ -2557,13 +2577,15 @@ impl Connection {
                     }
                     pager.end_read_tx();
                 } else {
-                    pager.rollback_tx(self);
+                    rollback_result = pager.rollback_tx(self);
                 }
                 // Roll back all attached DB transactions regardless of main
                 // DB mode — a :memory: attached DB may use WAL even when the
                 // main DB uses MVCC.
                 self.rollback_attached_mvcc_txs(false);
-                self.rollback_attached_wal_txns();
+                if let Err(error) = self.rollback_attached_wal_txns() {
+                    rollback_result = Err(error);
+                }
                 self.set_tx_state(TransactionState::None);
             }
         }
@@ -2575,10 +2597,9 @@ impl Connection {
             .wal
             .as_ref()
             .is_none_or(|wal| wal.should_checkpoint_on_close());
-        if self.db.n_connections.fetch_sub(1, Ordering::SeqCst).eq(&1)
-            && !self.db.is_readonly()
-            && !is_memory_db
-            && should_checkpoint_on_close
+        let last_connection = self.db.n_connections.fetch_sub(1, Ordering::SeqCst).eq(&1);
+        rollback_result?;
+        if last_connection && !self.db.is_readonly() && !is_memory_db && should_checkpoint_on_close
         {
             self.pager
                 .load()
@@ -2801,8 +2822,14 @@ impl Connection {
         self.last_insert_rowid.load(Ordering::SeqCst)
     }
 
+    pub fn last_insert_rowid_generation(&self) -> u64 {
+        self.last_insert_rowid_updates.load(Ordering::SeqCst)
+    }
+
     pub(crate) fn update_last_rowid(&self, rowid: i64) {
         self.last_insert_rowid.store(rowid, Ordering::SeqCst);
+        self.last_insert_rowid_updates
+            .fetch_add(1, Ordering::SeqCst);
     }
 
     pub(crate) fn add_total_changes(&self, num_changes: i64) {
@@ -3328,6 +3355,26 @@ impl Connection {
         self.db.initialized()
     }
 
+    /// Read-only uncertainty check for a database used by a running statement.
+    /// In particular this must not call get_pager_from_database_index for TEMP:
+    /// that method increments the internal TEMP execution generation.
+    pub(crate) fn database_wal_commit_is_uncertain(&self, index: usize) -> bool {
+        match index {
+            crate::MAIN_DB_ID => self.pager.load().wal_commit_is_uncertain(),
+            crate::TEMP_DB_ID => self
+                .temp
+                .database
+                .read()
+                .as_ref()
+                .is_some_and(|db| db.pager.wal_commit_is_uncertain()),
+            _ => self
+                .attached_databases
+                .read()
+                .get_pager_by_index(&index)
+                .is_some_and(|pager| pager.wal_commit_is_uncertain()),
+        }
+    }
+
     pub(crate) fn get_pager_from_database_index(&self, index: &usize) -> Result<Arc<Pager>> {
         match *index {
             crate::MAIN_DB_ID => Ok(self.pager.load().clone()),
@@ -3833,16 +3880,17 @@ impl Connection {
             )));
         }
 
-        if let Some((tx_id, _mode)) = self.get_mv_tx_for_db(database_id) {
+        let rollback_result = if let Some((tx_id, _mode)) = self.get_mv_tx_for_db(database_id) {
             if let Some(mv_store) = self.mv_store_for_db(database_id) {
                 mv_store.rollback_tx(tx_id, pager.clone(), self, database_id);
                 pager.end_read_tx();
             }
             self.set_mv_tx_for_db(database_id, None);
+            Ok(())
         } else {
             // Non-MVCC attached DB (e.g. :memory:) — rollback WAL state.
-            pager.rollback_attached();
-        }
+            pager.rollback_attached()
+        };
 
         // Remove from catalog. The write lock must be released before
         // acquiring database_schemas.write() to maintain consistent lock
@@ -3857,7 +3905,7 @@ impl Connection {
         self.database_schemas.write().remove(&database_id);
         self.bump_prepare_context_generation();
 
-        Ok(())
+        rollback_result
     }
 
     /// List all attached database aliases
@@ -4165,14 +4213,34 @@ impl Connection {
         self.temp_store.get()
     }
 
-    pub fn set_temp_store(&self, value: crate::TempStore) {
+    pub fn get_hash_join_memory_budget(&self) -> usize {
+        self.hash_join_memory_budget.load(Ordering::Acquire)
+    }
+
+    pub fn set_hash_join_memory_budget(&self, bytes: usize) -> Result<()> {
+        if !(1024..=isize::MAX as usize).contains(&bytes) {
+            return Err(LimboError::InvalidArgument(format!(
+                "hash join memory budget must be between 1024 and {} bytes",
+                isize::MAX
+            )));
+        }
+        if self.hash_join_memory_budget.swap(bytes, Ordering::AcqRel) != bytes {
+            self.bump_prepare_context_generation();
+        }
+        Ok(())
+    }
+
+    pub fn set_temp_store(&self, value: crate::TempStore) -> Result<()> {
         self.invalidate_internal_temp_execution();
         if self.temp_store.get() == value {
-            return;
+            return Ok(());
         }
-        self.reset_temp_database();
-        self.temp_store.set(value);
+        let reset_result = self.reset_temp_database();
+        if reset_result.is_ok() {
+            self.temp_store.set(value);
+        }
         self.bump_prepare_context_generation();
+        reset_result
     }
 
     /// Find a sequence by name, supporting optional schema qualification.
@@ -5128,7 +5196,8 @@ impl Connection {
     /// Rollback WAL-mode transactions on all attached databases and discard
     /// their connection-local schema caches.  MVCC-enabled attached databases
     /// are skipped — those are handled by `rollback_attached_mvcc_txs`.
-    pub(crate) fn rollback_attached_wal_txns(&self) {
+    pub(crate) fn rollback_attached_wal_txns(&self) -> Result<()> {
+        let mut rollback_result = Ok(());
         self.with_all_attached_pagers_with_index(|pagers| {
             // Record indices of WAL-mode entries so we can batch the schema
             // removal under a single write lock and avoid calling
@@ -5150,9 +5219,12 @@ impl Connection {
             }
             self.bump_prepare_context_generation();
             for &i in &wal_indices {
-                pagers[i].1.rollback_attached();
+                if let Err(error) = pagers[i].1.rollback_attached() {
+                    rollback_result = Err(error);
+                }
             }
         });
+        rollback_result
     }
 
     pub(crate) fn with_named_savepoints<F, T>(&self, f: F) -> T
@@ -5333,7 +5405,8 @@ impl Connection {
         &self,
         pager: &Arc<Pager>,
         clear_attached_schemas: bool,
-    ) {
+    ) -> Result<()> {
+        let mut rollback_result = Ok(());
         if let Some(mv_store) = self.mv_store().as_ref() {
             if let Some(tx_id) = self.get_mv_tx_id() {
                 self.auto_commit.store(true, Ordering::SeqCst);
@@ -5346,13 +5419,17 @@ impl Connection {
             pager.end_read_tx();
             self.rollback_attached_mvcc_txs(clear_attached_schemas);
         } else {
-            pager.rollback_tx(self);
+            rollback_result = pager.rollback_tx(self);
             self.auto_commit.store(true, Ordering::SeqCst);
         }
-        self.rollback_attached_wal_txns();
+        if let Err(error) = self.rollback_attached_wal_txns() {
+            rollback_result = Err(error);
+        }
+        self.rollback_temp_schema();
         self.index_methods_on_transaction_rolled_back();
         self.set_tx_state(TransactionState::None);
         self.clear_tx_poison();
+        rollback_result
     }
 
     /// Roll back transaction state for helpers that start a manual `BEGIN`
@@ -5365,29 +5442,31 @@ impl Connection {
         &self,
         pager: &Arc<Pager>,
         clear_attached_schemas: bool,
-    ) {
+    ) -> Result<()> {
         let main_has_implicit_state = self.get_tx_state() != TransactionState::None
             || self.get_mv_tx().is_some()
             || pager.holds_read_lock()
             || pager.holds_write_lock();
 
-        if main_has_implicit_state {
-            self.rollback_current_txn_state(pager, clear_attached_schemas);
+        let rollback_result = if main_has_implicit_state {
+            self.rollback_current_txn_state(pager, clear_attached_schemas)
         } else {
             if self.next_attached_mv_tx().is_some() {
                 self.rollback_attached_mvcc_txs(clear_attached_schemas);
             }
-            self.rollback_attached_wal_txns();
+            let rollback_result = self.rollback_attached_wal_txns();
             self.index_methods_on_transaction_rolled_back();
             self.set_tx_state(TransactionState::None);
             self.auto_commit.store(true, Ordering::SeqCst);
-        }
+            rollback_result
+        };
 
         self.rollback_temp_schema();
         self.clear_tx_poison();
         self.set_cdc_transaction_id(-1);
         self.clear_named_savepoints();
         self.clear_deferred_foreign_key_violations();
+        rollback_result
     }
 
     /// Iterate over all attached MVCC transactions, calling `f(db_id, tx_id)` for each.
@@ -5590,6 +5669,71 @@ mod tests {
     use super::*;
     use crate::SqliteDialect;
     use tempfile::TempDir;
+
+    #[test]
+    fn test_hash_join_memory_budget_validation_and_connection_isolation() {
+        let directory = TempDir::new().unwrap();
+        let first = open_connection(&directory.path().join("budget.db"));
+        let second = first.db.connect().unwrap();
+        let default_budget = crate::vdbe::hash_table::DEFAULT_MEM_BUDGET;
+        assert_eq!(first.get_hash_join_memory_budget(), default_budget);
+        assert_eq!(second.get_hash_join_memory_budget(), default_budget);
+        let generation = first.prepare_context_generation();
+        for bytes in [0, 1023, usize::MAX] {
+            assert!(first.set_hash_join_memory_budget(bytes).is_err());
+            assert_eq!(first.get_hash_join_memory_budget(), default_budget);
+            assert_eq!(first.prepare_context_generation(), generation);
+        }
+        first.set_hash_join_memory_budget(64 * 1024 * 1024).unwrap();
+        second.set_hash_join_memory_budget(32 * 1024).unwrap();
+        assert_eq!(first.get_hash_join_memory_budget(), 64 * 1024 * 1024);
+        assert_eq!(second.get_hash_join_memory_budget(), 32 * 1024);
+        let generation = first.prepare_context_generation();
+        first.set_hash_join_memory_budget(64 * 1024 * 1024).unwrap();
+        assert_eq!(first.prepare_context_generation(), generation);
+    }
+
+    #[test]
+    fn test_hash_join_memory_budget_reprepare_and_real_spill() {
+        let directory = TempDir::new().unwrap();
+        let first = open_connection(&directory.path().join("spill.db"));
+        let second = first.db.connect().unwrap();
+        first.execute("CREATE TABLE build(key INTEGER); CREATE TABLE probe(key INTEGER); WITH RECURSIVE numbers(value) AS (SELECT 1 UNION ALL SELECT value+1 FROM numbers WHERE value<2000) INSERT INTO build SELECT value FROM numbers; INSERT INTO probe SELECT key FROM build;").unwrap();
+        let query = "SELECT count(*) FROM build FULL OUTER JOIN probe ON build.key=probe.key";
+        first.set_hash_join_memory_budget(64 * 1024 * 1024).unwrap();
+        second.set_hash_join_memory_budget(32 * 1024).unwrap();
+        let mut cached = first.prepare(query).unwrap();
+        for (connection, budget, should_spill) in [
+            (&first, 64 * 1024 * 1024, false),
+            (&second, 32 * 1024, true),
+        ] {
+            let mut explain = connection.prepare(format!("EXPLAIN {query}")).unwrap();
+            let rows = explain.run_collect_rows().unwrap();
+            let hash_build = rows
+                .iter()
+                .find(|row| text_value(&row[1]) == "HashBuild")
+                .unwrap();
+            assert!(text_value(&hash_build[5]).contains(&format!("budget={budget}")));
+            let mut statement = connection.prepare(query).unwrap();
+            let rows = statement.run_collect_rows().unwrap();
+            assert_eq!(rows, vec![vec![Value::from_i64(2000)]]);
+            assert_eq!(
+                statement.metrics().hash_join.spill_bytes_written > 0,
+                should_spill
+            );
+            assert_eq!(
+                statement.metrics().hash_join.grace_partitions_processed > 0,
+                should_spill
+            );
+        }
+        first.set_hash_join_memory_budget(32 * 1024).unwrap();
+        assert_eq!(
+            cached.run_collect_rows().unwrap(),
+            vec![vec![Value::from_i64(2000)]]
+        );
+        assert!(cached.metrics().reprepares > 0);
+        assert!(cached.metrics().hash_join.spill_bytes_written > 0);
+    }
 
     fn open_connection_with_opts(path: &std::path::Path, opts: DatabaseOpts) -> Arc<Connection> {
         let io: Arc<dyn IO> = Arc::new(crate::PlatformIO::new().unwrap());

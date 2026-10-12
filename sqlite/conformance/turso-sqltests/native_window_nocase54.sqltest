@@ -1,0 +1,872 @@
+@database :memory:
+
+# Full original NOCASE collated key SQL, unordered peer output sequence.
+setup nocase_keys {
+    CREATE TABLE tcl(k TEXT);
+    INSERT INTO tcl VALUES ('a'),('A'),('b'),('B'),('B'),('c');
+}
+
+
+@setup nocase_keys
+test fixed-original-nocase-m0-s0-e0-x0 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW )
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|1|a|a
+    a|2|a|a,a
+    b|3|a|a,a,b
+    b|4|a|a,a,b,b
+    b|5|a|a,a,b,b,b
+    c|6|a|a,a,b,b,b,c
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m0-s0-e0-x1 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE GROUP)
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|0||
+    a|0||
+    b|2|a|a,a
+    b|2|a|a,a
+    b|2|a|a,a
+    c|5|a|a,a,b,b,b
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m0-s0-e1-x0 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE ROWS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING )
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|2|a|a,a
+    a|3|a|a,a,b
+    b|4|a|a,a,b,b
+    b|5|a|a,a,b,b,b
+    b|6|a|a,a,b,b,b,c
+    c|6|a|a,a,b,b,b,c
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m0-s0-e1-x1 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE ROWS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING EXCLUDE GROUP)
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|0||
+    a|1|b|b
+    b|2|a|a,a
+    b|2|a|a,a
+    b|3|a|a,a,c
+    c|5|a|a,a,b,b,b
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m0-s0-e2-x0 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|6|a|a,a,b,b,b,c
+    a|6|a|a,a,b,b,b,c
+    b|6|a|a,a,b,b,b,c
+    b|6|a|a,a,b,b,b,c
+    b|6|a|a,a,b,b,b,c
+    c|6|a|a,a,b,b,b,c
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m0-s0-e2-x1 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE GROUP)
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|4|b|b,b,b,c
+    a|4|b|b,b,b,c
+    b|3|a|a,a,c
+    b|3|a|a,a,c
+    b|3|a|a,a,c
+    c|5|a|a,a,b,b,b
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m0-s1-e0-x0 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE ROWS BETWEEN 1 PRECEDING AND CURRENT ROW )
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|1|a|a
+    a|2|a|a,a
+    b|2|a|a,b
+    b|2|b|b,b
+    b|2|b|b,b
+    c|2|b|b,c
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m0-s1-e0-x1 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE ROWS BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE GROUP)
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|0||
+    a|0||
+    b|0||
+    b|0||
+    b|1|a|a
+    c|1|b|b
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m0-s1-e1-x0 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING )
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|2|a|a,a
+    a|3|a|a,a,b
+    b|3|a|a,b,b
+    b|3|b|b,b,b
+    b|3|b|b,b,c
+    c|2|b|b,c
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m0-s1-e1-x1 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE GROUP)
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|0||
+    a|1|b|b
+    b|0||
+    b|1|a|a
+    b|1|c|c
+    c|1|b|b
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m0-s1-e2-x0 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE ROWS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|6|a|a,a,b,b,b,c
+    a|6|a|a,a,b,b,b,c
+    b|3|b|b,b,c
+    b|4|b|b,b,b,c
+    b|5|a|a,b,b,b,c
+    c|2|b|b,c
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m0-s1-e2-x1 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE ROWS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE GROUP)
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|4|b|b,b,b,c
+    a|4|b|b,b,b,c
+    b|1|c|c
+    b|1|c|c
+    b|2|a|a,c
+    c|1|b|b
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m0-s2-e0-x0 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE ROWS BETWEEN CURRENT ROW AND CURRENT ROW )
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|1|a|a
+    a|1|a|a
+    b|1|b|b
+    b|1|b|b
+    b|1|b|b
+    c|1|c|c
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m0-s2-e0-x1 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE ROWS BETWEEN CURRENT ROW AND CURRENT ROW EXCLUDE GROUP)
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|0||
+    a|0||
+    b|0||
+    b|0||
+    b|0||
+    c|0||
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m0-s2-e1-x0 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING )
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|2|a|a,a
+    a|2|a|a,b
+    b|2|b|b,b
+    b|2|b|b,b
+    b|2|b|b,c
+    c|1|c|c
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m0-s2-e1-x1 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE GROUP)
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|0||
+    a|1|b|b
+    b|0||
+    b|0||
+    b|1|c|c
+    c|0||
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m0-s2-e2-x0 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING )
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|5|a|a,b,b,b,c
+    a|6|a|a,a,b,b,b,c
+    b|2|b|b,c
+    b|3|b|b,b,c
+    b|4|b|b,b,b,c
+    c|1|c|c
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m0-s2-e2-x1 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE GROUP)
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|4|b|b,b,b,c
+    a|4|b|b,b,b,c
+    b|1|c|c
+    b|1|c|c
+    b|1|c|c
+    c|0||
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m1-s0-e0-x0 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW )
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|2|a|a,a
+    a|2|a|a,a
+    b|5|a|a,a,b,b,b
+    b|5|a|a,a,b,b,b
+    b|5|a|a,a,b,b,b
+    c|6|a|a,a,b,b,b,c
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m1-s0-e0-x1 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE GROUP)
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|0||
+    a|0||
+    b|2|a|a,a
+    b|2|a|a,a
+    b|2|a|a,a
+    c|5|a|a,a,b,b,b
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m1-s0-e1-x0 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE GROUPS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING )
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|5|a|a,a,b,b,b
+    a|5|a|a,a,b,b,b
+    b|6|a|a,a,b,b,b,c
+    b|6|a|a,a,b,b,b,c
+    b|6|a|a,a,b,b,b,c
+    c|6|a|a,a,b,b,b,c
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m1-s0-e1-x1 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE GROUPS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING EXCLUDE GROUP)
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|3|b|b,b,b
+    a|3|b|b,b,b
+    b|3|a|a,a,c
+    b|3|a|a,a,c
+    b|3|a|a,a,c
+    c|5|a|a,a,b,b,b
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m1-s0-e2-x0 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|6|a|a,a,b,b,b,c
+    a|6|a|a,a,b,b,b,c
+    b|6|a|a,a,b,b,b,c
+    b|6|a|a,a,b,b,b,c
+    b|6|a|a,a,b,b,b,c
+    c|6|a|a,a,b,b,b,c
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m1-s0-e2-x1 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE GROUP)
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|4|b|b,b,b,c
+    a|4|b|b,b,b,c
+    b|3|a|a,a,c
+    b|3|a|a,a,c
+    b|3|a|a,a,c
+    c|5|a|a,a,b,b,b
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m1-s1-e0-x0 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW )
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|2|a|a,a
+    a|2|a|a,a
+    b|5|a|a,a,b,b,b
+    b|5|a|a,a,b,b,b
+    b|5|a|a,a,b,b,b
+    c|4|b|b,b,b,c
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m1-s1-e0-x1 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE GROUP)
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|0||
+    a|0||
+    b|2|a|a,a
+    b|2|a|a,a
+    b|2|a|a,a
+    c|3|b|b,b,b
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m1-s1-e1-x0 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING )
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|5|a|a,a,b,b,b
+    a|5|a|a,a,b,b,b
+    b|6|a|a,a,b,b,b,c
+    b|6|a|a,a,b,b,b,c
+    b|6|a|a,a,b,b,b,c
+    c|4|b|b,b,b,c
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m1-s1-e1-x1 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE GROUP)
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|3|b|b,b,b
+    a|3|b|b,b,b
+    b|3|a|a,a,c
+    b|3|a|a,a,c
+    b|3|a|a,a,c
+    c|3|b|b,b,b
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m1-s1-e2-x0 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE GROUPS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|6|a|a,a,b,b,b,c
+    a|6|a|a,a,b,b,b,c
+    b|6|a|a,a,b,b,b,c
+    b|6|a|a,a,b,b,b,c
+    b|6|a|a,a,b,b,b,c
+    c|4|b|b,b,b,c
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m1-s1-e2-x1 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE GROUPS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE GROUP)
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|4|b|b,b,b,c
+    a|4|b|b,b,b,c
+    b|3|a|a,a,c
+    b|3|a|a,a,c
+    b|3|a|a,a,c
+    c|3|b|b,b,b
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m1-s2-e0-x0 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE GROUPS BETWEEN CURRENT ROW AND CURRENT ROW )
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|2|a|a,a
+    a|2|a|a,a
+    b|3|b|b,b,b
+    b|3|b|b,b,b
+    b|3|b|b,b,b
+    c|1|c|c
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m1-s2-e0-x1 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE GROUPS BETWEEN CURRENT ROW AND CURRENT ROW EXCLUDE GROUP)
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|0||
+    a|0||
+    b|0||
+    b|0||
+    b|0||
+    c|0||
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m1-s2-e1-x0 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING )
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|5|a|a,a,b,b,b
+    a|5|a|a,a,b,b,b
+    b|4|b|b,b,b,c
+    b|4|b|b,b,b,c
+    b|4|b|b,b,b,c
+    c|1|c|c
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m1-s2-e1-x1 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE GROUP)
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|3|b|b,b,b
+    a|3|b|b,b,b
+    b|1|c|c
+    b|1|c|c
+    b|1|c|c
+    c|0||
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m1-s2-e2-x0 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING )
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|6|a|a,a,b,b,b,c
+    a|6|a|a,a,b,b,b,c
+    b|4|b|b,b,b,c
+    b|4|b|b,b,b,c
+    b|4|b|b,b,b,c
+    c|1|c|c
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m1-s2-e2-x1 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE GROUP)
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|4|b|b,b,b,c
+    a|4|b|b,b,b,c
+    b|1|c|c
+    b|1|c|c
+    b|1|c|c
+    c|0||
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m2-s0-e0-x0 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW )
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|2|a|a,a
+    a|2|a|a,a
+    b|5|a|a,a,b,b,b
+    b|5|a|a,a,b,b,b
+    b|5|a|a,a,b,b,b
+    c|6|a|a,a,b,b,b,c
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m2-s0-e0-x1 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE GROUP)
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|0||
+    a|0||
+    b|2|a|a,a
+    b|2|a|a,a
+    b|2|a|a,a
+    c|5|a|a,a,b,b,b
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m2-s0-e1-x0 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE RANGE BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING )
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|2|a|a,a
+    a|2|a|a,a
+    b|5|a|a,a,b,b,b
+    b|5|a|a,a,b,b,b
+    b|5|a|a,a,b,b,b
+    c|6|a|a,a,b,b,b,c
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m2-s0-e1-x1 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE RANGE BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING EXCLUDE GROUP)
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|0||
+    a|0||
+    b|2|a|a,a
+    b|2|a|a,a
+    b|2|a|a,a
+    c|5|a|a,a,b,b,b
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m2-s0-e2-x0 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|6|a|a,a,b,b,b,c
+    a|6|a|a,a,b,b,b,c
+    b|6|a|a,a,b,b,b,c
+    b|6|a|a,a,b,b,b,c
+    b|6|a|a,a,b,b,b,c
+    c|6|a|a,a,b,b,b,c
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m2-s0-e2-x1 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE GROUP)
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|4|b|b,b,b,c
+    a|4|b|b,b,b,c
+    b|3|a|a,a,c
+    b|3|a|a,a,c
+    b|3|a|a,a,c
+    c|5|a|a,a,b,b,b
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m2-s1-e0-x0 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE RANGE BETWEEN 1 PRECEDING AND CURRENT ROW )
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|2|a|a,a
+    a|2|a|a,a
+    b|3|b|b,b,b
+    b|3|b|b,b,b
+    b|3|b|b,b,b
+    c|1|c|c
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m2-s1-e0-x1 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE RANGE BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE GROUP)
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|0||
+    a|0||
+    b|0||
+    b|0||
+    b|0||
+    c|0||
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m2-s1-e1-x0 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING )
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|2|a|a,a
+    a|2|a|a,a
+    b|3|b|b,b,b
+    b|3|b|b,b,b
+    b|3|b|b,b,b
+    c|1|c|c
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m2-s1-e1-x1 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE GROUP)
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|0||
+    a|0||
+    b|0||
+    b|0||
+    b|0||
+    c|0||
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m2-s1-e2-x0 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE RANGE BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|6|a|a,a,b,b,b,c
+    a|6|a|a,a,b,b,b,c
+    b|4|b|b,b,b,c
+    b|4|b|b,b,b,c
+    b|4|b|b,b,b,c
+    c|1|c|c
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m2-s1-e2-x1 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE RANGE BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE GROUP)
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|4|b|b,b,b,c
+    a|4|b|b,b,b,c
+    b|1|c|c
+    b|1|c|c
+    b|1|c|c
+    c|0||
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m2-s2-e0-x0 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE RANGE BETWEEN CURRENT ROW AND CURRENT ROW )
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|2|a|a,a
+    a|2|a|a,a
+    b|3|b|b,b,b
+    b|3|b|b,b,b
+    b|3|b|b,b,b
+    c|1|c|c
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m2-s2-e0-x1 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE RANGE BETWEEN CURRENT ROW AND CURRENT ROW EXCLUDE GROUP)
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|0||
+    a|0||
+    b|0||
+    b|0||
+    b|0||
+    c|0||
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m2-s2-e1-x0 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE RANGE BETWEEN CURRENT ROW AND 1 FOLLOWING )
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|2|a|a,a
+    a|2|a|a,a
+    b|3|b|b,b,b
+    b|3|b|b,b,b
+    b|3|b|b,b,b
+    c|1|c|c
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m2-s2-e1-x1 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE RANGE BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE GROUP)
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|0||
+    a|0||
+    b|0||
+    b|0||
+    b|0||
+    c|0||
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m2-s2-e2-x0 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING )
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|6|a|a,a,b,b,b,c
+    a|6|a|a,a,b,b,b,c
+    b|4|b|b,b,b,c
+    b|4|b|b,b,b,c
+    b|4|b|b,b,b,c
+    c|1|c|c
+}
+
+@setup nocase_keys
+test fixed-original-nocase-m2-s2-e2-x1 {
+    SELECT lower(k), count(*) OVER w, min(lower(k)) OVER w, group_concat(lower(k), ',') OVER w
+    FROM tcl
+    WINDOW w AS (ORDER BY k COLLATE NOCASE RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE GROUP)
+    ORDER BY k COLLATE NOCASE;
+}
+expect unordered {
+    a|4|b|b,b,b,c
+    a|4|b|b,b,b,c
+    b|1|c|c
+    b|1|c|c
+    b|1|c|c
+    c|0||
+}

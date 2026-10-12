@@ -479,6 +479,13 @@ impl Connection {
         Ok(())
     }
 
+    pub fn set_hash_join_memory_budget(&self, bytes: usize) -> Result<()> {
+        let _operation = self.acquire_exclusive_operation()?;
+        self.get_inner_connection()?
+            .set_hash_join_memory_budget(bytes)?;
+        Ok(())
+    }
+
     pub fn is_autocommit(&self) -> Result<bool> {
         let conn = self.get_inner_connection()?;
         Ok(conn.get_auto_commit())

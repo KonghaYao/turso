@@ -229,7 +229,7 @@ fn native_constraint_keeps_explicit_writer_and_committed_prefix() -> Result<()> 
     let mut statement = connection.prepare("INSERT INTO ledger VALUES(20) RETURNING value")?;
     assert!(matches!(
         checked_done(&mut statement),
-        Err(LimboError::Constraint(_))
+        Err(LimboError::ConstraintWithCode { code: 2067, .. })
     ));
     assert_eq!(
         statement.abort_noncommitting()?,

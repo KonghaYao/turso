@@ -10,7 +10,7 @@ use super::{
     constraints::{usable_constraints_for_lhs_mask, TableConstraints},
     cost_params::CostModelParams,
     order::OrderTarget,
-    AvailableIndexes, IndexMethodCandidate,
+    order_sort_cost_enabled, required_order_sort_cost, AvailableIndexes, IndexMethodCandidate,
 };
 use crate::alloc::{TryClone, TursoIteratorExt};
 use crate::translate::plan::BitSet;
@@ -47,6 +47,8 @@ use crate::{
 /// join planner as we add order-aware access path choices.
 pub(crate) struct JoinPlanningContext<'a> {
     pub maybe_order_target: Option<&'a OrderTarget>,
+    pub require_ordered_access: bool,
+    pub hash_join_memory_budget: usize,
     /// Stop growing a join plan after it costs more than another query form.
     pub cost_limit: Option<Cost>,
 }
@@ -57,7 +59,9 @@ impl<'a> JoinPlanningContext<'a> {
     fn default_with_order_target(maybe_order_target: Option<&'a OrderTarget>) -> Self {
         Self {
             maybe_order_target,
+            require_ordered_access: false,
             cost_limit: None,
+            hash_join_memory_budget: crate::vdbe::hash_table::DEFAULT_MEM_BUDGET,
         }
     }
 }
@@ -583,7 +587,7 @@ fn join_lhs_and_rhs<'a>(
     // - The probe table is not using a selective index seek we’d prefer to keep.
     // - The build table has no remaining constraints from prior tables that are
     //   not already consumed as hash-join keys in earlier hash joins.
-    if let Some(lhs) = lhs {
+    if let Some(lhs) = lhs.filter(|_| !planning_context.require_ordered_access) {
         let rhs_table_idx = join_order.last().unwrap().original_idx;
         let last_lhs_table_idx = join_order[join_order.len() - 2].original_idx;
         let lhs_table_numbers: TableMask = lhs.table_numbers().try_collect()?;
@@ -809,7 +813,13 @@ fn join_lhs_and_rhs<'a>(
             // Eligibility gate: prefer nested-loop when uses a selective probe seek.
             // Probe->build chaining is only allowed when the
             // build input is materialized from the join prefix.
-            let allow_hash_join = !rhs_has_selective_seek
+            // FULL OUTER has no nested-loop fallback: it must scan the probe
+            // side to emit unmatched rows, even if an index seek looks cheaper.
+            let requires_full_outer_hash = rhs_table_reference
+                .join_info
+                .as_ref()
+                .is_some_and(|join| join.is_full_outer());
+            let allow_hash_join = (requires_full_outer_hash || !rhs_has_selective_seek)
                 && !probe_table_is_prior_build
                 && (!build_has_prior_constraints || build_has_rowid)
                 && !chaining_across_outer;
@@ -853,6 +863,7 @@ fn join_lhs_and_rhs<'a>(
                     probe_multiplier,
                     hash_can_replace_build_index,
                     subqueries,
+                    planning_context.hash_join_memory_budget,
                     params,
                 )? {
                     let mut hash_join_method = hash_join_method;
@@ -1004,7 +1015,7 @@ fn join_lhs_and_rhs<'a>(
     // and compare its cost against the current best access method.
     'candidates: for candidate in index_method_candidates
         .iter()
-        .filter(|c| c.table_idx == rhs_table_number)
+        .filter(|c| !planning_context.require_ordered_access && c.table_idx == rhs_table_number)
     {
         for argument in &candidate.arguments {
             let argument_tables = table_mask_from_expr(argument, table_references, subqueries)?;
@@ -1216,6 +1227,59 @@ pub struct BestJoinOrderResult {
     pub best_ordered_plan: Option<JoinN>,
 }
 
+fn ordered_prefix_length(
+    plan: &JoinN,
+    access_methods: &[AccessMethod],
+    joined_tables: &[JoinedTable],
+    constraints: &[TableConstraints],
+    target: &OrderTarget,
+    schema: &Schema,
+) -> usize {
+    let mut prefix = target.clone();
+    while !prefix.columns.is_empty() {
+        if plan_satisfies_order_target(
+            plan,
+            access_methods,
+            joined_tables,
+            constraints,
+            &prefix,
+            schema,
+        ) {
+            return prefix.columns.len();
+        }
+        prefix.columns.pop();
+    }
+    0
+}
+
+fn join_comparison_cost(plan: &JoinN, sort_required: bool, params: &CostModelParams) -> Cost {
+    plan.cost + required_order_sort_cost(plan.output_cardinality, sort_required, params)
+}
+
+fn table_order_target(
+    context: JoinPlanningContext<'_>,
+    table_id: TableInternalId,
+) -> Option<OrderTarget> {
+    if !order_sort_cost_enabled(context.maybe_order_target) {
+        return None;
+    }
+    let target = context.maybe_order_target?;
+    let columns: Vec<_> = target
+        .columns
+        .iter()
+        .filter(|column| column.table_id == table_id)
+        .cloned()
+        .collect();
+    if columns.is_empty() {
+        None
+    } else {
+        Some(OrderTarget {
+            columns,
+            purpose: target.purpose.clone(),
+        })
+    }
+}
+
 /// Compute the best way to join a given set of tables.
 /// Returns the best [JoinN] if one exists, otherwise returns None.
 #[allow(clippy::too_many_arguments)]
@@ -1328,6 +1392,7 @@ pub(crate) fn compute_best_join_order_with_context<'a>(
     // Keep track of both 1. the best plan overall (not considering sorting), and 2. the best ordered plan (which might not be the same).
     // We assign Some Cost (tm) to any required sort operation, so the best ordered plan may end up being
     // the one we choose, if the cost reduction from avoiding sorting brings it below the cost of the overall best one.
+    let order_cost_enabled = order_sort_cost_enabled(planning_context.maybe_order_target);
     let mut best_ordered_plan: Option<JoinN> = None;
     let mut best_plan_is_also_ordered =
         match (naive_plan.as_ref(), planning_context.maybe_order_target) {
@@ -1341,6 +1406,9 @@ pub(crate) fn compute_best_join_order_with_context<'a>(
             ),
             _ => false,
         };
+    if order_cost_enabled && best_plan_is_also_ordered {
+        best_ordered_plan = naive_plan.clone();
+    }
 
     // If we have one table, then the "naive left-to-right plan" is always the best.
     if joined_tables.len() == 1 {
@@ -1366,7 +1434,13 @@ pub(crate) fn compute_best_join_order_with_context<'a>(
 
     // Keep track of the current best cost so we can short-circuit planning for subplans
     // that already exceed the cost of the current best plan.
-    let mut cost_upper_bound = best_plan.as_ref().map_or(Cost(f64::MAX), |plan| plan.cost);
+    let mut cost_upper_bound = best_plan.as_ref().map_or(Cost(f64::MAX), |plan| {
+        join_comparison_cost(
+            plan,
+            order_cost_enabled && !best_plan_is_also_ordered,
+            params,
+        )
+    });
     if let Some(cost_limit) = planning_context.cost_limit {
         if cost_limit < cost_upper_bound {
             cost_upper_bound = cost_limit;
@@ -1385,6 +1459,8 @@ pub(crate) fn compute_best_join_order_with_context<'a>(
     // lets the planner choose a better join order later (e.g. for hash-join chaining).
     let mut best_plan_memo: HashMap<TableMask, HashMap<usize, JoinN>> =
         HashMap::with_capacity_and_hasher(2usize.pow(num_tables as u32 - 1), Default::default());
+    let mut ordered_plan_memo: HashMap<TableMask, HashMap<(usize, usize), JoinN>> =
+        HashMap::default();
 
     // Dynamic programming base case: calculate the best way to access each single table, as if
     // there were no other tables.
@@ -1398,30 +1474,79 @@ pub(crate) fn compute_best_join_order_with_context<'a>(
             is_outer: false,
         };
         turso_assert_eq!(join_order.len(), 1);
-        let rel = join_lhs_and_rhs(
-            None,
-            initial_input_cardinality,
-            table_ref,
-            &constraints[i],
-            constraints,
-            base_table_rows,
-            &join_order,
-            planning_context,
-            access_methods_arena,
-            cost_upper_bound,
-            joined_tables,
-            where_clause,
-            &where_terms,
-            subqueries,
-            index_method_candidates,
-            params,
-            analyze_stats,
-            available_indexes,
-            table_references,
-            schema,
-        )?;
-        if let Some(rel) = rel {
-            best_plan_memo.entry(mask).or_default().insert(i, rel);
+        let local_order_target = table_order_target(planning_context, table_ref.internal_id);
+        for (order_target, require_ordered_access) in
+            std::iter::once((planning_context.maybe_order_target, false)).chain(
+                local_order_target
+                    .as_ref()
+                    .map(|target| (Some(target), true)),
+            )
+        {
+            let arena_len = access_methods_arena.len();
+            let rel = join_lhs_and_rhs(
+                None,
+                initial_input_cardinality,
+                table_ref,
+                &constraints[i],
+                constraints,
+                base_table_rows,
+                &join_order,
+                JoinPlanningContext {
+                    maybe_order_target: order_target,
+                    require_ordered_access,
+                    ..planning_context
+                },
+                access_methods_arena,
+                cost_upper_bound,
+                joined_tables,
+                where_clause,
+                &where_terms,
+                subqueries,
+                index_method_candidates,
+                params,
+                analyze_stats,
+                available_indexes,
+                table_references,
+                schema,
+            )?;
+            if let Some(rel) = rel {
+                let mut retain_ordered = false;
+                if order_cost_enabled {
+                    let prefix = ordered_prefix_length(
+                        &rel,
+                        access_methods_arena,
+                        joined_tables,
+                        constraints,
+                        planning_context.maybe_order_target.unwrap(),
+                        schema,
+                    );
+                    retain_ordered = prefix > 0
+                        && ordered_plan_memo
+                            .get(&mask)
+                            .and_then(|variants| variants.get(&(i, prefix)))
+                            .is_none_or(|existing| rel.cost < existing.cost);
+                    if retain_ordered {
+                        ordered_plan_memo
+                            .entry(mask.clone())
+                            .or_default()
+                            .insert((i, prefix), rel.clone());
+                    }
+                }
+                let retain_raw = best_plan_memo
+                    .get(&mask)
+                    .and_then(|variants| variants.get(&i))
+                    .is_none_or(|existing| rel.cost < existing.cost);
+                if retain_raw {
+                    best_plan_memo
+                        .entry(mask.clone())
+                        .or_default()
+                        .insert(i, rel);
+                } else if !retain_ordered {
+                    access_methods_arena.truncate(arena_len);
+                }
+            } else {
+                access_methods_arena.truncate(arena_len);
+            }
         }
     }
     join_order.clear();
@@ -1513,6 +1638,7 @@ pub(crate) fn compute_best_join_order_with_context<'a>(
             // Also keep track of the best plan for this subset that orders the rows in an
             // Interesting Way (tm), i.e. allows us to eliminate sort operations downstream.
             let mut best_ordered_for_mask: Option<JoinN> = None;
+            let mut ordered_for_mask: HashMap<(usize, usize), JoinN> = HashMap::default();
 
             // Try to join all subsets (masks) with all other tables.
             // In this block, LHS is always (n-1) tables, and RHS is a single table.
@@ -1560,8 +1686,24 @@ pub(crate) fn compute_best_join_order_with_context<'a>(
 
                 // Stable iteration keeps tie-breaks consistent across runs.
                 let lhs_keys: TableMask = lhs_variants.keys().copied().try_collect()?;
-                for lhs_key in &lhs_keys {
-                    let lhs = &lhs_variants[&lhs_key];
+                let mut lhs_plans: Vec<&JoinN> = lhs_keys
+                    .iter()
+                    .map(|lhs_key| &lhs_variants[&lhs_key])
+                    .collect();
+                if let Some(ordered_variants) = ordered_plan_memo.get(&lhs_mask) {
+                    let mut ordered_keys: Vec<_> = ordered_variants.keys().copied().collect();
+                    ordered_keys.sort_unstable();
+                    for key in ordered_keys {
+                        let variant = &ordered_variants[&key];
+                        if !lhs_plans
+                            .iter()
+                            .any(|existing| existing.data == variant.data)
+                        {
+                            lhs_plans.push(variant);
+                        }
+                    }
+                }
+                for lhs in lhs_plans {
                     // Build a JoinOrder out of the table bitmask under consideration.
                     for table_no in lhs.table_numbers() {
                         join_order.push(JoinOrderMember {
@@ -1584,81 +1726,168 @@ pub(crate) fn compute_best_join_order_with_context<'a>(
                     turso_assert_eq!(join_order.len(), subset_size);
 
                     // Calculate the best way to join LHS with RHS.
-                    let arena_len = access_methods_arena.len();
-                    let rel = join_lhs_and_rhs(
-                        Some(lhs),
-                        initial_input_cardinality,
-                        &joined_tables[rhs_idx],
-                        &constraints[rhs_idx],
-                        constraints,
-                        base_table_rows,
-                        &join_order,
-                        planning_context,
-                        access_methods_arena,
-                        cost_upper_bound,
-                        joined_tables,
-                        where_clause,
-                        &where_terms,
-                        subqueries,
-                        index_method_candidates,
-                        params,
-                        analyze_stats,
-                        available_indexes,
-                        table_references,
-                        schema,
-                    )?;
-                    join_order.clear();
+                    let local_order_target =
+                        table_order_target(planning_context, joined_tables[rhs_idx].internal_id);
+                    for (order_target, require_ordered_access) in
+                        std::iter::once((planning_context.maybe_order_target, false)).chain(
+                            local_order_target
+                                .as_ref()
+                                .map(|target| (Some(target), true)),
+                        )
+                    {
+                        let arena_len = access_methods_arena.len();
+                        let rel = join_lhs_and_rhs(
+                            Some(lhs),
+                            initial_input_cardinality,
+                            &joined_tables[rhs_idx],
+                            &constraints[rhs_idx],
+                            constraints,
+                            base_table_rows,
+                            &join_order,
+                            JoinPlanningContext {
+                                maybe_order_target: order_target,
+                                require_ordered_access,
+                                ..planning_context
+                            },
+                            access_methods_arena,
+                            cost_upper_bound,
+                            joined_tables,
+                            where_clause,
+                            &where_terms,
+                            subqueries,
+                            index_method_candidates,
+                            params,
+                            analyze_stats,
+                            available_indexes,
+                            table_references,
+                            schema,
+                        )?;
 
-                    let Some(rel) = rel else {
-                        access_methods_arena.truncate(arena_len);
-                        continue;
-                    };
+                        let Some(rel) = rel else {
+                            access_methods_arena.truncate(arena_len);
+                            continue;
+                        };
 
-                    let satisfies_order_target =
-                        if let Some(order_target) = planning_context.maybe_order_target {
-                            plan_satisfies_order_target(
+                        let satisfies_order_target =
+                            if let Some(order_target) = planning_context.maybe_order_target {
+                                plan_satisfies_order_target(
+                                    &rel,
+                                    access_methods_arena,
+                                    joined_tables,
+                                    constraints,
+                                    order_target,
+                                    schema,
+                                )
+                            } else {
+                                false
+                            };
+
+                        if order_cost_enabled {
+                            let prefix = ordered_prefix_length(
                                 &rel,
                                 access_methods_arena,
                                 joined_tables,
                                 constraints,
-                                order_target,
+                                planning_context.maybe_order_target.unwrap(),
                                 schema,
-                            )
-                        } else {
-                            false
-                        };
-
-                    // If this plan is worse than our overall best, it might still be the best ordered plan.
-                    if rel.cost >= cost_upper_bound {
-                        // But if it isn't, skip.
-                        if !satisfies_order_target {
-                            access_methods_arena.truncate(arena_len);
+                            );
+                            let retain_ordered = prefix > 0
+                                && ordered_for_mask
+                                    .get(&(rhs_idx, prefix))
+                                    .is_none_or(|existing| rel.cost < existing.cost);
+                            let retain_raw = best_for_mask_by_last
+                                .get(&rhs_idx)
+                                .is_none_or(|existing| rel.cost < existing.cost);
+                            if retain_ordered {
+                                ordered_for_mask.insert((rhs_idx, prefix), rel.clone());
+                            }
+                            if retain_raw {
+                                best_for_mask_by_last.insert(rhs_idx, rel);
+                            } else if !retain_ordered {
+                                access_methods_arena.truncate(arena_len);
+                            }
                             continue;
                         }
-                        let existing_ordered_cost: Cost = best_ordered_for_mask
-                            .as_ref()
-                            .map_or(Cost(f64::MAX), |p: &JoinN| p.cost);
-                        if rel.cost < existing_ordered_cost {
-                            best_ordered_for_mask = Some(rel);
+
+                        // If this plan is worse than our overall best, it might still be the best ordered plan.
+                        if rel.cost >= cost_upper_bound {
+                            // But if it isn't, skip.
+                            if !satisfies_order_target {
+                                access_methods_arena.truncate(arena_len);
+                                continue;
+                            }
+                            let existing_ordered_cost: Cost = best_ordered_for_mask
+                                .as_ref()
+                                .map_or(Cost(f64::MAX), |p: &JoinN| p.cost);
+                            if rel.cost < existing_ordered_cost {
+                                best_ordered_for_mask = Some(rel);
+                            } else {
+                                access_methods_arena.truncate(arena_len);
+                            }
+                            continue;
+                        }
+
+                        let should_replace = match best_for_mask_by_last.get(&rhs_idx) {
+                            Some(existing) => rel.cost < existing.cost,
+                            None => true,
+                        };
+                        if should_replace {
+                            best_for_mask_by_last.insert(rhs_idx, rel);
                         } else {
                             access_methods_arena.truncate(arena_len);
                         }
-                        continue;
                     }
-
-                    let should_replace = match best_for_mask_by_last.get(&rhs_idx) {
-                        Some(existing) => rel.cost < existing.cost,
-                        None => true,
-                    };
-                    if should_replace {
-                        best_for_mask_by_last.insert(rhs_idx, rel);
-                    } else {
-                        access_methods_arena.truncate(arena_len);
-                    }
+                    join_order.clear();
                 }
             }
 
             let has_all_tables = mask.count() == num_tables;
+            if order_cost_enabled && has_all_tables {
+                let mut candidates: Vec<_> = best_for_mask_by_last.into_iter().collect();
+                candidates.sort_unstable_by_key(|(last, _)| *last);
+                let mut ordered_candidates: Vec<_> = ordered_for_mask.into_iter().collect();
+                ordered_candidates.sort_unstable_by_key(|(key, _)| *key);
+                let plans = candidates
+                    .into_iter()
+                    .map(|(_, plan)| plan)
+                    .chain(ordered_candidates.into_iter().map(|(_, plan)| plan));
+                for rel in plans {
+                    let satisfies_order_target = plan_satisfies_order_target(
+                        &rel,
+                        access_methods_arena,
+                        joined_tables,
+                        constraints,
+                        planning_context.maybe_order_target.unwrap(),
+                        schema,
+                    );
+                    let comparison_cost =
+                        join_comparison_cost(&rel, !satisfies_order_target, params);
+                    if comparison_cost > cost_upper_bound {
+                        continue;
+                    }
+                    if satisfies_order_target
+                        && best_ordered_plan
+                            .as_ref()
+                            .is_none_or(|existing| rel.cost < existing.cost)
+                    {
+                        best_ordered_plan = Some(rel.clone());
+                    }
+                    let replace = best_plan.as_ref().is_none_or(|existing| {
+                        let existing_cost =
+                            join_comparison_cost(existing, !best_plan_is_also_ordered, params);
+                        comparison_cost < existing_cost
+                            || (comparison_cost == existing_cost
+                                && satisfies_order_target
+                                && !best_plan_is_also_ordered)
+                    });
+                    if replace {
+                        cost_upper_bound = comparison_cost;
+                        best_plan = Some(rel);
+                        best_plan_is_also_ordered = satisfies_order_target;
+                    }
+                }
+                continue;
+            }
             if has_all_tables {
                 for rel in best_for_mask_by_last.into_values() {
                     if cost_upper_bound <= rel.cost {
@@ -1689,6 +1918,9 @@ pub(crate) fn compute_best_join_order_with_context<'a>(
                     }
                 }
             } else if !best_for_mask_by_last.is_empty() {
+                if !ordered_for_mask.is_empty() {
+                    ordered_plan_memo.insert(mask.clone(), ordered_for_mask);
+                }
                 best_plan_memo.insert(mask, best_for_mask_by_last);
             }
         }
@@ -2476,6 +2708,263 @@ mod tests {
             + 1_000.0 * (params.hash_cpu_cost + params.hash_lookup_cost)
             + 250.0 * params.cpu_cost_per_row;
         assert!((cost.0 - expected).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn order_comparison_keeps_expensive_ordered_access_out() {
+        let unordered = JoinN {
+            data: Vec::new(),
+            output_cardinality: 1024.0,
+            cost: Cost(10.0),
+            prefix_cardinalities: Vec::new(),
+        };
+        let mut ordered = unordered.clone();
+        ordered.cost = Cost(20.0);
+        let total = join_comparison_cost(&unordered, true, &DEFAULT_PARAMS);
+        assert!((total.0 - 30.48).abs() < 1e-10);
+        assert!(total > join_comparison_cost(&ordered, false, &DEFAULT_PARAMS));
+        ordered.cost = Cost(40.0);
+        assert!(total < join_comparison_cost(&ordered, false, &DEFAULT_PARAMS));
+        assert_eq!(
+            join_comparison_cost(&unordered, false, &DEFAULT_PARAMS),
+            Cost(10.0)
+        );
+        assert!(unordered.cost < total);
+    }
+
+    #[test]
+    fn order_objective_keeps_naive_order_or_cheaper_sort_by_actual_cost() {
+        use super::super::order::{
+            ColumnOrder, ColumnTarget, EliminatesSortBy, OrderTargetPurpose,
+        };
+        use crate::translate::collate::CollationSeq;
+
+        for (sort_cpu, require_order, cap, base_rows, expected_outer) in [
+            (0.0, true, None, [200.0, 100.0], 1),
+            (0.002, true, None, [200.0, 100.0], 0),
+            (0.002, false, None, [200.0, 100.0], 1),
+            (0.002, true, Some(Cost(21000.0)), [200.0, 100.0], 0),
+            (0.0, true, None, [100.0, 100.0], 0),
+        ] {
+            let mut params = DEFAULT_PARAMS.clone();
+            params.sort_cpu_per_row = sort_cpu;
+            let mut table_id_counter = TableRefIdCounter::new();
+            let tables = vec![
+                _create_table_reference(
+                    _create_btree_table(
+                        "outer_table",
+                        _create_column_list(&["value"], Type::Integer),
+                    ),
+                    None,
+                    table_id_counter.next(),
+                ),
+                _create_table_reference(
+                    _create_btree_table(
+                        "inner_table",
+                        _create_column_list(&["value"], Type::Integer),
+                    ),
+                    None,
+                    table_id_counter.next(),
+                ),
+            ];
+            let target = OrderTarget {
+                columns: vec![ColumnOrder {
+                    table_id: tables[0].internal_id,
+                    target: ColumnTarget::RowId,
+                    order: ast::SortOrder::Asc,
+                    collation: CollationSeq::Binary,
+                    nulls_order: None,
+                }],
+                purpose: OrderTargetPurpose::EliminatesSort(EliminatesSortBy::Order),
+            };
+            let references = TableReferences::new(tables, vec![]);
+            let indexes = AvailableIndexes::default();
+            let schema = empty_schema();
+            let mut where_clause = Vec::new();
+            let constraints = constraints_from_where_clause(
+                &where_clause,
+                &references,
+                &indexes,
+                &[],
+                &schema,
+                &params,
+            )
+            .unwrap();
+            let rows = base_rows.map(RowCountEstimate::AnalyzeStats);
+            let mut methods = Vec::new();
+            let mut context =
+                JoinPlanningContext::default_with_order_target(require_order.then_some(&target));
+            context.cost_limit = cap;
+            let result = compute_best_join_order_with_context(
+                references.joined_tables(),
+                1.0,
+                context,
+                &constraints,
+                &rows,
+                &mut methods,
+                &mut where_clause,
+                &[],
+                &[],
+                &params,
+                &AnalyzeStats::default(),
+                &indexes,
+                &references,
+                &schema,
+            )
+            .unwrap()
+            .unwrap();
+            assert_eq!(
+                result.best_plan.data[0].0, expected_outer,
+                "{sort_cpu}/{require_order}/{cap:?}/{base_rows:?}"
+            );
+            assert_eq!(
+                plan_satisfies_order_target(
+                    &result.best_plan,
+                    &methods,
+                    references.joined_tables(),
+                    &constraints,
+                    &target,
+                    &schema,
+                ),
+                expected_outer == 0
+            );
+        }
+    }
+
+    #[test]
+    fn ordered_access_alternative_is_retained_without_replacing_cheaper_sort() {
+        use super::super::access_method::choose_btree_candidate;
+        use super::super::order::{
+            ColumnOrder, ColumnTarget, EliminatesSortBy, OrderTargetPurpose,
+        };
+        use crate::translate::collate::CollationSeq;
+
+        let mut params = DEFAULT_PARAMS.clone();
+        params.sort_cpu_per_row = 0.0;
+        let mut ids = TableRefIdCounter::new();
+        let mut table = _create_table_reference(
+            _create_btree_table(
+                "wide_table",
+                _create_column_list(&["key", "payload"], Type::Integer),
+            ),
+            None,
+            ids.next(),
+        );
+        table.mark_column_used(0);
+        table.mark_column_used(1);
+        let references = TableReferences::new(vec![table], vec![]);
+        let mut indexes = AvailableIndexes::default();
+        indexes.insert_for_table_name(
+            references.joined_tables(),
+            "wide_table",
+            VecDeque::from([_create_index(
+                "ordered_key",
+                "wide_table",
+                &[("key", 0)],
+                false,
+            )]),
+        );
+        let schema = empty_schema();
+        let constraints =
+            constraints_from_where_clause(&[], &references, &indexes, &[], &schema, &params)
+                .unwrap();
+        let mut target = OrderTarget {
+            columns: vec![ColumnOrder {
+                table_id: references.joined_tables()[0].internal_id,
+                target: ColumnTarget::Column(0),
+                order: ast::SortOrder::Asc,
+                collation: CollationSeq::Binary,
+                nulls_order: None,
+            }],
+            purpose: OrderTargetPurpose::EliminatesSort(EliminatesSortBy::Order),
+        };
+        let choose = |target: &OrderTarget, required| {
+            choose_btree_candidate(
+                &references.joined_tables()[0],
+                &constraints[0],
+                &TableMask::default(),
+                0,
+                Some(target),
+                &schema,
+                &indexes,
+                &AnalyzeStats::default(),
+                1_000_000.0,
+                RowCountEstimate::AnalyzeStats(1000.0),
+                &params,
+                required,
+            )
+            .unwrap()
+        };
+        let raw = choose(&target, false).unwrap();
+        let ordered = choose(&target, true).unwrap();
+        assert!(raw.index.is_none());
+        assert_eq!(ordered.index.as_ref().unwrap().name, "ordered_key");
+        assert!(ordered.cost > raw.cost);
+        let raw_plan = JoinN {
+            data: Vec::new(),
+            output_cardinality: 1_000_000_000.0,
+            cost: raw.cost,
+            prefix_cardinalities: Vec::new(),
+        };
+        assert!(join_comparison_cost(&raw_plan, true, &params) < ordered.cost);
+        let outer = _create_table_reference(
+            _create_btree_table(
+                "outer_table",
+                _create_column_list(&["value"], Type::Integer),
+            ),
+            None,
+            ids.next(),
+        );
+        let joined =
+            TableReferences::new(vec![outer, references.joined_tables()[0].clone()], vec![]);
+        let mut where_clause = Vec::new();
+        let joined_constraints =
+            constraints_from_where_clause(&where_clause, &joined, &indexes, &[], &schema, &params)
+                .unwrap();
+        let mut methods = Vec::new();
+        let result = compute_best_join_order(
+            joined.joined_tables(),
+            1.0,
+            Some(&target),
+            &joined_constraints,
+            &[
+                RowCountEstimate::AnalyzeStats(1_000_000.0),
+                RowCountEstimate::AnalyzeStats(1000.0),
+            ],
+            &mut methods,
+            &mut where_clause,
+            &[],
+            &[],
+            &params,
+            &AnalyzeStats::default(),
+            &indexes,
+            &joined,
+            &schema,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(!plan_satisfies_order_target(
+            &result.best_plan,
+            &methods,
+            joined.joined_tables(),
+            &joined_constraints,
+            &target,
+            &schema,
+        ));
+        let wide_method = result
+            .best_plan
+            .data
+            .iter()
+            .find(|(table, _)| *table == 1)
+            .unwrap()
+            .1;
+        assert!(matches!(
+            methods[wide_method].params,
+            AccessMethodParams::BTreeTable { index: None, .. }
+        ));
+        target.columns[0].target = ColumnTarget::Column(1);
+        assert!(choose(&target, true).is_none());
+        assert!(choose(&target, false).is_some());
     }
 
     fn default_base_rows(n: usize) -> Vec<RowCountEstimate> {
@@ -4541,6 +5030,48 @@ mod tests {
         )
         .unwrap();
         let joined_before_probe_mask: TableMask = [0].into_iter().try_collect().unwrap();
+        for budget in [32 * 1024, 64 * 1024 * 1024] {
+            let method = try_hash_join_access_method(
+                &table_references.joined_tables()[0],
+                &table_references.joined_tables()[1],
+                0,
+                1,
+                &constraints[0],
+                &constraints[1],
+                &joined_before_probe_mask,
+                &mut where_clause,
+                std::iter::once((
+                    0,
+                    table_references.joined_tables()[0].internal_id,
+                    table_references.joined_tables()[1].internal_id,
+                )),
+                1_000.0,
+                1_000.0,
+                1_000.0,
+                1.0,
+                true,
+                &[],
+                budget,
+                &DEFAULT_PARAMS,
+            )
+            .unwrap()
+            .unwrap();
+            assert!(
+                matches!(method.params, AccessMethodParams::HashJoin { mem_budget, .. } if mem_budget == budget)
+            );
+            assert_eq!(
+                method.cost,
+                estimate_hash_join_cost(
+                    1_000.0,
+                    1_000.0,
+                    1_000.0,
+                    HashJoinType::Inner,
+                    budget,
+                    1.0,
+                    &DEFAULT_PARAMS,
+                )
+            );
+        }
         let method = try_hash_join_access_method(
             &table_references.joined_tables()[0],
             &table_references.joined_tables()[1],
@@ -4561,6 +5092,7 @@ mod tests {
             1.0,
             true,
             &[],
+            crate::vdbe::hash_table::DEFAULT_MEM_BUDGET,
             &DEFAULT_PARAMS,
         )
         .unwrap()

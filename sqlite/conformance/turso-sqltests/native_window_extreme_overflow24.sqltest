@@ -1,0 +1,271 @@
+@database :memory:
+
+# 24 original integer SUM windows with at least one mathematically out-of-int64 frame.
+setup int_extremes {
+    CREATE TABLE tx(k INT);
+    INSERT INTO tx VALUES (-9223372036854775808),(-5),(0),(5),(9223372036854775807);
+}
+
+@setup int_extremes
+test anchored-original-extreme-overflow-0-0-0 {
+    SELECT k, sum(k) OVER w, count(*) OVER w, min(k) OVER w, max(k) OVER w
+    FROM tx
+    WINDOW w AS (ORDER BY k ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    ORDER BY k ASC;
+}
+expect error {
+    integer overflow
+}
+
+@setup int_extremes
+test anchored-original-extreme-overflow-0-0-1 {
+    SELECT k, sum(k) OVER w, count(*) OVER w, min(k) OVER w, max(k) OVER w
+    FROM tx
+    WINDOW w AS (ORDER BY k ASC ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)
+    ORDER BY k ASC;
+}
+expect error {
+    integer overflow
+}
+
+@setup int_extremes
+test anchored-original-extreme-overflow-0-0-2 {
+    SELECT k, sum(k) OVER w, count(*) OVER w, min(k) OVER w, max(k) OVER w
+    FROM tx
+    WINDOW w AS (ORDER BY k ASC ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING)
+    ORDER BY k ASC;
+}
+expect error {
+    integer overflow
+}
+
+@setup int_extremes
+test anchored-original-extreme-overflow-0-0-3 {
+    SELECT k, sum(k) OVER w, count(*) OVER w, min(k) OVER w, max(k) OVER w
+    FROM tx
+    WINDOW w AS (ORDER BY k ASC ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+    ORDER BY k ASC;
+}
+expect error {
+    integer overflow
+}
+
+@setup int_extremes
+test anchored-original-extreme-overflow-0-0-4 {
+    SELECT k, sum(k) OVER w, count(*) OVER w, min(k) OVER w, max(k) OVER w
+    FROM tx
+    WINDOW w AS (ORDER BY k ASC ROWS BETWEEN 100 PRECEDING AND 2 PRECEDING)
+    ORDER BY k ASC;
+}
+expect error {
+    integer overflow
+}
+
+@setup int_extremes
+test anchored-original-extreme-overflow-0-1-0 {
+    SELECT k, sum(k) OVER w, count(*) OVER w, min(k) OVER w, max(k) OVER w
+    FROM tx
+    WINDOW w AS (ORDER BY k DESC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    ORDER BY k DESC;
+}
+expect error {
+    integer overflow
+}
+
+@setup int_extremes
+test anchored-original-extreme-overflow-0-1-1 {
+    SELECT k, sum(k) OVER w, count(*) OVER w, min(k) OVER w, max(k) OVER w
+    FROM tx
+    WINDOW w AS (ORDER BY k DESC ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)
+    ORDER BY k DESC;
+}
+expect error {
+    integer overflow
+}
+
+@setup int_extremes
+test anchored-original-extreme-overflow-0-1-2 {
+    SELECT k, sum(k) OVER w, count(*) OVER w, min(k) OVER w, max(k) OVER w
+    FROM tx
+    WINDOW w AS (ORDER BY k DESC ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING)
+    ORDER BY k DESC;
+}
+expect error {
+    integer overflow
+}
+
+@setup int_extremes
+test anchored-original-extreme-overflow-0-1-3 {
+    SELECT k, sum(k) OVER w, count(*) OVER w, min(k) OVER w, max(k) OVER w
+    FROM tx
+    WINDOW w AS (ORDER BY k DESC ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+    ORDER BY k DESC;
+}
+expect error {
+    integer overflow
+}
+
+@setup int_extremes
+test anchored-original-extreme-overflow-0-1-4 {
+    SELECT k, sum(k) OVER w, count(*) OVER w, min(k) OVER w, max(k) OVER w
+    FROM tx
+    WINDOW w AS (ORDER BY k DESC ROWS BETWEEN 100 PRECEDING AND 2 PRECEDING)
+    ORDER BY k DESC;
+}
+expect error {
+    integer overflow
+}
+
+@setup int_extremes
+test anchored-original-extreme-overflow-1-0-0 {
+    SELECT k, sum(k) OVER w, count(*) OVER w, min(k) OVER w, max(k) OVER w
+    FROM tx
+    WINDOW w AS (ORDER BY k ASC GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    ORDER BY k ASC;
+}
+expect error {
+    integer overflow
+}
+
+@setup int_extremes
+test anchored-original-extreme-overflow-1-0-1 {
+    SELECT k, sum(k) OVER w, count(*) OVER w, min(k) OVER w, max(k) OVER w
+    FROM tx
+    WINDOW w AS (ORDER BY k ASC GROUPS BETWEEN 2 PRECEDING AND CURRENT ROW)
+    ORDER BY k ASC;
+}
+expect error {
+    integer overflow
+}
+
+@setup int_extremes
+test anchored-original-extreme-overflow-1-0-2 {
+    SELECT k, sum(k) OVER w, count(*) OVER w, min(k) OVER w, max(k) OVER w
+    FROM tx
+    WINDOW w AS (ORDER BY k ASC GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING)
+    ORDER BY k ASC;
+}
+expect error {
+    integer overflow
+}
+
+@setup int_extremes
+test anchored-original-extreme-overflow-1-0-3 {
+    SELECT k, sum(k) OVER w, count(*) OVER w, min(k) OVER w, max(k) OVER w
+    FROM tx
+    WINDOW w AS (ORDER BY k ASC GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+    ORDER BY k ASC;
+}
+expect error {
+    integer overflow
+}
+
+@setup int_extremes
+test anchored-original-extreme-overflow-1-0-4 {
+    SELECT k, sum(k) OVER w, count(*) OVER w, min(k) OVER w, max(k) OVER w
+    FROM tx
+    WINDOW w AS (ORDER BY k ASC GROUPS BETWEEN 100 PRECEDING AND 2 PRECEDING)
+    ORDER BY k ASC;
+}
+expect error {
+    integer overflow
+}
+
+@setup int_extremes
+test anchored-original-extreme-overflow-1-1-0 {
+    SELECT k, sum(k) OVER w, count(*) OVER w, min(k) OVER w, max(k) OVER w
+    FROM tx
+    WINDOW w AS (ORDER BY k DESC GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    ORDER BY k DESC;
+}
+expect error {
+    integer overflow
+}
+
+@setup int_extremes
+test anchored-original-extreme-overflow-1-1-1 {
+    SELECT k, sum(k) OVER w, count(*) OVER w, min(k) OVER w, max(k) OVER w
+    FROM tx
+    WINDOW w AS (ORDER BY k DESC GROUPS BETWEEN 2 PRECEDING AND CURRENT ROW)
+    ORDER BY k DESC;
+}
+expect error {
+    integer overflow
+}
+
+@setup int_extremes
+test anchored-original-extreme-overflow-1-1-2 {
+    SELECT k, sum(k) OVER w, count(*) OVER w, min(k) OVER w, max(k) OVER w
+    FROM tx
+    WINDOW w AS (ORDER BY k DESC GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING)
+    ORDER BY k DESC;
+}
+expect error {
+    integer overflow
+}
+
+@setup int_extremes
+test anchored-original-extreme-overflow-1-1-3 {
+    SELECT k, sum(k) OVER w, count(*) OVER w, min(k) OVER w, max(k) OVER w
+    FROM tx
+    WINDOW w AS (ORDER BY k DESC GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+    ORDER BY k DESC;
+}
+expect error {
+    integer overflow
+}
+
+@setup int_extremes
+test anchored-original-extreme-overflow-1-1-4 {
+    SELECT k, sum(k) OVER w, count(*) OVER w, min(k) OVER w, max(k) OVER w
+    FROM tx
+    WINDOW w AS (ORDER BY k DESC GROUPS BETWEEN 100 PRECEDING AND 2 PRECEDING)
+    ORDER BY k DESC;
+}
+expect error {
+    integer overflow
+}
+
+@setup int_extremes
+test anchored-original-extreme-overflow-2-0-0 {
+    SELECT k, sum(k) OVER w, count(*) OVER w, min(k) OVER w, max(k) OVER w
+    FROM tx
+    WINDOW w AS (ORDER BY k ASC RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    ORDER BY k ASC;
+}
+expect error {
+    integer overflow
+}
+
+@setup int_extremes
+test anchored-original-extreme-overflow-2-0-3 {
+    SELECT k, sum(k) OVER w, count(*) OVER w, min(k) OVER w, max(k) OVER w
+    FROM tx
+    WINDOW w AS (ORDER BY k ASC RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+    ORDER BY k ASC;
+}
+expect error {
+    integer overflow
+}
+
+@setup int_extremes
+test anchored-original-extreme-overflow-2-1-0 {
+    SELECT k, sum(k) OVER w, count(*) OVER w, min(k) OVER w, max(k) OVER w
+    FROM tx
+    WINDOW w AS (ORDER BY k DESC RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    ORDER BY k DESC;
+}
+expect error {
+    integer overflow
+}
+
+@setup int_extremes
+test anchored-original-extreme-overflow-2-1-3 {
+    SELECT k, sum(k) OVER w, count(*) OVER w, min(k) OVER w, max(k) OVER w
+    FROM tx
+    WINDOW w AS (ORDER BY k DESC RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+    ORDER BY k DESC;
+}
+expect error {
+    integer overflow
+}

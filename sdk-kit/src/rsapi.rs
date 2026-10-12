@@ -734,9 +734,9 @@ impl From<Box<LimboError>> for TursoError {
 impl From<LimboError> for TursoError {
     fn from(value: LimboError) -> Self {
         match value {
-            LimboError::ForeignKeyConstraint(e) | LimboError::Constraint(e) => {
-                TursoError::Constraint(e)
-            }
+            LimboError::ForeignKeyConstraint(e)
+            | LimboError::Constraint(e)
+            | LimboError::ConstraintWithCode { message: e, .. } => TursoError::Constraint(e),
             LimboError::Corrupt(e) => TursoError::Corrupt(e),
             LimboError::NotADB => TursoError::NotAdb("file is not a database".to_string()),
             e @ (LimboError::DatabaseFull | LimboError::SequenceExhausted { .. }) => {
@@ -1173,6 +1173,12 @@ impl TursoConnection {
     /// Set busy timeout for the connection
     pub fn set_busy_timeout(&self, duration: Duration) {
         self.connection.set_busy_timeout(duration);
+    }
+
+    pub fn set_hash_join_memory_budget(&self, bytes: usize) -> Result<(), TursoError> {
+        self.connection
+            .set_hash_join_memory_budget(bytes)
+            .map_err(TursoError::from)
     }
     /// Request interruption of the statement currently running on this connection.
     /// Mirrors `sqlite3_interrupt`: the in-flight `step`/`execute` aborts with an
@@ -1823,6 +1829,18 @@ impl TursoStatement {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn typed_unique_stays_constraint_with_original_message() {
+        let error = turso_core::LimboError::ConstraintWithCode {
+            code: 2067,
+            message: "UNIQUE constraint failed: u.value".to_owned(),
+            nested_fail: false,
+        };
+        assert!(
+            matches!(super::TursoError::from(error), super::TursoError::Constraint(message) if message == "UNIQUE constraint failed: u.value")
+        );
+    }
+
     use super::{c, CApiPageCodec};
     use crate::{
         rsapi::{

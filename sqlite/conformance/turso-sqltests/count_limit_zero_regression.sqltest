@@ -1,0 +1,47 @@
+@database :memory:
+
+setup correlated_rows {
+    CREATE TABLE outer_rows(
+        id INTEGER PRIMARY KEY,
+        key1 INTEGER,
+        key2 INTEGER,
+        amount INTEGER,
+        text_key TEXT
+    );
+    CREATE TABLE inner_rows(key1 INTEGER, key2 INTEGER, amount INTEGER, text_key TEXT);
+    CREATE TABLE outer_key2(id INTEGER PRIMARY KEY, key2 INTEGER);
+    INSERT INTO outer_rows VALUES
+        (1, 1, 10, 5, 'A'),
+        (2, 1, 10, 15, 'a'),
+        (3, 2, 20, 7, 'B'),
+        (4, 3, 30, 9, 'C'),
+        (5, NULL, 40, 4, NULL),
+        (6, 2, NULL, NULL, 'b');
+    INSERT INTO inner_rows VALUES
+        (1, 10, 10, 'a'),
+        (1, 10, 20, 'A'),
+        (1, 99, 100, 'x'),
+        (2, 20, 6, 'b'),
+        (2, 20, NULL, 'B'),
+        (2, NULL, 7, NULL),
+        (NULL, 40, 99, NULL);
+    INSERT INTO outer_key2 VALUES (1, 10), (3, 20), (5, 40);
+}
+
+
+# LIMIT 0 removes the scalar aggregate row, including COUNT's otherwise-zero row.
+# This is the unchanged six-row expectation that failed before the emitter fix.
+@setup correlated_rows
+test fixed-correlated-scalar-limit-zero {
+    SELECT o.id,(SELECT count(*) FROM inner_rows i
+                 WHERE i.key1=o.key1 LIMIT 0)
+    FROM outer_rows o ORDER BY o.id;
+}
+expect {
+    1|
+    2|
+    3|
+    4|
+    5|
+    6|
+}

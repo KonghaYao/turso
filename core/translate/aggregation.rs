@@ -7,7 +7,7 @@ use crate::{
     translate::collate::CollationSeq,
     vdbe::{
         builder::ProgramBuilder,
-        insn::{AggStepData, HashDistinctData, Insn},
+        insn::{AggStepData, CmpInsFlags, HashDistinctData, Insn},
     },
     LimboError, Result,
 };
@@ -57,59 +57,6 @@ pub fn emit_ungrouped_aggregation<'a>(
     }
     t_ctx.resolver.enable_expr_to_reg_cache();
 
-    // Subqueries that read an aggregate this query computes need the
-    // aggregate's finalized register, so they must be emitted now — after
-    // AggFinal and the cache population above, and before the result row that
-    // reads them.
-    emit_non_from_clause_subqueries_for_phase(
-        program,
-        &t_ctx.resolver,
-        output_subqueries,
-        &plan.join_order,
-        Some(&plan.table_references),
-        SubqueryEvalPhase::UngroupedAggregateOutput,
-        |_| true,
-    )?;
-
-    // Allocate a label for the end (used by both HAVING and OFFSET to skip row emission)
-    let end_label = program.allocate_label();
-
-    // Handle HAVING clause without GROUP BY for ungrouped aggregation
-    if let Some(group_by) = &plan.group_by {
-        if group_by.exprs.is_empty() {
-            if let Some(having) = &group_by.having {
-                for expr in having.iter() {
-                    let if_true_target = program.allocate_label();
-                    translate_condition_expr(
-                        program,
-                        &plan.table_references,
-                        expr,
-                        ConditionMetadata {
-                            jump_if_condition_is_true: false,
-                            jump_target_when_false: end_label,
-                            jump_target_when_true: if_true_target,
-                            // treat null result as false
-                            jump_target_when_null: end_label,
-                        },
-                        &t_ctx.resolver,
-                    )?;
-                    program.preassign_label_to_next_insn(if_true_target);
-                }
-            }
-        }
-    }
-
-    // Handle OFFSET for ungrouped aggregates
-    // Since we only have one result row, either skip it (offset > 0) or emit it
-    if let Some(offset_reg) = t_ctx.reg_offset {
-        // If offset > 0, jump to end (skip the single row)
-        program.emit_insn(Insn::IfPos {
-            reg: offset_reg,
-            target_pc: end_label,
-            decrement_by: 0,
-        });
-    }
-
     // If the loop never ran (once-flag is still 0), we need to evaluate non-aggregate columns now.
     // This ensures literals return their values and column references return NULL (since no
     // rows matched). The once-flag mechanism normally evaluates non-agg columns on first
@@ -127,6 +74,23 @@ pub fn emit_ungrouped_aggregation<'a>(
             target_pc: skip_nonagg_eval,
             jump_if_null: false,
         });
+        for cached in &t_ctx.resolver.expr_to_reg_cache {
+            if let ast::Expr::Column { table, .. } | ast::Expr::RowId { table, .. } =
+                cached.expr.as_ref()
+            {
+                if plan
+                    .table_references
+                    .joined_tables()
+                    .iter()
+                    .any(|table_ref| table_ref.internal_id == *table)
+                {
+                    program.emit_insn(Insn::Null {
+                        dest: cached.reg,
+                        dest_end: None,
+                    });
+                }
+            }
+        }
         // Set all table cursors to NullRow so that Column instructions return NULL
         // instead of leaking stale values from the last scanned (but non-matching) row.
         // Also null out coroutine output registers for CTEs/subqueries.
@@ -152,17 +116,65 @@ pub fn emit_ungrouped_aggregation<'a>(
                 }
             }
         }
-        // Evaluate non-aggregate columns now (with cursor in invalid state, columns return NULL)
-        // Must use no_constant_opt to prevent constant hoisting which would place the label
-        // after the hoisted constants, causing infinite loops in compound selects.
+        program.preassign_label_to_next_insn(skip_nonagg_eval);
+    }
+
+    emit_non_from_clause_subqueries_for_phase(
+        program,
+        &t_ctx.resolver,
+        output_subqueries,
+        &plan.join_order,
+        Some(&plan.table_references),
+        SubqueryEvalPhase::UngroupedAggregateOutput,
+        |_| true,
+    )?;
+
+    let end_label = program.allocate_label();
+    if let Some(group_by) = &plan.group_by {
+        if group_by.exprs.is_empty() {
+            if let Some(having) = &group_by.having {
+                for expr in having.iter() {
+                    let if_true_target = program.allocate_label();
+                    translate_condition_expr(
+                        program,
+                        &plan.table_references,
+                        expr,
+                        ConditionMetadata {
+                            jump_if_condition_is_true: false,
+                            jump_target_when_false: end_label,
+                            jump_target_when_true: if_true_target,
+                            jump_target_when_null: end_label,
+                        },
+                        &t_ctx.resolver,
+                    )?;
+                    program.preassign_label_to_next_insn(if_true_target);
+                }
+            }
+        }
+    }
+    if let Some(offset_reg) = t_ctx.reg_offset {
+        program.emit_insn(Insn::IfPos {
+            reg: offset_reg,
+            target_pc: end_label,
+            decrement_by: 0,
+        });
+    }
+
+    if let Some(once_flag) = t_ctx.reg_nonagg_emit_once_flag {
+        let skip_nonagg_eval = program.allocate_label();
+        program.emit_insn(Insn::If {
+            reg: once_flag,
+            target_pc: skip_nonagg_eval,
+            jump_if_null: false,
+        });
         let col_start = t_ctx.reg_result_cols_start.unwrap();
-        for (i, rc) in plan.result_columns.iter().enumerate() {
-            if !rc.contains_aggregates {
+        for (index, column) in plan.result_columns.iter().enumerate() {
+            if !column.contains_aggregates {
                 translate_expr_no_constant_opt(
                     program,
                     Some(&plan.table_references),
-                    &rc.expr,
-                    col_start + i,
+                    &column.expr,
+                    col_start + index,
                     &t_ctx.resolver,
                     NoConstantOptReason::RegisterReuse,
                 )?;
@@ -350,6 +362,58 @@ impl<'a> AggArgumentSource<'a> {
 /// * In `SELECT SUM(price) FROM t`, `price` is evaluated for each row and added to the accumulator.
 /// * In `SELECT product_category, SUM(price) FROM t GROUP BY product_category`, `price` is evaluated for
 ///   each row in the group and added to that group’s accumulator.
+pub(super) fn translate_grouped_aggregation_step(
+    program: &mut ProgramBuilder,
+    referenced_tables: &TableReferences,
+    agg_arg_source: AggArgumentSource,
+    target_register: usize,
+    resolver: &Resolver,
+    fraction_reg: Option<usize>,
+    bare_column_skip_flag: Option<usize>,
+) -> Result<usize> {
+    let winner_state = bare_column_skip_flag.and_then(|skip_flag| {
+        let func = agg_arg_source.agg_func();
+        matches!(func, AggFunc::Min | AggFunc::Max).then(|| {
+            let previous_extremum = program.alloc_register();
+            let func = AccumulatorFunc::Agg(func.clone());
+            program.emit_insn(Insn::AggValue {
+                acc_reg: target_register,
+                dest_reg: previous_extremum,
+                func: func.clone(),
+            });
+            (skip_flag, previous_extremum, func)
+        })
+    });
+    let result = translate_aggregation_step(
+        program,
+        referenced_tables,
+        agg_arg_source,
+        target_register,
+        resolver,
+        fraction_reg,
+    )?;
+    if let Some((skip_flag, previous_extremum, func)) = winner_state {
+        let current_extremum = program.alloc_register();
+        let unchanged = program.allocate_label();
+        program.emit_insn(Insn::AggValue {
+            acc_reg: target_register,
+            dest_reg: current_extremum,
+            func,
+        });
+        program.emit_int(1, skip_flag);
+        program.emit_insn(Insn::Eq {
+            lhs: previous_extremum,
+            rhs: current_extremum,
+            target_pc: unchanged,
+            flags: CmpInsFlags::default(),
+            collation: None,
+        });
+        program.emit_int(0, skip_flag);
+        program.preassign_label_to_next_insn(unchanged);
+    }
+    Ok(result)
+}
+
 pub fn translate_aggregation_step(
     program: &mut ProgramBuilder,
     referenced_tables: &TableReferences,

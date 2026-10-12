@@ -1270,7 +1270,7 @@ pub fn test_savepoint_rollback_uses_current_wal_snapshot(
         conn1.execute(format!(
             "UPDATE t SET payload = '{payload}', u2 = CASE WHEN u2 = 20 THEN 1 ELSE u2 END WHERE TRUE"
         )),
-        Err(LimboError::Constraint(_))
+        Err(LimboError::ConstraintWithCode { code: 2067, .. })
     ));
     conn1.execute("ROLLBACK TO sp")?;
     conn1.execute("RELEASE sp")?;

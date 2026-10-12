@@ -1,0 +1,127 @@
+@database :memory:
+
+# Complete original 12-case accepted offset expression window matrix.
+setup anchored_offset_expressions {
+    CREATE TABLE toe(k INT);
+    INSERT INTO toe VALUES (1),(2),(3);
+}
+
+@setup anchored_offset_expressions
+test anchored-window-accepted-m0-o0 {
+    SELECT k, sum(k) OVER (ORDER BY k ROWS BETWEEN 1 + 0 PRECEDING AND CURRENT ROW), sum(k) OVER (ORDER BY k ROWS BETWEEN CURRENT ROW AND 1 + 0 FOLLOWING) FROM toe ORDER BY k;
+}
+expect {
+    1|1|3
+    2|3|5
+    3|5|3
+}
+
+@setup anchored_offset_expressions
+test anchored-window-accepted-m0-o1 {
+    SELECT k, sum(k) OVER (ORDER BY k ROWS BETWEEN CAST('1' AS INTEGER) PRECEDING AND CURRENT ROW), sum(k) OVER (ORDER BY k ROWS BETWEEN CURRENT ROW AND CAST('1' AS INTEGER) FOLLOWING) FROM toe ORDER BY k;
+}
+expect {
+    1|1|3
+    2|3|5
+    3|5|3
+}
+
+@setup anchored_offset_expressions
+test anchored-window-accepted-m0-o2 {
+    SELECT k, sum(k) OVER (ORDER BY k ROWS BETWEEN CASE WHEN 1 THEN 1 ELSE 2 END PRECEDING AND CURRENT ROW), sum(k) OVER (ORDER BY k ROWS BETWEEN CURRENT ROW AND CASE WHEN 1 THEN 1 ELSE 2 END FOLLOWING) FROM toe ORDER BY k;
+}
+expect {
+    1|1|3
+    2|3|5
+    3|5|3
+}
+
+@setup anchored_offset_expressions
+test anchored-window-accepted-m0-o3 {
+    SELECT k, sum(k) OVER (ORDER BY k ROWS BETWEEN 1 IN (1, 2) PRECEDING AND CURRENT ROW), sum(k) OVER (ORDER BY k ROWS BETWEEN CURRENT ROW AND 1 IN (1, 2) FOLLOWING) FROM toe ORDER BY k;
+}
+expect {
+    1|1|3
+    2|3|5
+    3|5|3
+}
+
+@setup anchored_offset_expressions
+test anchored-window-accepted-m1-o0 {
+    SELECT k, sum(k) OVER (ORDER BY k GROUPS BETWEEN 1 + 0 PRECEDING AND CURRENT ROW), sum(k) OVER (ORDER BY k GROUPS BETWEEN CURRENT ROW AND 1 + 0 FOLLOWING) FROM toe ORDER BY k;
+}
+expect {
+    1|1|3
+    2|3|5
+    3|5|3
+}
+
+@setup anchored_offset_expressions
+test anchored-window-accepted-m1-o1 {
+    SELECT k, sum(k) OVER (ORDER BY k GROUPS BETWEEN CAST('1' AS INTEGER) PRECEDING AND CURRENT ROW), sum(k) OVER (ORDER BY k GROUPS BETWEEN CURRENT ROW AND CAST('1' AS INTEGER) FOLLOWING) FROM toe ORDER BY k;
+}
+expect {
+    1|1|3
+    2|3|5
+    3|5|3
+}
+
+@setup anchored_offset_expressions
+test anchored-window-accepted-m1-o2 {
+    SELECT k, sum(k) OVER (ORDER BY k GROUPS BETWEEN CASE WHEN 1 THEN 1 ELSE 2 END PRECEDING AND CURRENT ROW), sum(k) OVER (ORDER BY k GROUPS BETWEEN CURRENT ROW AND CASE WHEN 1 THEN 1 ELSE 2 END FOLLOWING) FROM toe ORDER BY k;
+}
+expect {
+    1|1|3
+    2|3|5
+    3|5|3
+}
+
+@setup anchored_offset_expressions
+test anchored-window-accepted-m1-o3 {
+    SELECT k, sum(k) OVER (ORDER BY k GROUPS BETWEEN 1 IN (1, 2) PRECEDING AND CURRENT ROW), sum(k) OVER (ORDER BY k GROUPS BETWEEN CURRENT ROW AND 1 IN (1, 2) FOLLOWING) FROM toe ORDER BY k;
+}
+expect {
+    1|1|3
+    2|3|5
+    3|5|3
+}
+
+@setup anchored_offset_expressions
+test anchored-window-accepted-m2-o0 {
+    SELECT k, sum(k) OVER (ORDER BY k RANGE BETWEEN 1 + 0 PRECEDING AND CURRENT ROW), sum(k) OVER (ORDER BY k RANGE BETWEEN CURRENT ROW AND 1 + 0 FOLLOWING) FROM toe ORDER BY k;
+}
+expect {
+    1|1|3
+    2|3|5
+    3|5|3
+}
+
+@setup anchored_offset_expressions
+test anchored-window-accepted-m2-o1 {
+    SELECT k, sum(k) OVER (ORDER BY k RANGE BETWEEN CAST('1' AS INTEGER) PRECEDING AND CURRENT ROW), sum(k) OVER (ORDER BY k RANGE BETWEEN CURRENT ROW AND CAST('1' AS INTEGER) FOLLOWING) FROM toe ORDER BY k;
+}
+expect {
+    1|1|3
+    2|3|5
+    3|5|3
+}
+
+@setup anchored_offset_expressions
+test anchored-window-accepted-m2-o2 {
+    SELECT k, sum(k) OVER (ORDER BY k RANGE BETWEEN CASE WHEN 1 THEN 1 ELSE 2 END PRECEDING AND CURRENT ROW), sum(k) OVER (ORDER BY k RANGE BETWEEN CURRENT ROW AND CASE WHEN 1 THEN 1 ELSE 2 END FOLLOWING) FROM toe ORDER BY k;
+}
+expect {
+    1|1|3
+    2|3|5
+    3|5|3
+}
+
+@setup anchored_offset_expressions
+test anchored-window-accepted-m2-o3 {
+    SELECT k, sum(k) OVER (ORDER BY k RANGE BETWEEN 1 IN (1, 2) PRECEDING AND CURRENT ROW), sum(k) OVER (ORDER BY k RANGE BETWEEN CURRENT ROW AND 1 IN (1, 2) FOLLOWING) FROM toe ORDER BY k;
+}
+expect {
+    1|1|3
+    2|3|5
+    3|5|3
+}

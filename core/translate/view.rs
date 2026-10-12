@@ -314,10 +314,10 @@ pub fn translate_create_view(
     view_name: &ast::QualifiedName,
     resolver: &Resolver,
     select_stmt: &ast::Select,
-    columns: &[ast::IndexedColumn],
     temporary: bool,
     if_not_exists: bool,
     program: &mut ProgramBuilder,
+    input: &str,
 ) -> Result<()> {
     // TEMP views always live in the temp schema. The parser rejects
     // CREATE TEMP VIEW with a database name other than "temp".
@@ -374,10 +374,13 @@ pub fn translate_create_view(
         }));
     }
 
-    crate::util::validate_select_for_views(select_stmt, view_name.db_name.as_ref())?;
+    if temporary {
+        crate::util::validate_select_for_unsupported_features(select_stmt)?;
+    } else {
+        crate::util::validate_select_for_views(select_stmt, view_name.db_name.as_ref())?;
+    }
 
-    // Reconstruct the SQL string
-    let sql = create_view_to_str(&view_name.name.as_ident(), columns, select_stmt);
+    let sql = crate::util::view_definition_sql(input)?;
 
     // Open cursor to sqlite_schema table
     let table = resolver.schema().get_btree_table(SQLITE_TABLEID).unwrap();
@@ -418,22 +421,6 @@ pub fn translate_create_view(
     });
 
     Ok(())
-}
-
-fn create_view_to_str(
-    view_name: &str,
-    columns: &[ast::IndexedColumn],
-    select_stmt: &ast::Select,
-) -> String {
-    let columns_str = columns
-        .iter()
-        .map(|col| col.col_name.as_ident())
-        .collect::<Vec<String>>()
-        .join(", ");
-    if !columns_str.is_empty() {
-        return format!("CREATE VIEW {view_name} ({columns_str}) AS {select_stmt}");
-    }
-    format!("CREATE VIEW {view_name} AS {select_stmt}")
 }
 
 pub fn translate_drop_view(

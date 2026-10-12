@@ -118,6 +118,7 @@ pub fn limbo_error_to_message(err: &LimboError) -> String {
         | LimboError::TxError(s)
         | LimboError::InvalidArgument(s)
         | LimboError::Constraint(s)
+        | LimboError::ConstraintWithCode { message: s, .. }
         | LimboError::Conflict(s)
         | LimboError::CheckpointFailed(s) => s.clone(),
         other => other.to_string(),
@@ -135,7 +136,7 @@ pub fn limbo_error_to_kind(err: &LimboError) -> &'static str {
         LimboError::SchemaConflict => "SchemaConflict",
         LimboError::TableLocked => "TableLocked",
         LimboError::InvalidArgument(_) => "InvalidArgument",
-        LimboError::Constraint(_) => "Constraint",
+        LimboError::Constraint(_) | LimboError::ConstraintWithCode { .. } => "Constraint",
         LimboError::Corrupt(_) => "Corrupt",
         LimboError::ReadOnly => "ReadOnly",
         LimboError::Interrupt => "Interrupt",
@@ -193,6 +194,24 @@ fn error_kind_to_limbo_error(kind: &str, message: &str) -> LimboError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn typed_constraint_wire_preserves_class_and_message_but_is_primary_only() {
+        let original = LimboError::ConstraintWithCode {
+            code: 2067,
+            message: "UNIQUE constraint failed: u.value".to_owned(),
+            nested_fail: false,
+        };
+        assert_eq!(limbo_error_to_kind(&original), "Constraint");
+        let restored = error_kind_to_limbo_error(
+            limbo_error_to_kind(&original),
+            &limbo_error_to_message(&original),
+        );
+        assert!(matches!(restored, LimboError::Constraint(_)));
+        assert_eq!(restored.to_string(), original.to_string());
+        assert_eq!(restored.sqlite_result_code(), 19);
+        assert_eq!(restored.sqlite_extended_result_code(), 19);
+    }
 
     /// Every `LimboError` variant the multiprocess handler relies on for
     /// classification must round-trip through `limbo_error_to_kind` +

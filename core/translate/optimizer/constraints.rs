@@ -399,7 +399,7 @@ fn estimate_selectivity(
                     return selectivity_when_unique;
                 }
                 if let Some(stats) = table_stats {
-                    if let Some(idx_stat) = stats.index_stats.get(&index.name) {
+                    if let Some(idx_stat) = stats.index_stat(&index.name) {
                         if let (Some(total), Some(&avg_rows)) = (
                             idx_stat.total_rows,
                             idx_stat.avg_rows_per_distinct_prefix.first(),
@@ -485,18 +485,15 @@ fn selectivity_index_for_column<'a>(
             let Some(table_stats) = table_stats else {
                 return true;
             };
-            table_stats
-                .index_stats
-                .get(&index.name)
-                .is_some_and(|idx_stat| {
-                    matches!(
-                        (
-                            idx_stat.total_rows,
-                            idx_stat.avg_rows_per_distinct_prefix.first()
-                        ),
-                        (Some(total), Some(&avg_rows)) if total > 0 && avg_rows > 0
-                    )
-                })
+            table_stats.index_stat(&index.name).is_some_and(|idx_stat| {
+                matches!(
+                    (
+                        idx_stat.total_rows,
+                        idx_stat.avg_rows_per_distinct_prefix.first()
+                    ),
+                    (Some(total), Some(&avg_rows)) if total > 0 && avg_rows > 0
+                )
+            })
         })
 }
 
@@ -767,23 +764,16 @@ pub fn constraints_from_where_clause(
                 // Exception 1: terms from that join's own ON clause define what
                 // counts as a match, so they are always fine.
                 //
-                // Exception 2: on the right side of a plain LEFT JOIN, the
-                // engine re-checks consumed terms when it emits the
-                // null-extended row, so any operator except `IS` stays usable
-                // there: such terms are never TRUE on a null-extended row, so
-                // the re-check removes the bogus rows. `IS` (e.g. `e.id IS
-                // NULL`) *is* TRUE on the null-extended row, so no re-check can
-                // repair it — it is unusable for every null-extendable table.
-                // A FULL JOIN synthesizes its extra rows by jumping past the
-                // scan with no re-check, so nothing is usable for any table a
-                // FULL JOIN can null-extend.
                 let is_op = matches!(operator.as_ast_operator(), Some(ast::Operator::Is));
                 let usable = term.from_outer_join == Some(table_reference.internal_id)
-                    || if is_op {
-                        !table_references.outer_join_may_null_extend(table_reference.internal_id)
-                    } else {
-                        !table_references.full_join_may_null_extend(table_reference.internal_id)
-                    };
+                    || !table_references.outer_join_may_null_extend(table_reference.internal_id)
+                    || (!is_op
+                        && !table_references
+                            .full_join_may_null_extend(table_reference.internal_id)
+                        && super::where_term_is_null_rejecting_for_table(
+                            &term.expr,
+                            table_reference.internal_id,
+                        ));
                 // See [Constraint::null_matching]. The constraining value sits
                 // on the opposite side of the constrained column.
                 let null_matching = |constraining_expr: &ast::Expr| {

@@ -91,6 +91,8 @@ struct UnreliableIoState {
     /// When set, the next fsync of this file (with pending writes) is the
     /// simulated power-loss point.
     armed_path: Mutex<Option<String>>,
+    fail_sync_path: Mutex<Option<String>>,
+    fail_after_write_path: Mutex<Option<String>>,
     snapshot: Mutex<Option<CrashSnapshot>>,
 }
 
@@ -148,6 +150,8 @@ impl UnreliableIo {
             state: Arc::new(UnreliableIoState {
                 files: Mutex::new(HashMap::new()),
                 armed_path: Mutex::new(None),
+                fail_sync_path: Mutex::new(None),
+                fail_after_write_path: Mutex::new(None),
                 snapshot: Mutex::new(None),
             }),
         }
@@ -163,6 +167,16 @@ impl UnreliableIo {
 
     /// Arm the power-loss trigger: the next fsync of `path` that has
     /// pending (unsynced) writes captures the crash snapshot.
+    /// Complete WAL bytes to the page cache, then signal a failed pwritev completion.
+    /// Recovery may observe a valid commit frame despite the caller receiving an error.
+    pub fn fail_next_pwritev_after_bytes_on(&self, path: &str) {
+        *self.state.fail_after_write_path.lock().unwrap() = Some(path.to_owned());
+    }
+
+    pub fn fail_next_sync_on(&self, path: &str) {
+        *self.state.fail_sync_path.lock().unwrap() = Some(path.to_owned());
+    }
+
     pub fn arm_crash_on_sync(&self, path: &str) {
         *self.state.armed_path.lock().unwrap() = Some(path.to_string());
     }
@@ -311,10 +325,45 @@ impl File for UnreliableFile {
                 off += buffer.len();
             }
         }
+        let fail_after_bytes = {
+            let mut fault = self.state.fail_after_write_path.lock().unwrap();
+            if fault.as_deref() == Some(self.path.as_str()) {
+                *fault = None;
+                true
+            } else {
+                false
+            }
+        };
+        if fail_after_bytes {
+            let inner_completion = Completion::new_write(|result| assert!(result.is_ok()));
+            let written = self.inner.pwritev(pos, buffers, inner_completion)?;
+            assert!(written.succeeded());
+            c.error(turso_core::CompletionError::IOError(
+                std::io::ErrorKind::Other,
+                "after_written_pwritev",
+            ));
+            return Ok(c);
+        }
         self.inner.pwritev(pos, buffers, c)
     }
 
     fn sync(&self, c: Completion, sync_type: FileSyncType) -> turso_core::Result<Completion> {
+        let fail_sync = {
+            let mut fault = self.state.fail_sync_path.lock().unwrap();
+            if fault.as_deref() == Some(self.path.as_str()) {
+                *fault = None;
+                true
+            } else {
+                false
+            }
+        };
+        if fail_sync {
+            c.error(turso_core::CompletionError::IOError(
+                std::io::ErrorKind::Other,
+                "unreliable_sync",
+            ));
+            return Ok(c);
+        }
         // Simulated power loss: crash while the armed file's fsync is in
         // flight, i.e. after its writes were submitted but before any of them
         // were made durable.

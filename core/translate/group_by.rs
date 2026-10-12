@@ -7,9 +7,9 @@ use super::{
     plan::{Distinctness, GroupBy, SelectPlan, SubqueryEvalPhase, SubqueryOrigin},
     result_row::emit_select_result,
 };
-use crate::function::AccumulatorFunc;
+use crate::function::{AccumulatorFunc, AggFunc};
 use crate::translate::{
-    aggregation::{translate_aggregation_step, AggArgumentSource},
+    aggregation::{translate_grouped_aggregation_step, AggArgumentSource},
     order_by::{custom_type_comparator, EmitOrderBy},
     plan::{Aggregate, NonFromClauseSubquery},
     subquery::emit_non_from_clause_subqueries_for_phase,
@@ -743,6 +743,13 @@ pub fn group_by_process_single_group(
     // Process each aggregate function for the current row
     program.preassign_label_to_next_insn(labels.label_grouping_agg_step);
 
+    let bare_column_skip_flag = (t_ctx.non_aggregate_expressions.len() > group_by.exprs.len()
+        && plan
+            .aggregates
+            .iter()
+            .any(|aggregate| matches!(aggregate.func, AggFunc::Min | AggFunc::Max)))
+    .then(|| program.alloc_register());
+
     match &row_source {
         GroupByRowSource::Sorter { pseudo_cursor, .. } => {
             // Read leaf columns from the pseudo cursor and cache them so that
@@ -773,6 +780,15 @@ pub fn group_by_process_single_group(
 
                 // FILTER: skip AggStep if filter condition is false
                 let filter_skip_label = if let Some(filter_expr) = &agg.filter_expr {
+                    if let Some(skip_flag) = bare_column_skip_flag
+                        .filter(|_| matches!(agg.func, AggFunc::Min | AggFunc::Max))
+                    {
+                        program.emit_insn(Insn::Copy {
+                            src_reg: registers.reg_data_in_acc_flag,
+                            dst_reg: skip_flag,
+                            extra_amount: 0,
+                        });
+                    }
                     let label = program.allocate_label();
                     let filter_reg = program.alloc_register();
                     translate_expr(
@@ -794,13 +810,14 @@ pub fn group_by_process_single_group(
 
                 let agg_arg_source =
                     AggArgumentSource::new_from_expression(&agg.func, &agg.args, &agg.distinctness);
-                translate_aggregation_step(
+                translate_grouped_aggregation_step(
                     program,
                     &plan.table_references,
                     agg_arg_source,
                     agg_result_reg,
                     &t_ctx.resolver,
                     agg.fraction_reg,
+                    bare_column_skip_flag,
                 )?;
                 if let Distinctness::Distinct { ctx } = &agg.distinctness {
                     let ctx = ctx
@@ -827,6 +844,15 @@ pub fn group_by_process_single_group(
 
                 // FILTER: skip AggStep if filter condition is false
                 let filter_skip_label = if let Some(filter_expr) = &agg.filter_expr {
+                    if let Some(skip_flag) = bare_column_skip_flag
+                        .filter(|_| matches!(agg.func, AggFunc::Min | AggFunc::Max))
+                    {
+                        program.emit_insn(Insn::Copy {
+                            src_reg: registers.reg_data_in_acc_flag,
+                            dst_reg: skip_flag,
+                            extra_amount: 0,
+                        });
+                    }
                     let label = program.allocate_label();
                     let filter_reg = program.alloc_register();
                     translate_expr(
@@ -849,13 +875,14 @@ pub fn group_by_process_single_group(
                 let start_reg_aggs = start_reg_src + t_ctx.non_aggregate_expressions.len();
                 let agg_arg_source =
                     AggArgumentSource::new_from_registers(start_reg_aggs + offset, agg);
-                translate_aggregation_step(
+                translate_grouped_aggregation_step(
                     program,
                     &plan.table_references,
                     agg_arg_source,
                     agg_result_reg,
                     &t_ctx.resolver,
                     agg.fraction_reg,
+                    bare_column_skip_flag,
                 )?;
                 if let Distinctness::Distinct { ctx } = &agg.distinctness {
                     let ctx = ctx
@@ -881,7 +908,7 @@ pub fn group_by_process_single_group(
     );
     program.emit_insn(Insn::If {
         target_pc: labels.label_acc_indicator_set_flag_true,
-        reg: registers.reg_data_in_acc_flag,
+        reg: bare_column_skip_flag.unwrap_or(registers.reg_data_in_acc_flag),
         jump_if_null: false,
     });
 

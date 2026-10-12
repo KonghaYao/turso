@@ -1,0 +1,3134 @@
+@database :memory:
+
+# Exact original SQL for stable peer-order independent cases.
+setup shapes3 {
+    CREATE TABLE t3(p INT, k INT, v TEXT);
+    INSERT INTO t3 VALUES (1,NULL,'q'),(1,1,'m'),(1,1,'c'),(1,3,'z'),(1,4,'a'),(2,7,'k');
+}
+
+
+@setup shapes3
+test fixed-original-nonkey-f0-m0-s0-e0-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    1|1|c
+    1|3|c
+    2|7|k
+    1|1|m
+    1||q
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m0-s0-e2-x0 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||a
+    1|1|a
+    1|1|a
+    1|3|a
+    1|4|a
+    2|7|k
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m0-s0-e2-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||a
+    1|1|a
+    1|1|a
+    1|3|a
+    1|4|a
+    2|7|k
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m0-s1-e2-x0 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||a
+    1|1|a
+    1|1|a
+    1|3|a
+    1|4|a
+    2|7|k
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m0-s1-e2-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||a
+    1|1|a
+    1|1|a
+    1|3|a
+    1|4|a
+    2|7|k
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m0-s2-e0-x0 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN CURRENT ROW AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    1|1|c
+    2|7|k
+    1|1|m
+    1||q
+    1|3|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m0-s2-e0-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN CURRENT ROW AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    1|1|c
+    2|7|k
+    1|1|m
+    1||q
+    1|3|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m0-s2-e2-x0 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||a
+    1|1|a
+    1|1|a
+    1|3|a
+    1|4|a
+    2|7|k
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m0-s2-e2-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||a
+    1|1|a
+    1|1|a
+    1|3|a
+    1|4|a
+    2|7|k
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m0-s3-e0-x0 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN 1 FOLLOWING AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m0-s3-e0-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN 1 FOLLOWING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m0-s3-e2-x0 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|
+    2|7|
+    1||a
+    1|1|a
+    1|1|a
+    1|3|a
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m0-s3-e2-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|
+    2|7|
+    1||a
+    1|1|a
+    1|1|a
+    1|3|a
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m1-s0-e0-x0 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    1|1|c
+    1|1|c
+    1|3|c
+    2|7|k
+    1||q
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m1-s0-e0-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    1|1|c
+    1|3|c
+    2|7|k
+    1|1|m
+    1||q
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m1-s0-e1-x0 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|3|a
+    1|4|a
+    1||c
+    1|1|c
+    1|1|c
+    2|7|k
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m1-s0-e1-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|3|a
+    1|4|a
+    1||c
+    1|1|c
+    2|7|k
+    1|1|m
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m1-s0-e2-x0 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||a
+    1|1|a
+    1|1|a
+    1|3|a
+    1|4|a
+    2|7|k
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m1-s0-e2-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||a
+    1|1|a
+    1|1|a
+    1|3|a
+    1|4|a
+    2|7|k
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m1-s1-e0-x0 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    1|1|c
+    1|1|c
+    1|3|c
+    2|7|k
+    1||q
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m1-s1-e0-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    1|1|c
+    1|3|c
+    2|7|k
+    1|1|m
+    1||q
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m1-s1-e1-x0 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|3|a
+    1|4|a
+    1||c
+    1|1|c
+    1|1|c
+    2|7|k
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m1-s1-e1-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|3|a
+    1|4|a
+    1||c
+    1|1|c
+    2|7|k
+    1|1|m
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m1-s1-e2-x0 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||a
+    1|1|a
+    1|1|a
+    1|3|a
+    1|4|a
+    2|7|k
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m1-s1-e2-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||a
+    1|1|a
+    1|1|a
+    1|3|a
+    1|4|a
+    2|7|k
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m1-s2-e0-x0 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN CURRENT ROW AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    1|1|c
+    1|1|c
+    2|7|k
+    1||q
+    1|3|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m1-s2-e0-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN CURRENT ROW AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    1|1|c
+    2|7|k
+    1|1|m
+    1||q
+    1|3|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m1-s2-e1-x0 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|3|a
+    1|4|a
+    1||c
+    1|1|c
+    1|1|c
+    2|7|k
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m1-s2-e1-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|3|a
+    1|4|a
+    1||c
+    1|1|c
+    2|7|k
+    1|1|m
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m1-s2-e2-x0 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||a
+    1|1|a
+    1|1|a
+    1|3|a
+    1|4|a
+    2|7|k
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m1-s2-e2-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||a
+    1|1|a
+    1|1|a
+    1|3|a
+    1|4|a
+    2|7|k
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m1-s3-e0-x0 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m1-s3-e0-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m1-s3-e1-x0 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|
+    2|7|
+    1|3|a
+    1||c
+    1|1|z
+    1|1|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m1-s3-e1-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|
+    2|7|
+    1|3|a
+    1||c
+    1|1|z
+    1|1|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m1-s3-e2-x0 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|
+    2|7|
+    1||a
+    1|1|a
+    1|1|a
+    1|3|a
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m1-s3-e2-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|
+    2|7|
+    1||a
+    1|1|a
+    1|1|a
+    1|3|a
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m2-s0-e0-x0 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    1|1|c
+    1|1|c
+    1|3|c
+    2|7|k
+    1||q
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m2-s0-e0-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    1|1|c
+    1|3|c
+    2|7|k
+    1|1|m
+    1||q
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m2-s0-e1-x0 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|3|a
+    1|4|a
+    1|1|c
+    1|1|c
+    2|7|k
+    1||q
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m2-s0-e1-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|3|a
+    1|4|a
+    1|1|c
+    2|7|k
+    1|1|m
+    1||q
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m2-s0-e2-x0 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||a
+    1|1|a
+    1|1|a
+    1|3|a
+    1|4|a
+    2|7|k
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m2-s0-e2-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||a
+    1|1|a
+    1|1|a
+    1|3|a
+    1|4|a
+    2|7|k
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m2-s1-e0-x0 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 PRECEDING AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    1|1|c
+    1|1|c
+    2|7|k
+    1||q
+    1|3|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m2-s1-e0-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    1|1|c
+    2|7|k
+    1|1|m
+    1||q
+    1|3|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m2-s1-e1-x0 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|3|a
+    1|4|a
+    1|1|c
+    1|1|c
+    2|7|k
+    1||q
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m2-s1-e1-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|3|a
+    1|4|a
+    1|1|c
+    2|7|k
+    1|1|m
+    1||q
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m2-s1-e2-x0 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||a
+    1|1|a
+    1|1|a
+    1|3|a
+    1|4|a
+    2|7|k
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m2-s1-e2-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||a
+    1|1|a
+    1|1|a
+    1|3|a
+    1|4|a
+    2|7|k
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m2-s2-e0-x0 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN CURRENT ROW AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    1|1|c
+    1|1|c
+    2|7|k
+    1||q
+    1|3|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m2-s2-e0-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN CURRENT ROW AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    1|1|c
+    2|7|k
+    1|1|m
+    1||q
+    1|3|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m2-s2-e1-x0 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN CURRENT ROW AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|3|a
+    1|4|a
+    1|1|c
+    1|1|c
+    2|7|k
+    1||q
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m2-s2-e1-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|3|a
+    1|4|a
+    1|1|c
+    2|7|k
+    1|1|m
+    1||q
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m2-s2-e2-x0 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||a
+    1|1|a
+    1|1|a
+    1|3|a
+    1|4|a
+    2|7|k
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m2-s2-e2-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||a
+    1|1|a
+    1|1|a
+    1|3|a
+    1|4|a
+    2|7|k
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m2-s3-e0-x0 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 FOLLOWING AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m2-s3-e0-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 FOLLOWING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m2-s3-e1-x0 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 FOLLOWING AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|1|
+    1|1|
+    1|4|
+    2|7|
+    1|3|a
+    1||q
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m2-s3-e1-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 FOLLOWING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|1|
+    1|1|
+    1|4|
+    2|7|
+    1|3|a
+    1||q
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m2-s3-e2-x0 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|
+    2|7|
+    1||a
+    1|1|a
+    1|1|a
+    1|3|a
+}
+
+@setup shapes3
+test fixed-original-nonkey-f0-m2-s3-e2-x1 {
+    SELECT p, k, min(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|
+    2|7|
+    1||a
+    1|1|a
+    1|1|a
+    1|3|a
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m0-s0-e0-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1||q
+    1|1|q
+    1|1|q
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m0-s0-e0-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1||q
+    1|1|q
+    1|1|q
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m0-s0-e1-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1||q
+    1|1|q
+    1|1|z
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m0-s0-e1-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1||q
+    1|1|q
+    1|1|z
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m0-s0-e2-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1||z
+    1|1|z
+    1|1|z
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m0-s0-e2-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1||z
+    1|1|z
+    1|1|z
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m0-s1-e0-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN 1 PRECEDING AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1|1|m
+    1||q
+    1|1|q
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m0-s1-e1-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1||q
+    1|1|q
+    1|1|z
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m0-s1-e1-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1||q
+    1|1|q
+    1|1|z
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m0-s1-e2-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1||z
+    1|1|z
+    1|1|z
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m0-s1-e2-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1||z
+    1|1|z
+    1|1|z
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m0-s2-e0-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN CURRENT ROW AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    1|1|c
+    2|7|k
+    1|1|m
+    1||q
+    1|3|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m0-s2-e0-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN CURRENT ROW AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    1|1|c
+    2|7|k
+    1|1|m
+    1||q
+    1|3|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m0-s2-e1-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    2|7|k
+    1|1|m
+    1||q
+    1|1|z
+    1|3|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m0-s2-e2-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    2|7|k
+    1||z
+    1|1|z
+    1|1|z
+    1|3|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m0-s2-e2-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    2|7|k
+    1||z
+    1|1|z
+    1|1|z
+    1|3|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m0-s3-e0-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN 1 FOLLOWING AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m0-s3-e0-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN 1 FOLLOWING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m0-s3-e2-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|
+    2|7|
+    1|3|a
+    1||z
+    1|1|z
+    1|1|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m0-s3-e2-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|
+    2|7|
+    1|3|a
+    1||z
+    1|1|z
+    1|1|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m1-s0-e0-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1||q
+    1|1|q
+    1|1|q
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m1-s0-e0-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1||q
+    1|1|q
+    1|1|q
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m1-s0-e1-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1||q
+    1|1|z
+    1|1|z
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m1-s0-e1-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1||q
+    1|1|z
+    1|1|z
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m1-s0-e2-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1||z
+    1|1|z
+    1|1|z
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m1-s0-e2-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1||z
+    1|1|z
+    1|1|z
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m1-s1-e0-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1||q
+    1|1|q
+    1|1|q
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m1-s1-e0-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1||q
+    1|1|q
+    1|1|q
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m1-s1-e1-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1||q
+    1|1|z
+    1|1|z
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m1-s1-e1-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1||q
+    1|1|z
+    1|1|z
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m1-s1-e2-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1||z
+    1|1|z
+    1|1|z
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m1-s1-e2-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1||z
+    1|1|z
+    1|1|z
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m1-s2-e0-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN CURRENT ROW AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    2|7|k
+    1|1|m
+    1|1|m
+    1||q
+    1|3|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m1-s2-e0-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN CURRENT ROW AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    1|1|c
+    2|7|k
+    1|1|m
+    1||q
+    1|3|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m1-s2-e1-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    2|7|k
+    1||q
+    1|1|z
+    1|1|z
+    1|3|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m1-s2-e1-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    2|7|k
+    1||q
+    1|1|z
+    1|1|z
+    1|3|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m1-s2-e2-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    2|7|k
+    1||z
+    1|1|z
+    1|1|z
+    1|3|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m1-s2-e2-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    2|7|k
+    1||z
+    1|1|z
+    1|1|z
+    1|3|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m1-s3-e0-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m1-s3-e0-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m1-s3-e1-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|
+    2|7|
+    1|3|a
+    1||m
+    1|1|z
+    1|1|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m1-s3-e1-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|
+    2|7|
+    1|3|a
+    1||m
+    1|1|z
+    1|1|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m1-s3-e2-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|
+    2|7|
+    1|3|a
+    1||z
+    1|1|z
+    1|1|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m1-s3-e2-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|
+    2|7|
+    1|3|a
+    1||z
+    1|1|z
+    1|1|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m2-s0-e0-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1||q
+    1|1|q
+    1|1|q
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m2-s0-e0-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1||q
+    1|1|q
+    1|1|q
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m2-s0-e1-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1||q
+    1|1|q
+    1|1|q
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m2-s0-e1-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1||q
+    1|1|q
+    1|1|q
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m2-s0-e2-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1||z
+    1|1|z
+    1|1|z
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m2-s0-e2-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1||z
+    1|1|z
+    1|1|z
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m2-s1-e0-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 PRECEDING AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1|1|m
+    1|1|m
+    1||q
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m2-s1-e0-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|1|c
+    2|7|k
+    1|1|m
+    1||q
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m2-s1-e1-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1|1|m
+    1|1|m
+    1||q
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m2-s1-e1-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|1|c
+    2|7|k
+    1|1|m
+    1||q
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m2-s1-e2-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1||z
+    1|1|z
+    1|1|z
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m2-s1-e2-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|k
+    1||z
+    1|1|z
+    1|1|z
+    1|3|z
+    1|4|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m2-s2-e0-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN CURRENT ROW AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    2|7|k
+    1|1|m
+    1|1|m
+    1||q
+    1|3|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m2-s2-e0-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN CURRENT ROW AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    1|1|c
+    2|7|k
+    1|1|m
+    1||q
+    1|3|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m2-s2-e1-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN CURRENT ROW AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    2|7|k
+    1|1|m
+    1|1|m
+    1||q
+    1|3|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m2-s2-e1-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    1|1|c
+    2|7|k
+    1|1|m
+    1||q
+    1|3|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m2-s2-e2-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    2|7|k
+    1||z
+    1|1|z
+    1|1|z
+    1|3|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m2-s2-e2-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|a
+    2|7|k
+    1||z
+    1|1|z
+    1|1|z
+    1|3|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m2-s3-e0-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 FOLLOWING AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m2-s3-e0-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 FOLLOWING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m2-s3-e1-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 FOLLOWING AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|1|
+    1|1|
+    1|4|
+    2|7|
+    1|3|a
+    1||q
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m2-s3-e1-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 FOLLOWING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|1|
+    1|1|
+    1|4|
+    2|7|
+    1|3|a
+    1||q
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m2-s3-e2-x0 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|
+    2|7|
+    1|3|a
+    1||z
+    1|1|z
+    1|1|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f1-m2-s3-e2-x1 {
+    SELECT p, k, max(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|
+    2|7|
+    1|3|a
+    1||z
+    1|1|z
+    1|1|z
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m0-s0-e0-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||1
+    2|7|1
+    1|1|2
+    1|1|3
+    1|3|4
+    1|4|5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m0-s0-e0-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||1
+    2|7|1
+    1|1|2
+    1|1|2
+    1|3|4
+    1|4|5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m0-s0-e1-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|1
+    1||2
+    1|1|3
+    1|1|4
+    1|3|5
+    1|4|5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m0-s0-e1-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|1
+    1||2
+    1|1|2
+    1|1|3
+    1|3|5
+    1|4|5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m0-s0-e2-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|1
+    1||5
+    1|1|5
+    1|1|5
+    1|3|5
+    1|4|5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m0-s0-e2-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|1
+    1|1|4
+    1|1|4
+    1||5
+    1|3|5
+    1|4|5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m0-s1-e0-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN 1 PRECEDING AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||1
+    2|7|1
+    1|1|2
+    1|1|2
+    1|3|2
+    1|4|2
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m0-s1-e0-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||1
+    1|1|1
+    2|7|1
+    1|1|2
+    1|3|2
+    1|4|2
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m0-s1-e1-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|1
+    1||2
+    1|4|2
+    1|1|3
+    1|1|3
+    1|3|3
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m0-s1-e1-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|1
+    1||2
+    1|1|2
+    1|1|2
+    1|4|2
+    1|3|3
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m0-s1-e2-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|1
+    1|4|2
+    1|3|3
+    1|1|4
+    1||5
+    1|1|5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m0-s1-e2-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|1
+    1|4|2
+    1|1|3
+    1|3|3
+    1|1|4
+    1||5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m0-s2-e0-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN CURRENT ROW AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||1
+    1|1|1
+    1|1|1
+    1|3|1
+    1|4|1
+    2|7|1
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m0-s2-e0-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN CURRENT ROW AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||1
+    1|1|1
+    1|1|1
+    1|3|1
+    1|4|1
+    2|7|1
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m0-s2-e1-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|1
+    2|7|1
+    1||2
+    1|1|2
+    1|1|2
+    1|3|2
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m0-s2-e1-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|1|1
+    1|4|1
+    2|7|1
+    1||2
+    1|1|2
+    1|3|2
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m0-s2-e2-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|1
+    2|7|1
+    1|3|2
+    1|1|3
+    1|1|4
+    1||5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m0-s2-e2-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|1
+    2|7|1
+    1|3|2
+    1|1|3
+    1|1|3
+    1||5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m0-s3-e0-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN 1 FOLLOWING AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m0-s3-e0-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN 1 FOLLOWING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m0-s3-e1-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|0
+    2|7|0
+    1||1
+    1|1|1
+    1|1|1
+    1|3|1
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m0-s3-e1-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|1|0
+    1|4|0
+    2|7|0
+    1||1
+    1|1|1
+    1|3|1
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m0-s3-e2-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|0
+    2|7|0
+    1|3|1
+    1|1|2
+    1|1|3
+    1||4
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m0-s3-e2-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k ROWS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|0
+    2|7|0
+    1|3|1
+    1|1|2
+    1|1|2
+    1||4
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m1-s0-e0-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||1
+    2|7|1
+    1|1|3
+    1|1|3
+    1|3|4
+    1|4|5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m1-s0-e0-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||1
+    2|7|1
+    1|1|2
+    1|1|2
+    1|3|4
+    1|4|5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m1-s0-e1-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|1
+    1||3
+    1|1|4
+    1|1|4
+    1|3|5
+    1|4|5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m1-s0-e1-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|1
+    1||3
+    1|1|3
+    1|1|3
+    1|3|5
+    1|4|5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m1-s0-e2-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|1
+    1||5
+    1|1|5
+    1|1|5
+    1|3|5
+    1|4|5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m1-s0-e2-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|1
+    1|1|4
+    1|1|4
+    1||5
+    1|3|5
+    1|4|5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m1-s1-e0-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||1
+    2|7|1
+    1|4|2
+    1|1|3
+    1|1|3
+    1|3|3
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m1-s1-e0-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||1
+    2|7|1
+    1|1|2
+    1|1|2
+    1|4|2
+    1|3|3
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m1-s1-e1-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|1
+    1|4|2
+    1||3
+    1|1|4
+    1|1|4
+    1|3|4
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m1-s1-e1-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|1
+    1|4|2
+    1||3
+    1|1|3
+    1|1|3
+    1|3|4
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m1-s1-e2-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|1
+    1|4|2
+    1|3|4
+    1||5
+    1|1|5
+    1|1|5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m1-s1-e2-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|1
+    1|4|2
+    1|1|4
+    1|1|4
+    1|3|4
+    1||5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m1-s2-e0-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN CURRENT ROW AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||1
+    1|3|1
+    1|4|1
+    2|7|1
+    1|1|2
+    1|1|2
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m1-s2-e0-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN CURRENT ROW AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||1
+    1|1|1
+    1|1|1
+    1|3|1
+    1|4|1
+    2|7|1
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m1-s2-e1-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|1
+    2|7|1
+    1|3|2
+    1||3
+    1|1|3
+    1|1|3
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m1-s2-e1-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|1
+    2|7|1
+    1|1|2
+    1|1|2
+    1|3|2
+    1||3
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m1-s2-e2-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|1
+    2|7|1
+    1|3|2
+    1|1|4
+    1|1|4
+    1||5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m1-s2-e2-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|1
+    2|7|1
+    1|3|2
+    1|1|3
+    1|1|3
+    1||5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m1-s3-e0-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m1-s3-e0-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m1-s3-e1-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|0
+    2|7|0
+    1|1|1
+    1|1|1
+    1|3|1
+    1||2
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m1-s3-e1-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|0
+    2|7|0
+    1|1|1
+    1|1|1
+    1|3|1
+    1||2
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m1-s3-e2-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|0
+    2|7|0
+    1|3|1
+    1|1|2
+    1|1|2
+    1||4
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m1-s3-e2-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|0
+    2|7|0
+    1|3|1
+    1|1|2
+    1|1|2
+    1||4
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m2-s0-e0-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||1
+    2|7|1
+    1|1|3
+    1|1|3
+    1|3|4
+    1|4|5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m2-s0-e0-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||1
+    2|7|1
+    1|1|2
+    1|1|2
+    1|3|4
+    1|4|5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m2-s0-e1-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||1
+    2|7|1
+    1|1|3
+    1|1|3
+    1|3|5
+    1|4|5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m2-s0-e1-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||1
+    2|7|1
+    1|1|2
+    1|1|2
+    1|3|5
+    1|4|5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m2-s0-e2-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|1
+    1||5
+    1|1|5
+    1|1|5
+    1|3|5
+    1|4|5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m2-s0-e2-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|1
+    1|1|4
+    1|1|4
+    1||5
+    1|3|5
+    1|4|5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m2-s1-e0-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 PRECEDING AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||1
+    1|3|1
+    2|7|1
+    1|1|2
+    1|1|2
+    1|4|2
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m2-s1-e0-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||1
+    1|1|1
+    1|1|1
+    1|3|1
+    2|7|1
+    1|4|2
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m2-s1-e1-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||1
+    2|7|1
+    1|1|2
+    1|1|2
+    1|3|2
+    1|4|2
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m2-s1-e1-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||1
+    1|1|1
+    1|1|1
+    2|7|1
+    1|3|2
+    1|4|2
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m2-s1-e2-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|1
+    1|3|2
+    1|4|2
+    1|1|4
+    1|1|4
+    1||5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m2-s1-e2-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    2|7|1
+    1|3|2
+    1|4|2
+    1|1|3
+    1|1|3
+    1||5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m2-s2-e0-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN CURRENT ROW AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||1
+    1|3|1
+    1|4|1
+    2|7|1
+    1|1|2
+    1|1|2
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m2-s2-e0-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN CURRENT ROW AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||1
+    1|1|1
+    1|1|1
+    1|3|1
+    1|4|1
+    2|7|1
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m2-s2-e1-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN CURRENT ROW AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||1
+    1|4|1
+    2|7|1
+    1|1|2
+    1|1|2
+    1|3|2
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m2-s2-e1-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1||1
+    1|1|1
+    1|1|1
+    1|4|1
+    2|7|1
+    1|3|2
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m2-s2-e2-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|1
+    2|7|1
+    1|3|2
+    1|1|4
+    1|1|4
+    1||5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m2-s2-e2-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|1
+    2|7|1
+    1|3|2
+    1|1|3
+    1|1|3
+    1||5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m2-s3-e0-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 FOLLOWING AND CURRENT ROW )
+    ORDER BY wv, p, k;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m2-s3-e0-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 FOLLOWING AND CURRENT ROW EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect error {
+    .*unsupported frame specification.*
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m2-s3-e1-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 FOLLOWING AND 1 FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|1|0
+    1|1|0
+    1|4|0
+    2|7|0
+    1||1
+    1|3|1
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m2-s3-e1-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 FOLLOWING AND 1 FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|1|0
+    1|1|0
+    1|4|0
+    2|7|0
+    1||1
+    1|3|1
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m2-s3-e2-x0 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING )
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|0
+    2|7|0
+    1|3|1
+    1|1|2
+    1|1|2
+    1||5
+}
+
+@setup shapes3
+test fixed-original-nonkey-f2-m2-s3-e2-x1 {
+    SELECT p, k, count(v) OVER w AS wv
+    FROM t3
+    WINDOW w AS (PARTITION BY p ORDER BY k RANGE BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING EXCLUDE TIES)
+    ORDER BY wv, p, k;
+}
+expect unordered {
+    1|4|0
+    2|7|0
+    1|3|1
+    1|1|2
+    1|1|2
+    1||5
+}

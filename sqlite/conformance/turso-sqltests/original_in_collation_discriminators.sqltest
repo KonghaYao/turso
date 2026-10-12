@@ -1,0 +1,66 @@
+@database :memory:
+
+setup correlated_rows {
+    CREATE TABLE outer_rows(
+        id INTEGER PRIMARY KEY,
+        key1 INTEGER,
+        key2 INTEGER,
+        amount INTEGER,
+        text_key TEXT
+    );
+    CREATE TABLE inner_rows(key1 INTEGER, key2 INTEGER, amount INTEGER, text_key TEXT);
+    CREATE TABLE outer_key2(id INTEGER PRIMARY KEY, key2 INTEGER);
+    INSERT INTO outer_rows VALUES
+        (1, 1, 10, 5, 'A'),
+        (2, 1, 10, 15, 'a'),
+        (3, 2, 20, 7, 'B'),
+        (4, 3, 30, 9, 'C'),
+        (5, NULL, 40, 4, NULL),
+        (6, 2, NULL, NULL, 'b');
+    INSERT INTO inner_rows VALUES
+        (1, 10, 10, 'a'),
+        (1, 10, 20, 'A'),
+        (1, 99, 100, 'x'),
+        (2, 20, 6, 'b'),
+        (2, 20, NULL, 'B'),
+        (2, NULL, 7, NULL),
+        (NULL, 40, 99, NULL);
+    INSERT INTO outer_key2 VALUES (1, 10), (3, 20), (5, 40);
+}
+
+setup correlated_in_indexes {
+    CREATE INDEX inner_amount ON inner_rows(amount);
+    CREATE INDEX inner_key_amount ON inner_rows(key1, amount);
+    CREATE INDEX inner_text_nocase ON inner_rows(text_key COLLATE NOCASE);
+}
+
+# Independent discriminators, not original matrix combinations.
+@setup correlated_rows
+@setup correlated_in_indexes
+test discriminating-opposite-case-nocase-in {
+    SELECT o.id FROM outer_rows AS o
+    WHERE o.text_key COLLATE NOCASE IN (
+        SELECT i.text_key FROM inner_rows AS i
+        WHERE i.text_key COLLATE BINARY <> o.text_key COLLATE BINARY
+    ) ORDER BY o.id;
+}
+expect {
+    1
+    2
+    3
+    6
+}
+
+@setup correlated_rows
+@setup correlated_in_indexes
+test discriminating-binary-less-than-nocase-in {
+    SELECT o.id FROM outer_rows AS o
+    WHERE o.text_key COLLATE NOCASE IN (
+        SELECT i.text_key FROM inner_rows AS i
+        WHERE i.text_key < o.text_key COLLATE BINARY
+    ) ORDER BY o.id;
+}
+expect {
+    2
+    6
+}

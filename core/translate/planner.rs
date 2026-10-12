@@ -2116,6 +2116,33 @@ pub fn parse_from(
     table_references: &mut TableReferences,
     connection: &Arc<crate::Connection>,
 ) -> Result<()> {
+    parse_from_with_deferred_join_predicates(
+        from,
+        resolver,
+        program,
+        with,
+        preplan_ctes_for_non_from_subqueries,
+        out_where_clause,
+        vtab_predicates,
+        table_references,
+        connection,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn parse_from_with_deferred_join_predicates(
+    from: Option<FromClause>,
+    resolver: &Resolver,
+    program: &mut ProgramBuilder,
+    with: Option<With>,
+    preplan_ctes_for_non_from_subqueries: bool,
+    out_where_clause: &mut Vec<WhereTerm>,
+    vtab_predicates: &mut Vec<Expr>,
+    table_references: &mut TableReferences,
+    connection: &Arc<crate::Connection>,
+    mut deferred_join_predicates: Option<&mut Vec<(usize, usize)>>,
+) -> Result<()> {
     let mut cte_definitions = Vec::new();
     let mut shadowed_outer_ctes = Vec::new();
 
@@ -2190,6 +2217,7 @@ pub fn parse_from(
                 vtab_predicates,
                 table_references,
                 connection,
+                deferred_join_predicates.as_deref_mut(),
             )?;
         }
     }
@@ -2502,6 +2530,7 @@ fn parse_join(
     vtab_predicates: &mut Vec<Expr>,
     table_references: &mut TableReferences,
     connection: &Arc<crate::Connection>,
+    mut deferred_join_predicates: Option<&mut Vec<(usize, usize)>>,
 ) -> Result<()> {
     let ast::JoinedSelectTable {
         operator: join_operator,
@@ -2609,19 +2638,23 @@ fn parse_join(
             ast::JoinConstraint::On(ref expr) => {
                 let start_idx = out_where_clause.len();
                 break_predicate_at_and_boundaries(expr, out_where_clause);
-                for predicate in out_where_clause[start_idx..].iter_mut() {
+                for (offset, predicate) in out_where_clause[start_idx..].iter_mut().enumerate() {
                     predicate.from_outer_join = if outer {
                         Some(table_references.joined_tables().last().unwrap().internal_id)
                     } else {
                         None
                     };
-                    bind_and_rewrite_expr(
-                        &mut predicate.expr,
-                        Some(table_references),
-                        None,
-                        resolver,
-                        BindingBehavior::TryResultColumnsFirst,
-                    )?;
+                    if let Some(deferred) = deferred_join_predicates.as_deref_mut() {
+                        deferred.push((start_idx + offset, table_references.joined_tables().len()));
+                    } else {
+                        bind_and_rewrite_expr(
+                            &mut predicate.expr,
+                            Some(table_references),
+                            None,
+                            resolver,
+                            BindingBehavior::TryResultColumnsFirst,
+                        )?;
+                    }
                 }
             }
             ast::JoinConstraint::Using(distinct_names) => {

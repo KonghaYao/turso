@@ -1,0 +1,1910 @@
+@database :memory:
+
+# Original correlated_rows/index setups copied verbatim.
+setup correlated_rows {
+    CREATE TABLE outer_rows(
+        id INTEGER PRIMARY KEY,
+        key1 INTEGER,
+        key2 INTEGER,
+        amount INTEGER,
+        text_key TEXT
+    );
+    CREATE TABLE inner_rows(key1 INTEGER, key2 INTEGER, amount INTEGER, text_key TEXT);
+    CREATE TABLE outer_key2(id INTEGER PRIMARY KEY, key2 INTEGER);
+    INSERT INTO outer_rows VALUES
+        (1, 1, 10, 5, 'A'),
+        (2, 1, 10, 15, 'a'),
+        (3, 2, 20, 7, 'B'),
+        (4, 3, 30, 9, 'C'),
+        (5, NULL, 40, 4, NULL),
+        (6, 2, NULL, NULL, 'b');
+    INSERT INTO inner_rows VALUES
+        (1, 10, 10, 'a'),
+        (1, 10, 20, 'A'),
+        (1, 99, 100, 'x'),
+        (2, 20, 6, 'b'),
+        (2, 20, NULL, 'B'),
+        (2, NULL, 7, NULL),
+        (NULL, 40, 99, NULL);
+    INSERT INTO outer_key2 VALUES (1, 10), (3, 20), (5, 40);
+}
+
+setup correlated_in_indexes {
+    CREATE INDEX inner_amount ON inner_rows(amount);
+    CREATE INDEX inner_key_amount ON inner_rows(key1, amount);
+    CREATE INDEX inner_text_nocase ON inner_rows(text_key COLLATE NOCASE);
+}
+
+
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-in-one-comparison-0-0 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE o.amount IN (
+        SELECT i.amount FROM inner_rows AS i WHERE i.key1 < o.key1
+    )
+    ORDER BY o.id;
+}
+expect {
+}
+
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-in-one-comparison-0-1 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE o.amount IN (
+        SELECT i.amount FROM inner_rows AS i WHERE o.key1 < i.key1
+    )
+    ORDER BY o.id;
+}
+expect {
+}
+
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-in-one-comparison-0-2 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE o.amount IN (
+        SELECT i.amount FROM inner_rows AS i WHERE i.key1 <= o.key1
+    )
+    ORDER BY o.id;
+}
+expect {
+    3
+}
+
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-in-one-comparison-0-3 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE o.amount IN (
+        SELECT i.amount FROM inner_rows AS i WHERE o.key1 <= i.key1
+    )
+    ORDER BY o.id;
+}
+expect {
+    3
+}
+
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-in-one-comparison-0-4 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE o.amount IN (
+        SELECT i.amount FROM inner_rows AS i WHERE i.key1 <> o.key1
+    )
+    ORDER BY o.id;
+}
+expect {
+}
+
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-in-one-comparison-0-5 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE o.amount IN (
+        SELECT i.amount FROM inner_rows AS i WHERE o.key1 <> i.key1
+    )
+    ORDER BY o.id;
+}
+expect {
+}
+
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-in-one-comparison-0-6 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE o.amount IN (
+        SELECT i.amount FROM inner_rows AS i WHERE i.key1 IS o.key1
+    )
+    ORDER BY o.id;
+}
+expect {
+    3
+}
+
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-in-one-comparison-0-7 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE o.amount IN (
+        SELECT i.amount FROM inner_rows AS i WHERE i.key1 IS NOT o.key1
+    )
+    ORDER BY o.id;
+}
+expect {
+}
+
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-in-one-comparison-1-0 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE 10 IN (
+        SELECT i.amount FROM inner_rows AS i WHERE i.key1 < o.key1
+    )
+    ORDER BY o.id;
+}
+expect {
+    3
+    4
+    6
+}
+
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-in-one-comparison-1-1 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE 10 IN (
+        SELECT i.amount FROM inner_rows AS i WHERE o.key1 < i.key1
+    )
+    ORDER BY o.id;
+}
+expect {
+}
+
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-in-one-comparison-1-2 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE 10 IN (
+        SELECT i.amount FROM inner_rows AS i WHERE i.key1 <= o.key1
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    3
+    4
+    6
+}
+
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-in-one-comparison-1-3 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE 10 IN (
+        SELECT i.amount FROM inner_rows AS i WHERE o.key1 <= i.key1
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+}
+
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-in-one-comparison-1-4 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE 10 IN (
+        SELECT i.amount FROM inner_rows AS i WHERE i.key1 <> o.key1
+    )
+    ORDER BY o.id;
+}
+expect {
+    3
+    4
+    6
+}
+
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-in-one-comparison-1-5 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE 10 IN (
+        SELECT i.amount FROM inner_rows AS i WHERE o.key1 <> i.key1
+    )
+    ORDER BY o.id;
+}
+expect {
+    3
+    4
+    6
+}
+
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-in-one-comparison-1-6 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE 10 IN (
+        SELECT i.amount FROM inner_rows AS i WHERE i.key1 IS o.key1
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+}
+
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-in-one-comparison-1-7 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE 10 IN (
+        SELECT i.amount FROM inner_rows AS i WHERE i.key1 IS NOT o.key1
+    )
+    ORDER BY o.id;
+}
+expect {
+    3
+    4
+    5
+    6
+}
+
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-in-one-comparison-2-0 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NULL IN (
+        SELECT i.amount FROM inner_rows AS i WHERE i.key1 < o.key1
+    )
+    ORDER BY o.id;
+}
+expect {
+}
+
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-in-one-comparison-2-1 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NULL IN (
+        SELECT i.amount FROM inner_rows AS i WHERE o.key1 < i.key1
+    )
+    ORDER BY o.id;
+}
+expect {
+}
+
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-in-one-comparison-2-2 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NULL IN (
+        SELECT i.amount FROM inner_rows AS i WHERE i.key1 <= o.key1
+    )
+    ORDER BY o.id;
+}
+expect {
+}
+
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-in-one-comparison-2-3 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NULL IN (
+        SELECT i.amount FROM inner_rows AS i WHERE o.key1 <= i.key1
+    )
+    ORDER BY o.id;
+}
+expect {
+}
+
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-in-one-comparison-2-4 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NULL IN (
+        SELECT i.amount FROM inner_rows AS i WHERE i.key1 <> o.key1
+    )
+    ORDER BY o.id;
+}
+expect {
+}
+
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-in-one-comparison-2-5 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NULL IN (
+        SELECT i.amount FROM inner_rows AS i WHERE o.key1 <> i.key1
+    )
+    ORDER BY o.id;
+}
+expect {
+}
+
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-in-one-comparison-2-6 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NULL IN (
+        SELECT i.amount FROM inner_rows AS i WHERE i.key1 IS o.key1
+    )
+    ORDER BY o.id;
+}
+expect {
+}
+
+@setup correlated_rows
+@setup correlated_in_indexes
+test fixed-in-one-comparison-2-7 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NULL IN (
+        SELECT i.amount FROM inner_rows AS i WHERE i.key1 IS NOT o.key1
+    )
+    ORDER BY o.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-0-0 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND i.amount = o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    3
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-0-1 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND o.amount = i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    3
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-0-2 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND i.amount <> o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    3
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-0-3 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND o.amount <> i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    3
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-0-4 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND i.amount < o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    2
+    3
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-0-5 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND o.amount < i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-0-6 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND i.amount <= o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    2
+    3
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-0-7 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND o.amount <= i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    3
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-0-8 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND i.amount > o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-0-9 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND o.amount > i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    2
+    3
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-0-10 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND i.amount >= o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    3
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-0-11 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND o.amount >= i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    2
+    3
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-0-12 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND i.amount IS o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    3
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-0-13 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND o.amount IS i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    3
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-0-14 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND i.amount IS NOT o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    3
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-0-15 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND o.amount IS NOT i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    3
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-1-0 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND i.amount = o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    3
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-1-1 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND o.amount = i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    3
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-1-2 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND i.amount <> o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    3
+    5
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-1-3 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND o.amount <> i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    3
+    5
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-1-4 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND i.amount < o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    2
+    3
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-1-5 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND o.amount < i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    5
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-1-6 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND i.amount <= o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    2
+    3
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-1-7 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND o.amount <= i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    3
+    5
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-1-8 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND i.amount > o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    5
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-1-9 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND o.amount > i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    2
+    3
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-1-10 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND i.amount >= o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    3
+    5
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-1-11 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND o.amount >= i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    2
+    3
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-1-12 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND i.amount IS o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    3
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-1-13 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND o.amount IS i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    3
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-1-14 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND i.amount IS NOT o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    3
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-1-15 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND o.amount IS NOT i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    3
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-2-0 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND i.amount = o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-2-1 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND o.amount = i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-2-2 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND i.amount <> o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    3
+    4
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-2-3 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND o.amount <> i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    3
+    4
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-2-4 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND i.amount < o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    4
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-2-5 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND o.amount < i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    3
+    4
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-2-6 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND i.amount <= o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    4
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-2-7 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND o.amount <= i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    3
+    4
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-2-8 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND i.amount > o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    3
+    4
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-2-9 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND o.amount > i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    4
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-2-10 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND i.amount >= o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    3
+    4
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-2-11 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND o.amount >= i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    4
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-2-12 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND i.amount IS o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-2-13 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND o.amount IS i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-2-14 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND i.amount IS NOT o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    3
+    4
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-0-2-15 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND o.amount IS NOT i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    3
+    4
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-0-0 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND i.amount = o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    4
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-0-1 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND o.amount = i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    4
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-0-2 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND i.amount <> o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    4
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-0-3 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND o.amount <> i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    4
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-0-4 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND i.amount < o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    4
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-0-5 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND o.amount < i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    3
+    4
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-0-6 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND i.amount <= o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    4
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-0-7 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND o.amount <= i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    4
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-0-8 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND i.amount > o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    3
+    4
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-0-9 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND o.amount > i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    4
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-0-10 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND i.amount >= o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    4
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-0-11 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND o.amount >= i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    4
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-0-12 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND i.amount IS o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    4
+    5
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-0-13 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND o.amount IS i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    4
+    5
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-0-14 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND i.amount IS NOT o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    4
+    5
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-0-15 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 = o.key1 AND o.amount IS NOT i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    4
+    5
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-1-0 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND i.amount = o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    4
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-1-1 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND o.amount = i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    4
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-1-2 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND i.amount <> o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    4
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-1-3 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND o.amount <> i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    4
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-1-4 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND i.amount < o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    4
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-1-5 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND o.amount < i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    3
+    4
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-1-6 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND i.amount <= o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    4
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-1-7 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND o.amount <= i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    4
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-1-8 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND i.amount > o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    3
+    4
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-1-9 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND o.amount > i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    4
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-1-10 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND i.amount >= o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    4
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-1-11 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND o.amount >= i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    4
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-1-12 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND i.amount IS o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    4
+    5
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-1-13 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND o.amount IS i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    4
+    5
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-1-14 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND i.amount IS NOT o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    4
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-1-15 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 IS o.key1 AND o.amount IS NOT i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    4
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-2-0 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND i.amount = o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    3
+    4
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-2-1 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND o.amount = i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    3
+    4
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-2-2 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND i.amount <> o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-2-3 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND o.amount <> i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-2-4 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND i.amount < o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    3
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-2-5 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND o.amount < i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-2-6 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND i.amount <= o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    3
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-2-7 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND o.amount <= i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-2-8 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND i.amount > o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-2-9 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND o.amount > i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    3
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-2-10 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND i.amount >= o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-2-11 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND o.amount >= i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    3
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-2-12 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND i.amount IS o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    3
+    4
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-2-13 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND o.amount IS i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    3
+    4
+    5
+    6
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-2-14 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND i.amount IS NOT o.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    5
+}
+
+@setup correlated_rows
+test fixed-exists-comparison-1-2-15 {
+    SELECT o.id
+    FROM outer_rows AS o
+    WHERE NOT EXISTS (
+        SELECT 1 FROM inner_rows AS i
+        WHERE i.key1 < o.key1 AND o.amount IS NOT i.amount
+    )
+    ORDER BY o.id;
+}
+expect {
+    1
+    2
+    5
+}

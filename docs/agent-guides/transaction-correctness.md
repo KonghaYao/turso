@@ -49,6 +49,22 @@ On crash:
 2. Replays valid commits from WAL
 3. Releases lock, normal operation resumes
 
+## Failed WAL Sync
+
+A successful `COMMIT` with `synchronous=FULL` requires the WAL commit frame to be
+synced before the engine reports success. If an fsync reports an error after the
+commit frame was written, the outcome is **unknown**, not a guaranteed rollback.
+The process can discard its unpublished in-memory WAL index while checksum-valid
+commit frames remain in the file. Reopening the database may therefore recover
+the transaction even when the original connection returned an I/O error and
+subsequently read the old value. Treat a failed commit as indeterminate; close
+and reopen the database, inspect application transaction IDs or other durable
+state, and only then decide whether to retry.
+
+This applies to attached databases as well. A write failure before a complete
+commit frame is written has a different boundary: recovery cannot publish that
+incomplete transaction. A sync error alone cannot distinguish these outcomes.
+
 ## Turso Implementation
 
 Key files:

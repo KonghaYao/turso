@@ -6,7 +6,7 @@ use crate::{
         Schema, Table, ROWID_SENTINEL,
     },
     translate::{
-        collate::{get_collseq_from_expr, CollationSeq},
+        collate::{resolve_expression_collseq, CollationSeq},
         emitter::UpdateRowSource,
         expr::{as_binary_components, expr_data_type, get_expr_affinity, StorageClassMask},
         expression_index::{normalize_expr_for_index_matching, single_table_column_usage},
@@ -2512,7 +2512,7 @@ fn query_output_columns(
         if super::expr::expr_is_array(result_expr, Some(table_references)) {
             column.set_array_dimensions(1);
         }
-        column.set_collation(get_collseq_from_expr(result_expr, table_references)?);
+        column.set_collation(resolve_expression_collseq(result_expr, table_references)?);
     }
     Ok(columns)
 }
@@ -2572,7 +2572,7 @@ impl JoinedTable {
             ) {
                 column.set_array_dimensions(1);
             }
-            column.set_collation(get_collseq_from_expr(
+            column.set_collation(resolve_expression_collseq(
                 &plan.result_columns[i].expr,
                 &plan.table_references,
             )?);

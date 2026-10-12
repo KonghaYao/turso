@@ -6,7 +6,7 @@ use turso_parser::ast::{self, TriggerEvent, TriggerTime, Upsert};
 
 use super::emitter::gencol::compute_virtual_columns;
 use crate::alloc::TursoIteratorExt;
-use crate::error::SQLITE_CONSTRAINT_PRIMARYKEY;
+use crate::error::{SQLITE_CONSTRAINT_PRIMARYKEY, SQLITE_CONSTRAINT_UNIQUE};
 use crate::schema::{BTreeTable, ColumnLayout, IndexColumn, EXPR_INDEX_SENTINEL, ROWID_SENTINEL};
 use crate::translate::emitter::{emit_check_constraints, emit_make_record, UpdateRowSource};
 use crate::translate::expr::{walk_expr, WalkControl};
@@ -15,8 +15,11 @@ use crate::translate::fkeys::{
     fire_fk_update_actions, ParentKeyNewProbeMode,
 };
 use crate::translate::insert::{format_unique_violation_desc, InsertEmitCtx};
-use crate::translate::plan::ColumnMask;
+use crate::translate::plan::{
+    ColumnMask, ColumnUsedMask, EvalAt, OuterQueryReference, SubqueryState,
+};
 use crate::translate::planner::ROWID_STRS;
+use crate::translate::subquery::{emit_non_from_clause_subquery, plan_subqueries_from_update_sets};
 use crate::translate::trigger_exec::{
     fire_trigger, get_triggers_including_temp, has_triggers_including_temp, TriggerContext,
 };
@@ -31,15 +34,15 @@ use crate::{
         },
         expr::{
             emit_returning_results, emit_table_column, translate_expr,
-            translate_expr_no_constant_opt, walk_expr_mut, NoConstantOptReason,
+            translate_expr_no_constant_opt, unwrap_parens, walk_expr_mut, NoConstantOptReason,
         },
         insert::Insertion,
         plan::{ResultSetColumn, TableReferences},
     },
-    util::{exprs_are_equivalent, normalize_ident},
+    util::{exprs_are_equivalent, normalize_ident, PRIMARY_KEY_AUTOMATIC_INDEX_NAME_PREFIX},
     vdbe::{
         affinity::Affinity,
-        builder::{DmlColumnContext, ProgramBuilder},
+        builder::{CursorKey, CursorType, DmlColumnContext, ProgramBuilder},
         insn::{IdxInsertFlags, InsertFlags, Insn},
     },
 };
@@ -479,7 +482,7 @@ pub fn emit_upsert(
     table: &Table,
     ctx: &InsertEmitCtx,
     insertion: &Insertion,
-    set_pairs: &mut [(usize, Box<ast::Expr>)],
+    set_items: &mut [ast::Set],
     where_clause: &mut Option<Box<ast::Expr>>,
     resolver: &mut Resolver,
     returning: &mut [ResultSetColumn],
@@ -655,6 +658,18 @@ pub fn emit_upsert(
         });
     }
 
+    let mut set_pairs = prepare_upsert_set_values(
+        program,
+        table,
+        ctx,
+        insertion,
+        set_items,
+        resolver,
+        connection,
+        table_references,
+        table_alias,
+    )?;
+
     // Apply SET; capture rowid change if any
     let mut new_rowid_reg: Option<usize> = None;
     for (col_idx, expr) in set_pairs.iter_mut() {
@@ -804,7 +819,7 @@ pub fn emit_upsert(
         )?;
     }
 
-    let (directly_changed_cols, rowid_changed) = collect_changed_cols(table, set_pairs);
+    let (directly_changed_cols, rowid_changed) = collect_changed_cols(table, &set_pairs);
 
     // Fire BEFORE UPDATE triggers
     let upsert_database_id = ctx.database_id;
@@ -1219,7 +1234,7 @@ pub fn emit_upsert(
                 });
                 let description = format_unique_violation_desc(table.get_name(), &idx_meta);
                 program.emit_insn(Insn::Halt {
-                    err_code: SQLITE_CONSTRAINT_PRIMARYKEY,
+                    err_code: upsert_index_constraint_code(&idx_meta, table),
                     description,
                     on_error: None,
                     description_reg: None,
@@ -1575,6 +1590,27 @@ pub fn emit_upsert(
     Ok(())
 }
 
+fn upsert_index_constraint_code(index: &Index, table: &Table) -> usize {
+    let is_primary_key = index
+        .name
+        .starts_with(PRIMARY_KEY_AUTOMATIC_INDEX_NAME_PREFIX)
+        && index.where_clause.is_none()
+        && table.btree().is_some_and(|table| {
+            !table.primary_key_columns.is_empty()
+                && index.columns.len() == table.primary_key_columns.len()
+                && index.columns.iter().zip(&table.primary_key_columns).all(
+                    |(column, (primary_name, _))| {
+                        column.expr.is_none() && column.name.eq_ignore_ascii_case(primary_name)
+                    },
+                )
+        });
+    if is_primary_key {
+        SQLITE_CONSTRAINT_PRIMARYKEY
+    } else {
+        SQLITE_CONSTRAINT_UNIQUE
+    }
+}
+
 fn compute_new_row_virtual_columns(
     program: &mut ProgramBuilder,
     ctx: &InsertEmitCtx,
@@ -1597,15 +1633,212 @@ fn compute_new_row_virtual_columns(
     )
 }
 
-/// Normalize the `SET` clause into `(column_index, Expr)` pairs using table layout.
-///
-/// Supports multi-target row-value SETs: `SET (a, b) = (expr1, expr2)`.
-/// Enforces same number of column names and RHS values.
-/// If the same column is assigned multiple times, the last assignment wins.
+#[allow(clippy::too_many_arguments)]
+fn prepare_upsert_set_values(
+    program: &mut ProgramBuilder,
+    table: &Table,
+    ctx: &InsertEmitCtx,
+    insertion: &Insertion,
+    set_items: &mut [ast::Set],
+    resolver: &Resolver,
+    connection: &Arc<Connection>,
+    table_references: &TableReferences,
+    table_alias: Option<&str>,
+) -> crate::Result<Vec<(usize, Box<ast::Expr>)>> {
+    let mut read_scope = table_references.clone();
+    if let Some(alias) = table_alias {
+        read_scope
+            .joined_tables_mut()
+            .first_mut()
+            .expect("upsert must have a target table")
+            .identifier = normalize_ident(alias);
+    }
+    let excluded_id = program.table_reference_counter.next();
+    if !table_alias.is_some_and(|alias| normalize_ident(alias).eq_ignore_ascii_case("excluded")) {
+        let mut hidden_columns = ColumnMask::default();
+        for column_index in 0..table.columns().len() {
+            hidden_columns.set(column_index)?;
+        }
+        read_scope.add_outer_query_reference(OuterQueryReference {
+            identifier: "excluded".to_string(),
+            internal_id: excluded_id,
+            table: table.clone(),
+            using_dedup_hidden_cols: hidden_columns,
+            col_used_mask: ColumnUsedMask::default(),
+            cte_select: None,
+            cte_explicit_columns: Vec::new(),
+            cte_id: None,
+            cte_definition_only: false,
+            rowid_referenced: false,
+            scope_depth: 0,
+        });
+    }
+    let mut subquery_sets = Vec::new();
+    let mut subquery_set_positions = Vec::new();
+    for (set_position, set) in set_items.iter().enumerate() {
+        if set.col_names.len() <= 1 {
+            continue;
+        }
+        let ast::Expr::Subquery(_) = unwrap_parens(&set.expr)? else {
+            continue;
+        };
+        subquery_set_positions.push(set_position);
+        subquery_sets.push(set.clone());
+    }
+    let mut subqueries = Vec::new();
+    plan_subqueries_from_update_sets(
+        program,
+        &mut subqueries,
+        &mut read_scope,
+        &mut subquery_sets,
+        resolver,
+        connection,
+    )?;
+    for (set_position, planned_set) in subquery_set_positions.into_iter().zip(subquery_sets) {
+        set_items[set_position].expr = planned_set.expr;
+    }
+
+    let mut set_pairs: Vec<(usize, Box<ast::Expr>)> = Vec::new();
+    for set in set_items {
+        let values = split_upsert_set_values(*set.expr.clone(), set.col_names.len())?;
+        for (column_name, value) in set.col_names.iter().zip(values) {
+            let (column_index, _) = table
+                .get_column_by_name(&normalize_ident(column_name.as_str()))
+                .expect("upsert assignment column was validated");
+            if let Some(existing) = set_pairs
+                .iter_mut()
+                .find(|(index, _)| *index == column_index)
+            {
+                existing.1 = Box::new(value);
+            } else {
+                set_pairs.push((column_index, Box::new(value)));
+            }
+        }
+    }
+
+    let mut used_subqueries = Vec::new();
+    for (_, expr) in &set_pairs {
+        walk_expr(expr, &mut |expr| -> crate::Result<WalkControl> {
+            if let ast::Expr::SubqueryResult { subquery_id, .. } = expr {
+                if !used_subqueries.contains(subquery_id) {
+                    used_subqueries.push(*subquery_id);
+                }
+            }
+            Ok(WalkControl::Continue)
+        })?;
+    }
+    subqueries.retain(|subquery| used_subqueries.contains(&subquery.internal_id));
+    let needs_excluded = subqueries.iter().any(|subquery| match &subquery.state {
+        SubqueryState::Unevaluated { plan: Some(plan) } => {
+            plan.used_outer_query_ref_ids().contains(&excluded_id)
+        }
+        _ => false,
+    });
+    if needs_excluded {
+        let btree = table.btree().expect("upsert target must be a B-tree table");
+        let stored_column_count = btree.column_layout()?.num_non_virtual_cols();
+        let cursor_id = program
+            .alloc_cursor_id_keyed(CursorKey::table(excluded_id), CursorType::BTreeTable(btree));
+        program.emit_insn(Insn::OpenEphemeral {
+            cursor_id,
+            is_table: true,
+        });
+        let record_reg = program.alloc_register();
+        program.emit_insn(Insn::MakeRecord {
+            start_reg: to_u32(insertion.first_col_register()),
+            count: to_u32(stored_column_count),
+            dest_reg: to_u32(record_reg),
+            index_name: None,
+            affinity_str: None,
+        });
+        program.emit_insn(Insn::Insert {
+            cursor: cursor_id,
+            key_reg: insertion.key_register(),
+            record_reg,
+            flag: InsertFlags::new().is_ephemeral_table_insert(),
+            table_name: table.get_name().to_string(),
+        });
+        program.emit_insn(Insn::SeekRowid {
+            cursor_id,
+            src_reg: insertion.key_register(),
+            target_pc: ctx.loop_labels.row_done,
+        });
+    }
+    for subquery in &mut subqueries {
+        let plan = subquery.consume_plan(EvalAt::BeforeLoop);
+        let next_constant_span = program.constant_spans_next_idx();
+        let emit_result = emit_non_from_clause_subquery(
+            program,
+            resolver,
+            *plan,
+            &subquery.query_type,
+            subquery.correlated,
+            false,
+        );
+        program.constant_spans_invalidate_after(next_constant_span);
+        emit_result?;
+    }
+    Ok(set_pairs)
+}
+
+fn split_upsert_set_values(
+    mut expr: ast::Expr,
+    target_count: usize,
+) -> crate::Result<Vec<ast::Expr>> {
+    while let ast::Expr::Parenthesized(mut values) = expr {
+        match values.len() {
+            1 => expr = *values.pop().expect("single parenthesized expression"),
+            _ => {
+                expr = ast::Expr::Parenthesized(values);
+                break;
+            }
+        }
+    }
+    match expr {
+        ast::Expr::Parenthesized(values) => {
+            if values.len() != target_count {
+                bail_parse_error!("{} columns assigned {} values", target_count, values.len());
+            }
+            Ok(values.into_iter().map(|value| *value).collect())
+        }
+        ast::Expr::SubqueryResult {
+            subquery_id,
+            lhs,
+            not_in,
+            query_type:
+                ast::SubqueryType::RowValue {
+                    result_reg_start,
+                    num_regs,
+                },
+        } => {
+            if num_regs != target_count {
+                bail_parse_error!("{} columns assigned {} values", target_count, num_regs);
+            }
+            Ok((0..num_regs)
+                .map(|offset| ast::Expr::SubqueryResult {
+                    subquery_id,
+                    lhs: lhs.clone(),
+                    not_in,
+                    query_type: ast::SubqueryType::RowValue {
+                        result_reg_start: result_reg_start + offset,
+                        num_regs: 1,
+                    },
+                })
+                .collect())
+        }
+        expr => {
+            if target_count != 1 {
+                bail_parse_error!("{} columns assigned 1 values", target_count);
+            }
+            Ok(vec![expr])
+        }
+    }
+}
+
 pub fn collect_set_clauses_for_upsert(
     table: &Table,
     set_items: &mut [ast::Set],
-) -> crate::Result<Vec<(usize, Box<ast::Expr>)>> {
+) -> crate::Result<Vec<ast::Set>> {
     let lookup: HashMap<String, usize> = table
         .columns()
         .iter()
@@ -1613,34 +1846,16 @@ pub fn collect_set_clauses_for_upsert(
         .filter_map(|(i, c)| c.name.as_ref().map(|n| (n.to_lowercase(), i)))
         .collect();
 
-    let mut out: Vec<(usize, Box<ast::Expr>)> = vec![];
-
-    for set in set_items {
-        let values: Vec<Box<ast::Expr>> = match set.expr.as_ref() {
-            ast::Expr::Parenthesized(v) => v.clone(),
-            e => vec![e.clone().into()],
-        };
-        if set.col_names.len() != values.len() {
-            bail_parse_error!(
-                "{} columns assigned {} values",
-                set.col_names.len(),
-                values.len()
-            );
-        }
-        for (cn, e) in set.col_names.iter().zip(values.into_iter()) {
+    for set in set_items.iter() {
+        for cn in &set.col_names {
             let Some(idx) = lookup.get(&normalize_ident(cn.as_str())) else {
                 bail_parse_error!("no such column: {}", cn);
             };
             // cannot upsert generated column
             table.columns()[*idx].ensure_not_generated("UPDATE", cn.as_str())?;
-            if let Some(existing) = out.iter_mut().find(|(i, _)| *i == *idx) {
-                existing.1 = e;
-            } else {
-                out.push((*idx, e));
-            }
         }
     }
-    Ok(out)
+    Ok(set_items.to_vec())
 }
 
 fn eval_partial_pred_for_row_image(

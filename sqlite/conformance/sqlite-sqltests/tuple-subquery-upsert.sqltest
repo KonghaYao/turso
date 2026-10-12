@@ -1,0 +1,311 @@
+@database :memory:
+
+test upsert4-1-1-7-original-isolated {
+    CREATE TABLE t1(a INTEGER PRIMARY KEY,b,c UNIQUE);
+    INSERT INTO t1 VALUES(1,NULL,'one'),(2,2,'two'),(3,NULL,'three');
+    INSERT INTO t1 VALUES(2,NULL,'zero') ON CONFLICT(a)
+        DO UPDATE SET (b,c) = (SELECT 'x','y');
+    SELECT * FROM t1;
+}
+expect {
+    1||one
+    2|x|y
+    3||three
+}
+
+test tuple-subquery-minimal {
+    CREATE TABLE t(a PRIMARY KEY,b,c);
+    INSERT INTO t VALUES(1,0,0);
+    INSERT INTO t VALUES(1,0,0) ON CONFLICT(a)
+        DO UPDATE SET (b,c) = (SELECT 2,3);
+    SELECT b,c FROM t;
+}
+expect {2|3}
+
+test tuple-subquery-null {
+    CREATE TABLE t(a PRIMARY KEY,b,c);
+    INSERT INTO t VALUES(1,0,0);
+    INSERT INTO t VALUES(1,0,0) ON CONFLICT(a)
+        DO UPDATE SET (b,c) = (SELECT NULL,3);
+    SELECT b IS NULL,c FROM t;
+}
+expect {1|3}
+
+test tuple-subquery-no-row {
+    CREATE TABLE t(a PRIMARY KEY,b,c);
+    INSERT INTO t VALUES(1,0,0);
+    INSERT INTO t VALUES(1,0,0) ON CONFLICT(a)
+        DO UPDATE SET (b,c) = (SELECT 2,3 WHERE 0);
+    SELECT b IS NULL,c IS NULL FROM t;
+}
+expect {1|1}
+
+test tuple-subquery-limit-zero {
+    CREATE TABLE t(a PRIMARY KEY,b,c);
+    INSERT INTO t VALUES(1,0,0);
+    INSERT INTO t VALUES(1,0,0) ON CONFLICT(a)
+        DO UPDATE SET (b,c) = (SELECT 2,3 LIMIT 0);
+    SELECT b IS NULL,c IS NULL FROM t;
+}
+expect {1|1}
+
+test tuple-subquery-multiple-rows-first {
+    CREATE TABLE t(a PRIMARY KEY,b,c);
+    CREATE TABLE s(x,y);
+    INSERT INTO s VALUES(2,3),(4,5);
+    INSERT INTO t VALUES(1,0,0);
+    INSERT INTO t VALUES(1,0,0) ON CONFLICT(a)
+        DO UPDATE SET (b,c) = (SELECT x,y FROM s ORDER BY x);
+    SELECT b,c FROM t;
+}
+expect {2|3}
+
+test tuple-subquery-correlated-current-excluded {
+    CREATE TABLE t(a PRIMARY KEY,b,c,d);
+    INSERT INTO t VALUES(1,10,20,'keep');
+    INSERT INTO t VALUES(1,100,200,'ignore') ON CONFLICT(a)
+        DO UPDATE SET (b,c) = (SELECT t.b+excluded.b,t.c+excluded.c);
+    SELECT b,c,d FROM t;
+}
+expect {110|220|keep}
+
+test tuple-subquery-correlated-multirow {
+    CREATE TABLE t(a PRIMARY KEY,b,c);
+    INSERT INTO t VALUES(1,10,20),(2,30,40);
+    INSERT INTO t VALUES(1,100,200),(2,300,400) ON CONFLICT(a)
+        DO UPDATE SET (b,c) = (SELECT t.b+excluded.b,t.c+excluded.c);
+    SELECT a,b,c FROM t ORDER BY a;
+}
+expect {
+    1|110|220
+    2|330|440
+}
+
+test tuple-subquery-local-columns-shadow-target {
+    CREATE TABLE t(a PRIMARY KEY,b,c);
+    CREATE TABLE s(b,c);
+    INSERT INTO t VALUES(1,10,20);
+    INSERT INTO s VALUES(2,3);
+    INSERT INTO t VALUES(1,100,200) ON CONFLICT(a)
+        DO UPDATE SET (b,c) = (SELECT b,c FROM s);
+    SELECT b,c FROM t;
+}
+expect {2|3}
+
+test tuple-subquery-simultaneous-other-assignment {
+    CREATE TABLE t(a PRIMARY KEY,b,c,d);
+    INSERT INTO t VALUES(1,10,20,30);
+    INSERT INTO t VALUES(1,0,0,0) ON CONFLICT(a)
+        DO UPDATE SET b=99,(c,d)=(SELECT t.b,t.c);
+    SELECT b,c,d FROM t;
+}
+expect {99|10|20}
+
+test tuple-subquery-rowid-target {
+    CREATE TABLE t(a INTEGER PRIMARY KEY,b,c);
+    INSERT INTO t VALUES(1,10,20);
+    INSERT INTO t VALUES(1,0,0) ON CONFLICT(a)
+        DO UPDATE SET (a,b)=(SELECT 2,30);
+    SELECT a,b,c FROM t;
+}
+expect {2|30|20}
+
+test tuple-subquery-volatile-single-row {
+    CREATE TABLE t(a PRIMARY KEY,b,c);
+    INSERT INTO t VALUES(1,0,0);
+    INSERT INTO t VALUES(1,0,0) ON CONFLICT(a)
+        DO UPDATE SET (b,c)=(SELECT v,v FROM (SELECT hex(randomblob(32)) AS v LIMIT 1));
+    SELECT length(b),b=c FROM t;
+}
+expect {64|1}
+
+test tuple-subquery-uncorrelated-once-per-statement {
+    CREATE TABLE t(a PRIMARY KEY,b,c);
+    INSERT INTO t VALUES(1,0,0),(2,0,0);
+    INSERT INTO t VALUES(1,0,0),(2,0,0) ON CONFLICT(a)
+        DO UPDATE SET (b,c)=(SELECT hex(randomblob(32)),3);
+    SELECT count(DISTINCT b),min(length(b)),sum(c) FROM t;
+}
+expect {1|64|6}
+
+test tuple-subquery-arity-short {
+    CREATE TABLE t(a PRIMARY KEY,b,c);
+    INSERT INTO t VALUES(1,0,0);
+    INSERT INTO t VALUES(1,0,0) ON CONFLICT(a)
+        DO UPDATE SET (b,c)=(SELECT 2);
+}
+expect error {^(Parse error: )?2 columns assigned 1 values$}
+
+test tuple-subquery-arity-long {
+    CREATE TABLE t(a PRIMARY KEY,b,c);
+    INSERT INTO t VALUES(1,0,0);
+    INSERT INTO t VALUES(1,0,0) ON CONFLICT(a)
+        DO UPDATE SET (b,c)=(SELECT 2,3,4);
+}
+expect error {^(Parse error: )?2 columns assigned 3 values$}
+
+test tuple-subquery-unique-violation {
+    CREATE TABLE t(a PRIMARY KEY,b,c UNIQUE);
+    INSERT INTO t VALUES(1,10,20),(2,30,40);
+    INSERT INTO t VALUES(1,0,0) ON CONFLICT(a)
+        DO UPDATE SET (b,c)=(SELECT 99,40);
+}
+expect error {UNIQUE constraint failed: t\.c}
+
+test tuple-literal-control {
+    CREATE TABLE t(a PRIMARY KEY,b,c,d);
+    INSERT INTO t VALUES(1,0,0,'keep');
+    INSERT INTO t VALUES(1,0,0,'ignore') ON CONFLICT(a)
+        DO UPDATE SET (b,c)=(2,3);
+    SELECT b,c,d FROM t;
+}
+expect {2|3|keep}
+
+test scalar-assignment-control {
+    CREATE TABLE t(a PRIMARY KEY,b,c,d);
+    INSERT INTO t VALUES(1,0,0,'keep');
+    INSERT INTO t VALUES(1,0,0,'ignore') ON CONFLICT(a)
+        DO UPDATE SET b=2,c=3;
+    SELECT b,c,d FROM t;
+}
+expect {2|3|keep}
+
+test tuple-subquery-unused-no-conflict {
+    CREATE TABLE t(a PRIMARY KEY,b,c);
+    INSERT INTO t VALUES(1,10,20) ON CONFLICT(a)
+        DO UPDATE SET (b,c)=(SELECT 2,3);
+    SELECT * FROM t;
+}
+expect {1|10|20}
+
+test tuple-subquery-bare-current-excluded-qualified {
+    CREATE TABLE t(a PRIMARY KEY,b,c);
+    INSERT INTO t VALUES(1,10,20);
+    INSERT INTO t VALUES(1,100,200) ON CONFLICT(a)
+        DO UPDATE SET (b,c)=(SELECT b,excluded.c);
+    SELECT b,c FROM t;
+}
+expect {10|200}
+
+test tuple-subquery-excluded-ipk-rowid {
+    CREATE TABLE t(a INTEGER PRIMARY KEY,b UNIQUE,c,d);
+    INSERT INTO t VALUES(10,1,20,30);
+    INSERT INTO t VALUES(77,1,200,300) ON CONFLICT(b)
+        DO UPDATE SET (c,d)=(SELECT excluded.a,excluded.rowid);
+    SELECT a,b,c,d FROM t;
+}
+expect {10|1|77|77}
+
+test tuple-subquery-target-alias {
+    CREATE TABLE t(a PRIMARY KEY,b,c);
+    INSERT INTO t VALUES(1,10,20);
+    INSERT INTO t AS dest VALUES(1,100,200) ON CONFLICT(a)
+        DO UPDATE SET (b,c)=(SELECT dest.b+excluded.b,dest.c+excluded.c);
+    SELECT b,c FROM t;
+}
+expect {110|220}
+
+test tuple-subquery-target-alias-excluded {
+    CREATE TABLE t(a PRIMARY KEY,b,c);
+    INSERT INTO t VALUES(1,10,20);
+    INSERT INTO t AS excluded VALUES(1,100,200) ON CONFLICT(a)
+        DO UPDATE SET (b,c)=(SELECT excluded.b,excluded.c);
+    SELECT b,c FROM t;
+}
+expect {10|20}
+
+test tuple-subquery-local-excluded-alias {
+    CREATE TABLE t(a PRIMARY KEY,b,c);
+    CREATE TABLE s(b,c);
+    INSERT INTO s VALUES(2,3);
+    INSERT INTO t VALUES(1,10,20);
+    INSERT INTO t VALUES(1,100,200) ON CONFLICT(a)
+        DO UPDATE SET (b,c)=(SELECT excluded.b,excluded.c FROM s AS excluded);
+    SELECT b,c FROM t;
+}
+expect {2|3}
+
+test tuple-subquery-correlated-second-row-empty {
+    CREATE TABLE t(a PRIMARY KEY,b,c);
+    INSERT INTO t VALUES(1,10,20),(2,30,40);
+    INSERT INTO t VALUES(1,100,200),(2,300,400) ON CONFLICT(a)
+        DO UPDATE SET (b,c)=(SELECT excluded.b,excluded.c WHERE t.a=1);
+    SELECT a,b IS NULL,c IS NULL FROM t ORDER BY a;
+}
+expect {
+    1|0|0
+    2|1|1
+}
+
+test tuple-subquery-star-width {
+    CREATE TABLE t(a PRIMARY KEY,b,c);
+    CREATE TABLE s(x,y);
+    INSERT INTO s VALUES(2,3);
+    INSERT INTO t VALUES(1,10,20);
+    INSERT INTO t VALUES(1,100,200) ON CONFLICT(a)
+        DO UPDATE SET (b,c)=(SELECT * FROM s);
+    SELECT b,c FROM t;
+}
+expect {2|3}
+
+test tuple-subquery-partial-overwrite {
+    CREATE TABLE t(a PRIMARY KEY,b,c);
+    INSERT INTO t VALUES(1,10,20);
+    INSERT INTO t VALUES(1,100,200) ON CONFLICT(a)
+        DO UPDATE SET (b,c)=(SELECT t.c,t.b),b=99;
+    SELECT b,c FROM t;
+}
+expect {99|10}
+
+test tuple-subquery-notnull-violation {
+    CREATE TABLE t(a PRIMARY KEY,b NOT NULL,c);
+    INSERT INTO t VALUES(1,10,20);
+    INSERT INTO t VALUES(1,100,200) ON CONFLICT(a)
+        DO UPDATE SET (b,c)=(SELECT 2,3 WHERE 0);
+}
+expect error {NOT NULL constraint failed: t\.b}
+
+test tuple-subquery-where-false {
+    CREATE TABLE t(a PRIMARY KEY,b,c);
+    INSERT INTO t VALUES(1,10,20);
+    INSERT INTO t VALUES(1,100,200) ON CONFLICT(a)
+        DO UPDATE SET (b,c)=(SELECT abs(-9223372036854775808),excluded.c) WHERE 0;
+    SELECT b,c FROM t;
+}
+expect {10|20}
+
+test tuple-subquery-where-null {
+    CREATE TABLE t(a PRIMARY KEY,b,c);
+    INSERT INTO t VALUES(1,10,20);
+    INSERT INTO t VALUES(1,100,200) ON CONFLICT(a)
+        DO UPDATE SET (b,c)=(SELECT abs(-9223372036854775808),excluded.c) WHERE NULL;
+    SELECT b,c FROM t;
+}
+expect {10|20}
+
+test tuple-subquery-virtual-column-layout {
+    CREATE TABLE t(a INTEGER PRIMARY KEY,b,c GENERATED ALWAYS AS (b+1) VIRTUAL,d,e);
+    INSERT INTO t(a,b,d,e) VALUES(1,10,20,30);
+    INSERT INTO t(a,b,d,e) VALUES(1,100,200,300) ON CONFLICT(a)
+        DO UPDATE SET (d,e)=(SELECT excluded.c,excluded.e);
+    SELECT a,b,c,d,e FROM t;
+}
+expect {1|10|11|101|300}
+
+test tuple-subquery-no-user-counter-change {
+    CREATE TABLE t(a INTEGER PRIMARY KEY,b,c);
+    INSERT INTO t VALUES(7,10,20);
+    INSERT INTO t VALUES(7,100,200) ON CONFLICT(a)
+        DO UPDATE SET (b,c)=(SELECT excluded.b,excluded.c);
+    SELECT changes(),total_changes(),last_insert_rowid();
+}
+expect {1|2|7}
+
+test tuple-subquery-dynamic-limit-zero {
+    CREATE TABLE t(a PRIMARY KEY,b,c);
+    INSERT INTO t VALUES(1,10,20);
+    INSERT INTO t VALUES(1,100,200) ON CONFLICT(a)
+        DO UPDATE SET (b,c)=(SELECT 2,3 LIMIT abs(0));
+    SELECT b IS NULL,c IS NULL FROM t;
+}
+expect {1|1}

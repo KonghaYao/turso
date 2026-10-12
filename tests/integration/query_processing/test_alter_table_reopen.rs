@@ -11,6 +11,219 @@
 use crate::common::{ExecRows, TempDatabase};
 use tempfile::TempDir;
 
+#[test]
+fn test_distinct_auto_unique_collation_survives_reopen_and_failed_upsert() {
+    let temp_dir = TempDir::new().unwrap();
+    let path = temp_dir.path().join("auto_unique_collation_reopen.db");
+
+    {
+        let db = TempDatabase::new_with_existent(&path);
+        let conn = db.connect_limbo();
+        conn.execute("CREATE TABLE t(a TEXT PRIMARY KEY,b INT UNIQUE,UNIQUE(a COLLATE NOCASE))")
+            .unwrap();
+        conn.execute("INSERT INTO t VALUES('a',1),('b',2)").unwrap();
+        conn.close().unwrap();
+    }
+
+    {
+        let db = TempDatabase::new_with_existent(&path);
+        let conn = db.connect_limbo();
+        let index_count: Vec<(i64,)> = conn
+            .exec_rows("SELECT count(*) FROM sqlite_schema WHERE type='index' AND tbl_name='t'");
+        assert_eq!(index_count, vec![(3,)]);
+
+        conn.execute("BEGIN").unwrap();
+        conn.execute("INSERT INTO t VALUES('c',3)").unwrap();
+        let error = conn
+            .execute("INSERT INTO t VALUES('b',2) ON CONFLICT(b) DO UPDATE SET a='A'")
+            .unwrap_err();
+        assert!(error.to_string().contains("UNIQUE constraint failed"));
+
+        conn.execute(
+            "INSERT INTO t VALUES('A',4) ON CONFLICT(a COLLATE NOCASE) DO UPDATE SET b=excluded.b",
+        )
+        .unwrap();
+        let error = conn
+            .execute(
+                "INSERT INTO t VALUES('A',5) ON CONFLICT(a COLLATE BINARY) DO UPDATE SET b=excluded.b",
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("UNIQUE constraint failed"));
+
+        let rows: Vec<(String, i64)> = conn.exec_rows("SELECT a,b FROM t ORDER BY b");
+        assert_eq!(
+            rows,
+            vec![("b".into(), 2), ("c".into(), 3), ("a".into(), 4)]
+        );
+        conn.execute("ROLLBACK").unwrap();
+        conn.close().unwrap();
+    }
+
+    {
+        let db = TempDatabase::new_with_existent(&path);
+        let conn = db.connect_limbo();
+        let rows: Vec<(String, i64)> = conn.exec_rows("SELECT a,b FROM t ORDER BY b");
+        assert_eq!(rows, vec![("a".into(), 1), ("b".into(), 2)]);
+        conn.close().unwrap();
+    }
+}
+
+#[test]
+fn test_add_column_keeps_distinct_auto_unique_collations_after_reopen() {
+    let temp_dir = TempDir::new().unwrap();
+    let path = temp_dir.path().join("add_column_auto_unique_collations.db");
+
+    {
+        let db = TempDatabase::new_with_existent(&path);
+        let conn = db.connect_limbo();
+        conn.execute("CREATE TABLE t(a TEXT PRIMARY KEY,b,UNIQUE(a COLLATE NOCASE))")
+            .unwrap();
+        conn.execute("INSERT INTO t VALUES('a',1)").unwrap();
+        conn.execute("ALTER TABLE t ADD COLUMN c TEXT DEFAULT 'new'")
+            .unwrap();
+        conn.close().unwrap();
+    }
+
+    {
+        let db = TempDatabase::new_with_existent(&path);
+        let conn = db.connect_limbo();
+        let index_count: Vec<(i64,)> = conn
+            .exec_rows("SELECT count(*) FROM sqlite_schema WHERE type='index' AND tbl_name='t'");
+        assert_eq!(index_count, vec![(2,)]);
+        let rows: Vec<(String, i64, String)> = conn.exec_rows("SELECT a,b,c FROM t");
+        assert_eq!(rows, vec![("a".into(), 1, "new".into())]);
+        let error = conn
+            .execute("INSERT INTO t(a,b) VALUES('A',2)")
+            .unwrap_err();
+        assert!(error.to_string().contains("UNIQUE constraint failed"));
+        let rows: Vec<(String, i64, String)> = conn.exec_rows("SELECT a,b,c FROM t");
+        assert_eq!(rows, vec![("a".into(), 1, "new".into())]);
+        conn.close().unwrap();
+    }
+}
+
+#[test]
+fn test_add_column_keeps_inline_unique_and_nocase_unique_after_reopen() {
+    let temp_dir = TempDir::new().unwrap();
+    let path = temp_dir
+        .path()
+        .join("add_column_inline_unique_collations.db");
+
+    {
+        let db = TempDatabase::new_with_existent(&path);
+        let conn = db.connect_limbo();
+        conn.execute("CREATE TABLE t(a TEXT UNIQUE,UNIQUE(a COLLATE NOCASE))")
+            .unwrap();
+        conn.execute("INSERT INTO t VALUES('a')").unwrap();
+        conn.execute("ALTER TABLE t ADD COLUMN b INT DEFAULT 7")
+            .unwrap();
+        conn.close().unwrap();
+    }
+
+    {
+        let db = TempDatabase::new_with_existent(&path);
+        let conn = db.connect_limbo();
+        let index_count: Vec<(i64,)> = conn
+            .exec_rows("SELECT count(*) FROM sqlite_schema WHERE type='index' AND tbl_name='t'");
+        assert_eq!(index_count, vec![(2,)]);
+        let error = conn.execute("INSERT INTO t(a) VALUES('A')").unwrap_err();
+        assert!(error.to_string().contains("UNIQUE constraint failed"));
+        let rows: Vec<(String, i64)> = conn.exec_rows("SELECT a,b FROM t");
+        assert_eq!(rows, vec![("a".into(), 7)]);
+        conn.close().unwrap();
+    }
+}
+
+#[test]
+fn test_add_column_keeps_composite_primary_key_collation_after_reopen() {
+    let temp_dir = TempDir::new().unwrap();
+    let path = temp_dir.path().join("add_column_pk_collation.db");
+
+    {
+        let db = TempDatabase::new_with_existent(&path);
+        let conn = db.connect_limbo();
+        conn.execute("CREATE TABLE t(a TEXT,b INT,PRIMARY KEY(a COLLATE NOCASE,b))")
+            .unwrap();
+        conn.execute("INSERT INTO t VALUES('a',1)").unwrap();
+        conn.execute("ALTER TABLE t ADD COLUMN c INT DEFAULT 7")
+            .unwrap();
+        conn.close().unwrap();
+    }
+
+    {
+        let db = TempDatabase::new_with_existent(&path);
+        let conn = db.connect_limbo();
+        let error = conn
+            .execute("INSERT INTO t(a,b) VALUES('A',1)")
+            .unwrap_err();
+        assert!(error.to_string().contains("UNIQUE constraint failed"));
+        let rows: Vec<(String, i64, i64)> = conn.exec_rows("SELECT a,b,c FROM t");
+        assert_eq!(rows, vec![("a".into(), 1, 7)]);
+        conn.close().unwrap();
+    }
+}
+
+#[test]
+fn test_add_column_keeps_single_primary_key_explicit_collation_after_reopen() {
+    let temp_dir = TempDir::new().unwrap();
+    let path = temp_dir.path().join("add_column_single_pk_collation.db");
+
+    {
+        let db = TempDatabase::new_with_existent(&path);
+        let conn = db.connect_limbo();
+        conn.execute("CREATE TABLE t(a TEXT,PRIMARY KEY(a COLLATE NOCASE))")
+            .unwrap();
+        conn.execute("INSERT INTO t VALUES('a')").unwrap();
+        conn.execute("ALTER TABLE t ADD COLUMN b INT DEFAULT 7")
+            .unwrap();
+        conn.close().unwrap();
+    }
+
+    {
+        let db = TempDatabase::new_with_existent(&path);
+        let conn = db.connect_limbo();
+        let error = conn.execute("INSERT INTO t(a) VALUES('A')").unwrap_err();
+        assert!(error.to_string().contains("UNIQUE constraint failed"));
+        let rows: Vec<(String, i64)> = conn.exec_rows("SELECT a,b FROM t");
+        assert_eq!(rows, vec![("a".into(), 7)]);
+        conn.close().unwrap();
+    }
+}
+
+#[test]
+fn test_add_column_keeps_unique_index_sort_order_after_reopen() {
+    let temp_dir = TempDir::new().unwrap();
+    let path = temp_dir.path().join("add_column_unique_sort.db");
+
+    {
+        let db = TempDatabase::new_with_existent(&path);
+        let conn = db.connect_limbo();
+        conn.execute("CREATE TABLE t(a TEXT,b TEXT,UNIQUE(a DESC,b ASC))")
+            .unwrap();
+        conn.execute("INSERT INTO t VALUES('a','x'),('b','y')")
+            .unwrap();
+        conn.execute("ALTER TABLE t ADD COLUMN c INT DEFAULT 5")
+            .unwrap();
+        conn.close().unwrap();
+    }
+
+    {
+        let db = TempDatabase::new_with_existent(&path);
+        let conn = db.connect_limbo();
+        let order: Vec<(i64, String)> = conn.exec_rows(
+            "SELECT \"desc\",coll FROM pragma_index_xinfo('sqlite_autoindex_t_1') WHERE key=1 ORDER BY seqno",
+        );
+        assert_eq!(order, vec![(1, "BINARY".into()), (0, "BINARY".into())]);
+        let rows: Vec<(String, String, i64)> =
+            conn.exec_rows("SELECT a,b,c FROM t ORDER BY a DESC");
+        assert_eq!(
+            rows,
+            vec![("b".into(), "y".into(), 5), ("a".into(), "x".into(), 5)]
+        );
+        conn.close().unwrap();
+    }
+}
+
 /// After ALTER TABLE DROP COLUMN on an AUTOINCREMENT table, reopen must parse
 /// the persisted schema as AUTOINCREMENT and avoid reusing deleted rowids.
 #[test]

@@ -385,18 +385,20 @@ pub fn resolve_comparison_collseq_with_resolver(
     resolver: Option<&Resolver>,
 ) -> Result<Option<CollationSeq>> {
     let symbol_table = resolver.map(|resolver| resolver.symbol_table);
-    let (lhs_explicit, lhs_column) = get_collseq_parts_from_expr_with_symbols(
+    let (lhs_explicit, _) = get_collseq_parts_from_expr_with_symbols(
         lhs_expr,
         referenced_tables,
         symbol_table,
         resolver,
     )?;
-    let (rhs_explicit, rhs_column) = get_collseq_parts_from_expr_with_symbols(
+    let (rhs_explicit, _) = get_collseq_parts_from_expr_with_symbols(
         rhs_expr,
         referenced_tables,
         symbol_table,
         resolver,
     )?;
+    let lhs_column = comparison_operand_column_collseq(lhs_expr, referenced_tables, resolver)?;
+    let rhs_column = comparison_operand_column_collseq(rhs_expr, referenced_tables, resolver)?;
     Ok(lhs_explicit.or(rhs_explicit).or(lhs_column).or(rhs_column))
 }
 
@@ -476,13 +478,23 @@ pub fn resolve_comparison_collseq_with_symbols(
         get_collseq_parts_from_expr_with_symbols(lhs_expr, referenced_tables, symbol_table, None)?;
     let (rhs_explicit, _) =
         get_collseq_parts_from_expr_with_symbols(rhs_expr, referenced_tables, symbol_table, None)?;
-    let lhs_column = comparison_operand_column_collseq(lhs_expr, referenced_tables)?;
-    let rhs_column = comparison_operand_column_collseq(rhs_expr, referenced_tables)?;
+    let lhs_column = comparison_operand_column_collseq(lhs_expr, referenced_tables, None)?;
+    let rhs_column = comparison_operand_column_collseq(rhs_expr, referenced_tables, None)?;
     Ok(lhs_explicit
         .or(rhs_explicit)
         .or(lhs_column)
         .or(rhs_column)
         .unwrap_or(CollationSeq::Binary))
+}
+
+pub fn resolve_expression_collseq(
+    top_expr: &Expr,
+    referenced_tables: &TableReferences,
+) -> Result<Option<CollationSeq>> {
+    let (explicit, _) =
+        get_collseq_parts_from_expr_with_symbols(top_expr, referenced_tables, None, None)?;
+    let column = comparison_operand_column_collseq(top_expr, referenced_tables, None)?;
+    Ok(explicit.or(column))
 }
 
 /// The collation a comparison operand contributes when it is a column.
@@ -495,6 +507,7 @@ pub fn resolve_comparison_collseq_with_symbols(
 fn comparison_operand_column_collseq(
     top_expr: &Expr,
     referenced_tables: &TableReferences,
+    resolver: Option<&Resolver>,
 ) -> Result<Option<CollationSeq>> {
     let mut expr = top_expr;
     loop {
@@ -506,7 +519,11 @@ fn comparison_operand_column_collseq(
             Expr::Cast { expr: sub_expr, .. } => expr = sub_expr.as_ref(),
             Expr::Column { table, column, .. } => {
                 if table.is_self_table() {
-                    return Ok(None);
+                    return Ok(resolver.map(|resolver| {
+                        resolver
+                            .self_table_collation(Some(*column))
+                            .unwrap_or_default()
+                    }));
                 }
                 let (_, table_ref) = referenced_tables
                     .find_table_by_internal_id(*table)
@@ -517,6 +534,10 @@ fn comparison_operand_column_collseq(
                 return Ok(Some(column.collation()));
             }
             Expr::RowId { table, .. } => {
+                if table.is_self_table() {
+                    return Ok(resolver
+                        .map(|resolver| resolver.self_table_collation(None).unwrap_or_default()));
+                }
                 let (_, table_ref) = referenced_tables
                     .find_table_by_internal_id(*table)
                     .ok_or_else(|| crate::LimboError::ParseError("table not found".to_string()))?;
@@ -526,6 +547,10 @@ fn comparison_operand_column_collseq(
                         .map(|(_, col)| col.collation())
                 });
                 return Ok(Some(alias_collation.unwrap_or(CollationSeq::Binary)));
+            }
+            Expr::Register(register) => {
+                return Ok(resolver
+                    .and_then(|resolver| resolver.register_collations.get(register).copied()));
             }
             _ => return Ok(None),
         }

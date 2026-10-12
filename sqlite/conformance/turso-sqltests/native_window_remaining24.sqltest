@@ -1,0 +1,295 @@
+@database :memory:
+
+# Original 24-way built-in coercion matrix, fixed source-only expected values.
+setup anchored_small {
+    CREATE TABLE ts(k INT);
+    INSERT INTO ts VALUES (1),(2),(3),(4),(5);
+}
+
+@setup anchored_small
+test anchored-window-remaining-b0-m0-x0 {
+    SELECT k, lead(k) OVER w, count(*) OVER w FROM ts WINDOW w AS (ORDER BY k ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING ) ORDER BY k;
+}
+expect {
+    1|2|2
+    2|3|3
+    3|4|3
+    4|5|3
+    5||2
+}
+
+@setup anchored_small
+test anchored-window-remaining-b0-m0-x1 {
+    SELECT k, lead(k) OVER w, count(*) OVER w FROM ts WINDOW w AS (ORDER BY k ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY k;
+}
+expect {
+    1|2|2
+    2|3|3
+    3|4|3
+    4|5|3
+    5||2
+}
+
+@setup anchored_small
+test anchored-window-remaining-b0-m1-x0 {
+    SELECT k, lead(k) OVER w, count(*) OVER w FROM ts WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING ) ORDER BY k;
+}
+expect {
+    1|2|2
+    2|3|3
+    3|4|3
+    4|5|3
+    5||2
+}
+
+@setup anchored_small
+test anchored-window-remaining-b0-m1-x1 {
+    SELECT k, lead(k) OVER w, count(*) OVER w FROM ts WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY k;
+}
+expect {
+    1|2|2
+    2|3|3
+    3|4|3
+    4|5|3
+    5||2
+}
+
+@setup anchored_small
+test anchored-window-remaining-b0-m2-x0 {
+    SELECT k, lead(k) OVER w, count(*) OVER w FROM ts WINDOW w AS (ORDER BY k RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING ) ORDER BY k;
+}
+expect {
+    1|2|2
+    2|3|3
+    3|4|3
+    4|5|3
+    5||2
+}
+
+@setup anchored_small
+test anchored-window-remaining-b0-m2-x1 {
+    SELECT k, lead(k) OVER w, count(*) OVER w FROM ts WINDOW w AS (ORDER BY k RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY k;
+}
+expect {
+    1|2|2
+    2|3|3
+    3|4|3
+    4|5|3
+    5||2
+}
+
+@setup anchored_small
+test anchored-window-remaining-b1-m0-x0 {
+    SELECT k, lag(k) OVER w, count(*) OVER w FROM ts WINDOW w AS (ORDER BY k ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING ) ORDER BY k;
+}
+expect {
+    1||2
+    2|1|3
+    3|2|3
+    4|3|3
+    5|4|2
+}
+
+@setup anchored_small
+test anchored-window-remaining-b1-m0-x1 {
+    SELECT k, lag(k) OVER w, count(*) OVER w FROM ts WINDOW w AS (ORDER BY k ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY k;
+}
+expect {
+    1||2
+    2|1|3
+    3|2|3
+    4|3|3
+    5|4|2
+}
+
+@setup anchored_small
+test anchored-window-remaining-b1-m1-x0 {
+    SELECT k, lag(k) OVER w, count(*) OVER w FROM ts WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING ) ORDER BY k;
+}
+expect {
+    1||2
+    2|1|3
+    3|2|3
+    4|3|3
+    5|4|2
+}
+
+@setup anchored_small
+test anchored-window-remaining-b1-m1-x1 {
+    SELECT k, lag(k) OVER w, count(*) OVER w FROM ts WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY k;
+}
+expect {
+    1||2
+    2|1|3
+    3|2|3
+    4|3|3
+    5|4|2
+}
+
+@setup anchored_small
+test anchored-window-remaining-b1-m2-x0 {
+    SELECT k, lag(k) OVER w, count(*) OVER w FROM ts WINDOW w AS (ORDER BY k RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING ) ORDER BY k;
+}
+expect {
+    1||2
+    2|1|3
+    3|2|3
+    4|3|3
+    5|4|2
+}
+
+@setup anchored_small
+test anchored-window-remaining-b1-m2-x1 {
+    SELECT k, lag(k) OVER w, count(*) OVER w FROM ts WINDOW w AS (ORDER BY k RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY k;
+}
+expect {
+    1||2
+    2|1|3
+    3|2|3
+    4|3|3
+    5|4|2
+}
+
+@setup anchored_small
+test anchored-window-remaining-b2-m0-x0 {
+    SELECT k, percent_rank() OVER w, count(*) OVER w FROM ts WINDOW w AS (ORDER BY k ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING ) ORDER BY k;
+}
+expect {
+    1|0.0|2
+    2|0.25|3
+    3|0.5|3
+    4|0.75|3
+    5|1.0|2
+}
+
+@setup anchored_small
+test anchored-window-remaining-b2-m0-x1 {
+    SELECT k, percent_rank() OVER w, count(*) OVER w FROM ts WINDOW w AS (ORDER BY k ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY k;
+}
+expect {
+    1|0.0|2
+    2|0.25|3
+    3|0.5|3
+    4|0.75|3
+    5|1.0|2
+}
+
+@setup anchored_small
+test anchored-window-remaining-b2-m1-x0 {
+    SELECT k, percent_rank() OVER w, count(*) OVER w FROM ts WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING ) ORDER BY k;
+}
+expect {
+    1|0.0|2
+    2|0.25|3
+    3|0.5|3
+    4|0.75|3
+    5|1.0|2
+}
+
+@setup anchored_small
+test anchored-window-remaining-b2-m1-x1 {
+    SELECT k, percent_rank() OVER w, count(*) OVER w FROM ts WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY k;
+}
+expect {
+    1|0.0|2
+    2|0.25|3
+    3|0.5|3
+    4|0.75|3
+    5|1.0|2
+}
+
+@setup anchored_small
+test anchored-window-remaining-b2-m2-x0 {
+    SELECT k, percent_rank() OVER w, count(*) OVER w FROM ts WINDOW w AS (ORDER BY k RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING ) ORDER BY k;
+}
+expect {
+    1|0.0|2
+    2|0.25|3
+    3|0.5|3
+    4|0.75|3
+    5|1.0|2
+}
+
+@setup anchored_small
+test anchored-window-remaining-b2-m2-x1 {
+    SELECT k, percent_rank() OVER w, count(*) OVER w FROM ts WINDOW w AS (ORDER BY k RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY k;
+}
+expect {
+    1|0.0|2
+    2|0.25|3
+    3|0.5|3
+    4|0.75|3
+    5|1.0|2
+}
+
+@setup anchored_small
+test anchored-window-remaining-b3-m0-x0 {
+    SELECT k, cume_dist() OVER w, count(*) OVER w FROM ts WINDOW w AS (ORDER BY k ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING ) ORDER BY k;
+}
+expect {
+    1|0.2|2
+    2|0.4|3
+    3|0.6|3
+    4|0.8|3
+    5|1.0|2
+}
+
+@setup anchored_small
+test anchored-window-remaining-b3-m0-x1 {
+    SELECT k, cume_dist() OVER w, count(*) OVER w FROM ts WINDOW w AS (ORDER BY k ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY k;
+}
+expect {
+    1|0.2|2
+    2|0.4|3
+    3|0.6|3
+    4|0.8|3
+    5|1.0|2
+}
+
+@setup anchored_small
+test anchored-window-remaining-b3-m1-x0 {
+    SELECT k, cume_dist() OVER w, count(*) OVER w FROM ts WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING ) ORDER BY k;
+}
+expect {
+    1|0.2|2
+    2|0.4|3
+    3|0.6|3
+    4|0.8|3
+    5|1.0|2
+}
+
+@setup anchored_small
+test anchored-window-remaining-b3-m1-x1 {
+    SELECT k, cume_dist() OVER w, count(*) OVER w FROM ts WINDOW w AS (ORDER BY k GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY k;
+}
+expect {
+    1|0.2|2
+    2|0.4|3
+    3|0.6|3
+    4|0.8|3
+    5|1.0|2
+}
+
+@setup anchored_small
+test anchored-window-remaining-b3-m2-x0 {
+    SELECT k, cume_dist() OVER w, count(*) OVER w FROM ts WINDOW w AS (ORDER BY k RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING ) ORDER BY k;
+}
+expect {
+    1|0.2|2
+    2|0.4|3
+    3|0.6|3
+    4|0.8|3
+    5|1.0|2
+}
+
+@setup anchored_small
+test anchored-window-remaining-b3-m2-x1 {
+    SELECT k, cume_dist() OVER w, count(*) OVER w FROM ts WINDOW w AS (ORDER BY k RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) ORDER BY k;
+}
+expect {
+    1|0.2|2
+    2|0.4|3
+    3|0.6|3
+    4|0.8|3
+    5|1.0|2
+}

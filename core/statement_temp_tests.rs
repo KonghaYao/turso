@@ -1,5 +1,6 @@
 use super::temp_test_io::{Control, Held, MainIo};
 use super::*;
+use crate::util::IOExt;
 use crate::{
     Connection, Database, DatabaseOpts, MemoryIO, OpenFlags, SqliteDialect, TempStore, IO,
 };
@@ -16,7 +17,7 @@ fn connection() -> Result<Arc<Connection>> {
         Arc::new(SqliteDialect),
     )?
     .connect()?;
-    connection.set_temp_store(TempStore::Memory);
+    connection.set_temp_store(TempStore::Memory).unwrap();
     connection.execute("CREATE TABLE ledger(value PRIMARY KEY); INSERT INTO ledger VALUES(10)")?;
     Ok(connection)
 }
@@ -157,7 +158,7 @@ fn internal_temp_gate_pause_and_reprepare_have_zero_transaction_effects() -> Res
     let mut changed = connection.prepare("BEGIN IMMEDIATE")?;
     assert!(matches!(
         changed.step_with_admission_check(|_| {
-            connection.set_temp_store(TempStore::File);
+            connection.set_temp_store(TempStore::File).unwrap();
             true
         }),
         Err(LimboError::InvalidArgument(_))
@@ -172,7 +173,7 @@ fn internal_temp_gate_pause_and_reprepare_have_zero_transaction_effects() -> Res
 fn internal_temp_default_file_and_existing_memory_are_not_certificates() -> Result<()> {
     for selector in [TempStore::Default, TempStore::File] {
         let connection = connection()?;
-        connection.set_temp_store(selector);
+        connection.set_temp_store(selector).unwrap();
         let mut statement = connection.prepare("BEGIN IMMEDIATE")?;
         reject(&mut statement);
         assert_eq!(statement.state.pc, 0);
@@ -229,7 +230,7 @@ fn internal_temp_setter_and_legacy_revoke_execution_but_allow_cleanup() -> Resul
         if legacy {
             connection.execute("SELECT 1")?;
         } else {
-            connection.set_temp_store(TempStore::Memory);
+            connection.set_temp_store(TempStore::Memory).unwrap();
         }
         reject(&mut reader);
         assert!(matches!(reader.cleanup_state, CleanupState::Checked));
@@ -274,7 +275,7 @@ fn internal_temp_attached_and_mvcc_are_denied_before_begin() -> Result<()> {
             Arc::new(SqliteDialect),
         )?
         .connect()?;
-        connection.set_temp_store(TempStore::Memory);
+        connection.set_temp_store(TempStore::Memory).unwrap();
         connection.execute(setup)?;
         let mut statement = connection.prepare("BEGIN IMMEDIATE")?;
         reject(&mut statement);
@@ -367,7 +368,7 @@ fn retire_with_auxiliary(read: bool, failure: bool) -> Result<()> {
         Arc::new(SqliteDialect),
     )?;
     let connection = database.connect()?;
-    connection.set_temp_store(TempStore::Memory);
+    connection.set_temp_store(TempStore::Memory).unwrap();
     connection.set_sync_mode(crate::SyncMode::Full);
     connection.execute("CREATE TABLE ledger(value); INSERT INTO ledger VALUES(10)")?;
     execute(&connection, "BEGIN IMMEDIATE")?;
@@ -479,4 +480,109 @@ fn internal_temp_real_main_late_commit_releases_both_pagers() -> Result<()> {
 #[test]
 fn internal_temp_real_main_late_commit_failure_preserves_unknown() -> Result<()> {
     retire_with_auxiliary(false, true)
+}
+
+#[test]
+fn internal_temp_reset_error_invalidates_prepare_context_and_preserves_selector() -> Result<()> {
+    let connection = connection()?;
+    connection.execute("CREATE TEMP TABLE scratch(value); INSERT INTO scratch VALUES(1)")?;
+    let mut cached = connection.prepare("SELECT value FROM temp.scratch")?;
+    connection.execute("BEGIN IMMEDIATE; INSERT INTO temp.scratch VALUES(2)")?;
+    let pager = connection
+        .temp
+        .database
+        .read()
+        .as_ref()
+        .unwrap()
+        .pager
+        .clone();
+    let cursor = corrupt_rollback_cursor(pager.clone())?;
+    let generation = connection.prepare_context_generation();
+
+    let error = connection.set_temp_store(TempStore::File).unwrap_err();
+
+    assert!(matches!(error, LimboError::Corrupt(_)));
+    assert_eq!(connection.get_temp_store(), TempStore::Memory);
+    assert_eq!(connection.prepare_context_generation(), generation + 1);
+    assert!(connection.temp.database.read().is_none());
+    assert!(connection.temp.committed_schema.read().is_none());
+    assert!(!connection.temp.schema_did_change.load(Ordering::Acquire));
+    assert!(!pager.holds_read_lock());
+    assert!(!pager.holds_write_lock());
+    assert!(cached
+        .run_collect_rows()
+        .unwrap_err()
+        .to_string()
+        .contains("no such table"));
+    drop(cursor);
+    drop(cached);
+    connection.execute("ROLLBACK")?;
+    assert_unlocked(&connection);
+    Ok(())
+}
+
+#[test]
+fn internal_temp_retirement_retains_rollback_error_and_connection_accounting() -> Result<()> {
+    let connection = connection()?;
+    execute(&connection, "BEGIN IMMEDIATE")?;
+    execute(&connection, "INSERT INTO ledger VALUES(20)")?;
+    let cursor = corrupt_rollback_cursor(connection.pager.load().clone())?;
+    let guard = Guard(connection.db.io.clone());
+
+    let NoncommittingRetirement::RetiredUnsettled(errors) =
+        connection.retire_inactive_noncommitting(&guard)?
+    else {
+        panic!("inactive connection must retire")
+    };
+
+    assert!(matches!(errors.cleanup_error, Some(LimboError::Corrupt(_))));
+    assert!(errors.abort_error.is_none());
+    assert!(errors.io_error.is_none());
+    assert!(connection.is_closed());
+    assert_eq!(connection.db.n_connections.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        connection.n_active_root_statements.load(Ordering::SeqCst),
+        0
+    );
+    assert_eq!(connection.n_active_writes.load(Ordering::SeqCst), 0);
+    assert_unlocked(&connection);
+    connection.verify_noncommitting_retired(&guard)?;
+    assert!(matches!(
+        connection.retire_inactive_noncommitting(&guard)?,
+        NoncommittingRetirement::RetiredUnsettled(_)
+    ));
+    assert_eq!(connection.db.n_connections.load(Ordering::SeqCst), 0);
+    drop(cursor);
+    Ok(())
+}
+
+#[test]
+fn internal_temp_close_error_decrements_connection_before_returning() -> Result<()> {
+    let connection = connection()?;
+    execute(&connection, "BEGIN IMMEDIATE")?;
+    execute(&connection, "INSERT INTO ledger VALUES(20)")?;
+    let cursor = corrupt_rollback_cursor(connection.pager.load().clone())?;
+
+    assert!(matches!(connection.close(), Err(LimboError::Corrupt(_))));
+
+    assert!(connection.is_closed());
+    assert_eq!(connection.db.n_connections.load(Ordering::SeqCst), 0);
+    assert_unlocked(&connection);
+    connection.close()?;
+    assert_eq!(connection.db.n_connections.load(Ordering::SeqCst), 0);
+    drop(cursor);
+    Ok(())
+}
+
+fn corrupt_rollback_cursor(
+    pager: Arc<crate::storage::pager::Pager>,
+) -> Result<crate::types::Cursor> {
+    let mut cursor = crate::types::Cursor::new_btree(Box::new(
+        crate::storage::btree::BTreeCursor::new(pager.clone(), 2, 1),
+    ));
+    pager.io.block(|| cursor.as_btree_mut().rewind())?;
+    assert!(cursor.as_btree_mut().has_record());
+    let (page, _) = pager.io.block(|| pager.read_page(2))?;
+    page.get_contents().as_ptr()[0] = 255;
+    Ok(cursor)
 }

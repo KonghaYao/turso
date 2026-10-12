@@ -206,6 +206,30 @@ expect {
     ok
 }
 
+test reindex-preserves-distinct-autoindex-collations {
+    CREATE TABLE t(a TEXT PRIMARY KEY,b,UNIQUE(a COLLATE NOCASE));
+    INSERT INTO t VALUES('a',1),('b',2);
+    REINDEX t;
+    SELECT count(*) FROM sqlite_schema WHERE type='index' AND tbl_name='t';
+    SELECT a,b FROM t WHERE a='A' COLLATE NOCASE;
+    PRAGMA integrity_check;
+}
+expect {
+    2
+    a|1
+    ok
+}
+
+test reindex-preserves-distinct-autoindex-enforcement {
+    CREATE TABLE t(a TEXT PRIMARY KEY,b,UNIQUE(a COLLATE NOCASE));
+    INSERT INTO t VALUES('a',1);
+    REINDEX t;
+    INSERT INTO t VALUES('A',2);
+}
+expect error {
+    UNIQUE constraint failed: .*
+}
+
 test reindex-table-with-multiple-index-types {
     CREATE TABLE t_mixed(id INTEGER PRIMARY KEY, a TEXT, b INT, c TEXT);
     CREATE INDEX idx_mixed_a ON t_mixed(a COLLATE NOCASE);

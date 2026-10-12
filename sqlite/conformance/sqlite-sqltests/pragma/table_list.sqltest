@@ -1,6 +1,17 @@
 @database :memory:
 
 @cross-check-integrity
+test pragma-table-list-preserves-declared-name-case {
+    CREATE TABLE "Mixed Table"(x);
+    PRAGMA table_list('mixed table');
+    SELECT name FROM pragma_table_list WHERE name LIKE 'Mixed%';
+}
+expect {
+    main|Mixed Table|table|1|0|0
+    Mixed Table
+}
+
+@cross-check-integrity
 test pragma-table-list-single-table {
     CREATE TABLE t1(a, b, c);
     PRAGMA table_list('t1');

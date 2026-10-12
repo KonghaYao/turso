@@ -1,6 +1,9 @@
 #![allow(clippy::missing_safety_doc)]
 #![allow(non_camel_case_types)]
 
+#[cfg(feature = "sqlite_test_api")]
+mod test_api;
+
 use std::ffi::{self, CStr, CString};
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -1250,6 +1253,14 @@ pub unsafe extern "C" fn sqlite3_exec(
     if !err.is_null() {
         *err = std::ptr::null_mut();
     }
+    {
+        let mut db_inner = db_ref.inner.lock().unwrap();
+        if !db_inner.p_err.is_null() {
+            let _ = CString::from_raw(db_inner.p_err as *mut ffi::c_char);
+            db_inner.p_err = std::ptr::null_mut();
+        }
+        db_inner.err_code = SQLITE_OK;
+    }
     let statements = split_sql_statements(sql_str);
     for stmt_sql in statements {
         let trimmed = stmt_sql.trim();
@@ -1260,11 +1271,13 @@ pub unsafe extern "C" fn sqlite3_exec(
         let is_dql = is_query_statement(trimmed);
         if !is_dql {
             // For DML/DDL, use normal execute path
-            let db_inner = db_ref.inner.lock().unwrap();
+            let mut db_inner = db_ref.inner.lock().unwrap();
             match db_inner.conn.execute(trimmed) {
                 Ok(_) => continue,
                 Err(e) => {
-                    return handle_limbo_err(e, err);
+                    let code = set_db_err(&mut db_inner, e.clone());
+                    handle_limbo_err(e, err);
+                    return code;
                 }
             }
         } else if callback.is_none() {
@@ -1888,15 +1901,21 @@ pub unsafe extern "C" fn sqlite3_limit(
 
 #[no_mangle]
 pub unsafe extern "C" fn sqlite3_malloc(n: ffi::c_int) -> *mut ffi::c_void {
-    sqlite3_malloc64(n)
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn sqlite3_malloc64(n: ffi::c_int) -> *mut ffi::c_void {
     if n <= 0 {
         return std::ptr::null_mut();
     }
-    libc::malloc(n as usize)
+    sqlite3_malloc64(n as u64)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn sqlite3_malloc64(n: u64) -> *mut ffi::c_void {
+    if n == 0 || n > 2_147_483_391 {
+        return std::ptr::null_mut();
+    }
+    let Ok(size) = usize::try_from(n) else {
+        return std::ptr::null_mut();
+    };
+    libc::malloc(size)
 }
 
 #[no_mangle]
@@ -3830,7 +3849,9 @@ fn limbo_err_code(err: &LimboError) -> i32 {
     match err {
         LimboError::Corrupt(..) => SQLITE_CORRUPT,
         LimboError::NotADB => SQLITE_NOTADB,
-        LimboError::Constraint(_) | LimboError::ForeignKeyConstraint(_) => SQLITE_CONSTRAINT,
+        LimboError::Constraint(_)
+        | LimboError::ConstraintWithCode { .. }
+        | LimboError::ForeignKeyConstraint(_) => SQLITE_CONSTRAINT,
         LimboError::DatabaseFull | LimboError::SequenceExhausted { .. } => SQLITE_FULL,
         LimboError::TableLocked => SQLITE_LOCKED,
         LimboError::ReadOnly => SQLITE_READONLY,
@@ -3849,15 +3870,19 @@ fn limbo_err_code(err: &LimboError) -> i32 {
 fn handle_limbo_err(err: LimboError, container: *mut *mut ffi::c_char) -> i32 {
     let code = limbo_err_code(&err);
     if !container.is_null() {
-        let err_msg = format!("{err}");
-        unsafe { *container = CString::new(err_msg).unwrap().into_raw() };
+        let err_msg = err.sql_error_message();
+        unsafe { *container = CString::new(err_msg.as_ref()).unwrap().into_raw() };
     }
     code
 }
 
 /// Store a LimboError on the database handle, returning the SQLite error code.
 unsafe fn set_db_err(db: &mut sqlite3Inner, err: LimboError) -> i32 {
-    set_db_err_msg(db, limbo_err_code(&err), &format!("{err}"))
+    let code = match &err {
+        LimboError::ConstraintWithCode { .. } => err.sqlite_extended_result_code(),
+        _ => limbo_err_code(&err),
+    };
+    set_db_err_msg(db, code, err.sql_error_message().as_ref())
 }
 
 unsafe fn set_db_err_msg(db: &mut sqlite3Inner, code: i32, err_msg: &str) -> i32 {
@@ -3866,13 +3891,322 @@ unsafe fn set_db_err_msg(db: &mut sqlite3Inner, code: i32, err_msg: &str) -> i32
     }
     db.p_err = CString::new(err_msg).unwrap().into_raw() as *mut ffi::c_void;
     db.err_code = code;
-    code
+    code & db.err_mask
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::ptr;
+
+    #[test]
+    fn unique_halt_preserves_code_across_exec_step_and_mask() {
+        unsafe {
+            let mut db = ptr::null_mut();
+            assert_eq!(sqlite3_open(c":memory:".as_ptr(), &mut db), SQLITE_OK);
+            assert_eq!(sqlite3_exec(db, c"CREATE TABLE u(id INTEGER PRIMARY KEY, value UNIQUE); INSERT INTO u VALUES(1,10)".as_ptr(), None, ptr::null_mut(), ptr::null_mut()), SQLITE_OK);
+            for enabled in [0, 1, 0] {
+                assert_eq!(sqlite3_extended_result_codes(db, enabled), SQLITE_OK);
+                let expected = if enabled == 0 {
+                    SQLITE_CONSTRAINT
+                } else {
+                    2067
+                };
+                let mut output = ptr::null_mut();
+                assert_eq!(
+                    sqlite3_exec(
+                        db,
+                        c"UPDATE u SET value=value; INSERT INTO u VALUES(2,10); DELETE FROM u"
+                            .as_ptr(),
+                        None,
+                        ptr::null_mut(),
+                        &mut output
+                    ),
+                    expected
+                );
+                assert_eq!(CStr::from_ptr(output), c"UNIQUE constraint failed: u.value");
+                sqlite3_free(output.cast());
+                assert_eq!(sqlite3_errcode(db), expected);
+                assert_eq!(sqlite3_extended_errcode(db), 2067);
+                assert_eq!(
+                    CStr::from_ptr(sqlite3_errmsg(db)),
+                    c"UNIQUE constraint failed: u.value"
+                );
+                let mut statement = ptr::null_mut();
+                assert_eq!(
+                    sqlite3_prepare_v2(
+                        db,
+                        c"INSERT INTO u VALUES(3,10)".as_ptr(),
+                        -1,
+                        &mut statement,
+                        ptr::null_mut()
+                    ),
+                    SQLITE_OK
+                );
+                assert_eq!(sqlite3_step(statement), expected);
+                assert_eq!(sqlite3_errcode(db), expected);
+                assert_eq!(sqlite3_extended_errcode(db), 2067);
+                assert_eq!(
+                    CStr::from_ptr(sqlite3_errmsg(db)),
+                    c"UNIQUE constraint failed: u.value"
+                );
+                sqlite3_finalize(statement);
+                let mut rows = Vec::<Vec<String>>::new();
+                assert_eq!(
+                    sqlite3_exec(
+                        db,
+                        c"SELECT id,value FROM u ORDER BY id".as_ptr(),
+                        Some(collect_exec_error_witness),
+                        (&mut rows as *mut Vec<Vec<String>>).cast(),
+                        ptr::null_mut()
+                    ),
+                    SQLITE_OK
+                );
+                assert_eq!(rows, vec![vec!["1".to_owned(), "10".to_owned()]]);
+            }
+            assert_eq!(sqlite3_close(db), SQLITE_OK);
+        }
+    }
+
+    #[test]
+    fn typed_constraint_does_not_infer_code_from_message() {
+        let message = "UNIQUE constraint failed: u.value";
+        let legacy = LimboError::Constraint(message.to_owned());
+        let typed = LimboError::ConstraintWithCode {
+            code: 2067,
+            message: message.to_owned(),
+            nested_fail: false,
+        };
+        assert_eq!(legacy.sqlite_extended_result_code(), 19);
+        assert_eq!(typed.sqlite_result_code(), 19);
+        assert_eq!(typed.sqlite_extended_result_code(), 2067);
+        assert_eq!(typed.sql_error_message(), legacy.sql_error_message());
+        assert_eq!(typed.to_string(), legacy.to_string());
+        assert_eq!(limbo_err_code(&typed), SQLITE_CONSTRAINT);
+    }
+
+    #[test]
+    fn test_sqlite3_exec_dml_error_primary_lifecycle() {
+        let failures = [
+            c"INSERT INTO t VALUES(1,0,0) ON CONFLICT(a) DO UPDATE SET c=40;",
+            c"INSERT INTO t VALUES(1,0,0) ON CONFLICT(a) DO UPDATE SET (b,c)=(SELECT 99,40);",
+        ];
+        let successes = [c"", c"UPDATE t SET b=b WHERE a=1;", c"SELECT 1;"];
+        unsafe {
+            for failure in failures {
+                let mut db = ptr::null_mut();
+                assert_eq!(sqlite3_open(c":memory:".as_ptr(), &mut db), SQLITE_OK);
+                assert_eq!(
+                    sqlite3_exec(
+                        db,
+                        c"CREATE TABLE t(a PRIMARY KEY,b,c UNIQUE); INSERT INTO t VALUES(1,10,20),(2,30,40);".as_ptr(),
+                        None,
+                        ptr::null_mut(),
+                        ptr::null_mut(),
+                    ),
+                    SQLITE_OK
+                );
+                for success in successes {
+                    let mut output = ptr::null_mut();
+                    assert_eq!(
+                        sqlite3_exec(db, failure.as_ptr(), None, ptr::null_mut(), &mut output),
+                        SQLITE_CONSTRAINT
+                    );
+                    assert!(!output.is_null());
+                    assert_eq!(
+                        CStr::from_ptr(output).to_str().unwrap(),
+                        "UNIQUE constraint failed: t.c"
+                    );
+                    sqlite3_free(output.cast());
+                    for _attempt in 0..2 {
+                        assert_eq!(sqlite3_errcode(db), SQLITE_CONSTRAINT);
+                        assert_eq!(
+                            CStr::from_ptr(sqlite3_errmsg(db)).to_str().unwrap(),
+                            "UNIQUE constraint failed: t.c"
+                        );
+                    }
+                    assert_eq!(sqlite3_extended_result_codes(db, 0), SQLITE_OK);
+                    assert_eq!(sqlite3_errcode(db), SQLITE_CONSTRAINT);
+                    assert_eq!(
+                        sqlite3_exec(db, success.as_ptr(), None, ptr::null_mut(), &mut output),
+                        SQLITE_OK
+                    );
+                    assert!(output.is_null());
+                    assert_eq!(sqlite3_errcode(db), SQLITE_OK);
+                    assert_eq!(
+                        CStr::from_ptr(sqlite3_errmsg(db)).to_str().unwrap(),
+                        "not an error"
+                    );
+                }
+                assert_eq!(
+                    sqlite3_exec(db, failure.as_ptr(), None, ptr::null_mut(), ptr::null_mut()),
+                    SQLITE_CONSTRAINT
+                );
+                assert_eq!(sqlite3_errcode(db), SQLITE_CONSTRAINT);
+                let mut rows: Vec<Vec<String>> = Vec::new();
+                assert_eq!(
+                    sqlite3_exec(
+                        db,
+                        c"SELECT a,b,c FROM t ORDER BY a;".as_ptr(),
+                        Some(collect_exec_error_witness),
+                        (&mut rows as *mut Vec<Vec<String>>).cast(),
+                        ptr::null_mut(),
+                    ),
+                    SQLITE_OK
+                );
+                assert_eq!(rows, vec![vec!["1", "10", "20"], vec!["2", "30", "40"]]);
+                assert_eq!(sqlite3_errcode(db), SQLITE_OK);
+                assert_eq!(sqlite3_close(db), SQLITE_OK);
+            }
+        }
+    }
+
+    unsafe extern "C" fn collect_exec_error_witness(
+        context: *mut ffi::c_void,
+        count: ffi::c_int,
+        values: *mut *mut ffi::c_char,
+        _names: *mut *mut ffi::c_char,
+    ) -> ffi::c_int {
+        let rows = &mut *context.cast::<Vec<Vec<String>>>();
+        let row = std::slice::from_raw_parts(values, count as usize)
+            .iter()
+            .map(|value| CStr::from_ptr(*value).to_string_lossy().into_owned())
+            .collect();
+        rows.push(row);
+        0
+    }
+
+    #[test]
+    fn test_sql_error_message_preserves_payload_display_and_codes() {
+        let cases = [
+            (
+                LimboError::ParseError("no such table: missing".to_owned()),
+                "no such table: missing",
+                "Parse error: no such table: missing",
+                SQLITE_ERROR,
+            ),
+            (
+                LimboError::ParseError("Parse error: literal payload".to_owned()),
+                "Parse error: literal payload",
+                "Parse error: Parse error: literal payload",
+                SQLITE_ERROR,
+            ),
+            (
+                LimboError::SqlError("Parse error: SQL payload".to_owned()),
+                "Parse error: SQL payload",
+                "Parse error: SQL payload",
+                SQLITE_ERROR,
+            ),
+            (
+                LimboError::ConversionError("Parse error: conversion payload".to_owned()),
+                "Conversion error: Parse error: conversion payload",
+                "Conversion error: Parse error: conversion payload",
+                SQLITE_ERROR,
+            ),
+            (
+                LimboError::Constraint("UNIQUE constraint failed: u.a".to_owned()),
+                "UNIQUE constraint failed: u.a",
+                "UNIQUE constraint failed: u.a",
+                SQLITE_CONSTRAINT,
+            ),
+            (
+                LimboError::ForeignKeyConstraint("FOREIGN KEY constraint failed".to_owned()),
+                "FOREIGN KEY constraint failed",
+                "FOREIGN KEY constraint failed",
+                SQLITE_CONSTRAINT,
+            ),
+        ];
+        unsafe {
+            let mut db = ptr::null_mut();
+            assert_eq!(sqlite3_open(c":memory:".as_ptr(), &mut db), SQLITE_OK);
+            for (error, message, diagnostic, code) in cases {
+                assert_eq!(error.to_string(), diagnostic);
+                assert_eq!(error.sql_error_message(), message);
+                assert_eq!(error.sqlite_result_code(), code);
+                assert_eq!(limbo_err_code(&error), code);
+                let mut output = ptr::null_mut();
+                assert_eq!(handle_limbo_err(error.clone(), &mut output), code);
+                assert_eq!(CString::from_raw(output).to_str().unwrap(), message);
+                assert_eq!(handle_limbo_err(error.clone(), ptr::null_mut()), code);
+                {
+                    let mut inner = (*db).inner.lock().unwrap();
+                    assert_eq!(set_db_err(&mut inner, error), code);
+                    assert_eq!(inner.err_code, code);
+                }
+                assert_eq!(
+                    CStr::from_ptr(sqlite3_errmsg(db)).to_str().unwrap(),
+                    message
+                );
+            }
+            assert_eq!(sqlite3_close(db), SQLITE_OK);
+        }
+    }
+
+    #[test]
+    fn test_sqlite3_prepare_errors_use_typed_sql_messages() {
+        let cases = [
+            (c"SELECT * FROM missing", "no such table: missing"),
+            (
+                c"CREATE TABLE only_generated(a AS (1))",
+                "must have at least one non-generated column",
+            ),
+            (c"SELECT (", "incomplete input"),
+            (c"SELECT FROM", "near \"FROM\": syntax error"),
+            (
+                c"CREATE TABLE untyped(a) STRICT",
+                "missing datatype for untyped.a",
+            ),
+        ];
+        unsafe {
+            let mut db = ptr::null_mut();
+            assert_eq!(sqlite3_open(c":memory:".as_ptr(), &mut db), SQLITE_OK);
+            for (sql, message) in cases {
+                let mut statement = ptr::null_mut();
+                assert_eq!(
+                    sqlite3_prepare_v2(db, sql.as_ptr(), -1, &mut statement, ptr::null_mut()),
+                    SQLITE_ERROR
+                );
+                assert!(statement.is_null());
+                assert_eq!(
+                    CStr::from_ptr(sqlite3_errmsg(db)).to_str().unwrap(),
+                    message
+                );
+            }
+            assert_eq!(sqlite3_close(db), SQLITE_OK);
+        }
+    }
+
+    #[test]
+    fn test_sql_error_message_borrows_parser_payload_without_changing_display() {
+        unsafe {
+            let mut db = ptr::null_mut();
+            assert_eq!(sqlite3_open(c":memory:".as_ptr(), &mut db), SQLITE_OK);
+            let error = (*db)
+                .inner
+                .lock()
+                .unwrap()
+                .conn
+                .prepare("CREATE TABLE only_generated(a AS (1))")
+                .err()
+                .unwrap();
+            assert!(matches!(&error, LimboError::LexerError(_)));
+            assert_eq!(
+                error.to_string(),
+                "Parse error: must have at least one non-generated column"
+            );
+            assert!(matches!(
+                error.sql_error_message(),
+                std::borrow::Cow::Borrowed("must have at least one non-generated column")
+            ));
+            let mut output = ptr::null_mut();
+            assert_eq!(handle_limbo_err(error, &mut output), SQLITE_ERROR);
+            assert_eq!(
+                CString::from_raw(output).to_str().unwrap(),
+                "must have at least one non-generated column"
+            );
+            assert_eq!(sqlite3_close(db), SQLITE_OK);
+        }
+    }
 
     /// sqlite3_errmsg must return the bare message SQLite produces — no
     /// "Runtime error:" prefix and no "(19)" suffix; those are sqlite3

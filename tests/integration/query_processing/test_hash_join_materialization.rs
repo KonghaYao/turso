@@ -450,3 +450,71 @@ WHERE build_side.name = 'keep' ORDER BY probe_side.v";
     ];
     assert_eq!(rows, expected);
 }
+
+#[test]
+fn hash_join_filtered_build_keeps_selective_index_plans() {
+    for index_sql in [
+        "CREATE INDEX probe_key ON probe_side(k, v)",
+        "CREATE INDEX probe_key ON probe_side(k)",
+    ] {
+        for budget in [32 * 1024, 64 * 1024 * 1024] {
+            let tmp_db = TempDatabase::new_empty();
+            let conn = tmp_db.connect_limbo();
+            let sqlite_conn = rusqlite::Connection::open_in_memory().unwrap();
+            for statement in [
+                "CREATE TABLE build_side(id INTEGER PRIMARY KEY, k INTEGER, name TEXT)",
+                "CREATE TABLE probe_side(k INTEGER, v INTEGER)",
+                "INSERT INTO build_side VALUES (1, 10, 'keep'), (2, 20, 'drop'), (3, 30, 'keep')",
+                "INSERT INTO probe_side VALUES (10, 100), (20, 200), (30, 300), (30, 301)",
+            ] {
+                conn.execute(statement).unwrap();
+                sqlite_conn.execute(statement, []).unwrap();
+            }
+            for value in 1..=97 {
+                let statement = format!(
+                    "INSERT INTO build_side VALUES ({}, {}, 'drop')",
+                    value + 3,
+                    value + 1000,
+                );
+                conn.execute(&statement).unwrap();
+                sqlite_conn.execute(&statement, []).unwrap();
+            }
+            for value in 1..=996 {
+                let statement = format!(
+                    "INSERT INTO probe_side VALUES ({}, {})",
+                    value + 10000,
+                    value + 10000,
+                );
+                conn.execute(&statement).unwrap();
+                sqlite_conn.execute(&statement, []).unwrap();
+            }
+            conn.execute(index_sql).unwrap();
+            sqlite_conn.execute(index_sql, []).unwrap();
+            conn.execute("ANALYZE").unwrap();
+            sqlite_conn.execute("ANALYZE", []).unwrap();
+            conn.set_hash_join_memory_budget(budget).unwrap();
+
+            let query = "SELECT probe_side.v FROM build_side \
+JOIN probe_side ON probe_side.k = build_side.k \
+WHERE build_side.name = 'keep' ORDER BY probe_side.v";
+            let explain = limbo_exec_rows(&conn, &format!("EXPLAIN {query}"));
+            assert!(
+                !explain
+                    .iter()
+                    .any(|row| { row.get(1).and_then(value_as_text) == Some("HashBuild") }),
+                "selective index must remain preferable: {index_sql}, budget={budget}",
+            );
+            let plan = limbo_exec_rows(&conn, &format!("EXPLAIN QUERY PLAN {query}"));
+            eprintln!("{index_sql}, budget={budget}, plan={plan:?}");
+            assert!(plan.iter().any(|row| {
+                row.get(3)
+                    .and_then(value_as_text)
+                    .is_some_and(|detail| detail.contains("probe_key") && detail.contains("SEARCH"))
+            }));
+            assert_eq!(
+                limbo_exec_rows(&conn, query),
+                sqlite_exec_rows(&sqlite_conn, query)
+            );
+        }
+    }
+}

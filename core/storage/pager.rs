@@ -1607,6 +1607,8 @@ pub struct Pager {
     subjournal: RwLock<Option<Subjournal>>,
     savepoints: Arc<RwLock<Vec<Savepoint>>>,
     commit_info: RwLock<CommitInfo>,
+    /// A written WAL commit whose fsync failed; the VDBE must report uncertain durability.
+    uncertain_commit_sync_error: RwLock<Option<CompletionError>>,
     checkpoint_state: RwLock<CheckpointState>,
     syncing: Arc<AtomicBool>,
     auto_vacuum_mode: AtomicU8,
@@ -1926,6 +1928,7 @@ impl Pager {
                 page_sources: Vec::new(),
                 page_source_cursor: 0,
             }),
+            uncertain_commit_sync_error: RwLock::new(None),
             syncing: Arc::new(AtomicBool::new(false)),
             checkpoint_state: RwLock::new(CheckpointState::default()),
             buffer_pool,
@@ -2412,13 +2415,13 @@ impl Pager {
         let journal_end_offset = savepoint.write_offset();
         let savepoint = savepoint.snapshot();
 
-        self.rollback_to_snapshot(&savepoint, journal_end_offset)?;
+        let rollback_result = self.rollback_to_snapshot(&savepoint, journal_end_offset);
 
         if let Some(parent) = savepoints.last() {
             parent.set_write_offset(savepoint.start_offset);
         }
 
-        Ok(true)
+        rollback_result.map(|()| true)
     }
 
     /// Rollback to the newest matching named savepoint while keeping the named savepoint active.
@@ -2449,7 +2452,7 @@ impl Pager {
             )
         };
 
-        self.rollback_to_snapshot(&target.1, target.2)?;
+        let rollback_result = self.rollback_to_snapshot(&target.1, target.2);
 
         let mut savepoints = self.savepoints.write();
         let deferred_fk_violations = target.1.deferred_fk_violations;
@@ -2459,7 +2462,7 @@ impl Pager {
         }
         savepoints.push(Savepoint::from_snapshot(target.1));
 
-        Ok(Some(deferred_fk_violations))
+        rollback_result.map(|()| Some(deferred_fk_violations))
     }
 
     fn open_savepoint_with_kind(
@@ -2513,11 +2516,12 @@ impl Pager {
         savepoint: &SavepointSnapshot,
         journal_end_offset: u64,
     ) -> Result<()> {
+        let preservation_result = self.save_cursor_positions_for_rollback();
         self.reset_internal_states();
 
         let subjournal = self.subjournal.read();
         let Some(subjournal) = subjournal.as_ref() else {
-            return Ok(());
+            return preservation_result;
         };
 
         let journal_start_offset = savepoint.start_offset;
@@ -2607,7 +2611,7 @@ impl Pager {
         // saveAllCursors at sqlite3BtreeSavepoint (btree.c:4580).
         self.invalidate_all_cursors();
 
-        Ok(())
+        preservation_result
     }
 
     #[cfg(feature = "test_helper")]
@@ -3264,6 +3268,9 @@ impl Pager {
         let Some(wal) = self.wal.as_ref() else {
             return Ok(());
         };
+        if wal.commit_is_uncertain() {
+            return Err(LimboError::CommitUncertain);
+        }
         let changed = wal.begin_read_tx()?;
         if changed {
             // Someone else changed the database -> assume our page cache is invalid (this is default SQLite behavior, we can probably do better with more granular invalidation)
@@ -3313,6 +3320,9 @@ impl Pager {
         let Some(wal) = self.wal.as_ref() else {
             return Ok(IOResult::Done(()));
         };
+        if wal.commit_is_uncertain() {
+            return Err(LimboError::CommitUncertain.into());
+        }
         wal.begin_write_tx(allowed_auto_actions)?;
         // Must run after the upgrade (and any log restart it performed) so
         // the positions belong to the current WAL generation.
@@ -3462,32 +3472,33 @@ impl Pager {
     }
 
     #[instrument(skip_all, level = Level::DEBUG)]
-    pub fn rollback_tx(&self, connection: &Connection) {
+    pub fn rollback_tx(&self, connection: &Connection) -> Result<()> {
         if connection.is_nested_stmt() {
             // Parent statement will handle the transaction rollback.
-            return;
+            return Ok(());
         }
         let Some(wal) = self.wal.as_ref() else {
             // TODO: Unsure what the semantics of "end_tx" is for in-memory databases, ephemeral tables and ephemeral indexes.
-            return;
+            return Ok(());
         };
         let (is_write, schema_did_change) = match connection.get_tx_state() {
             TransactionState::Write { schema_did_change } => (true, schema_did_change),
             _ => (false, false),
         };
         tracing::trace!("rollback_tx(schema_did_change={})", schema_did_change);
-        if is_write {
-            self.clear_savepoints()
-                .expect("in practice, clear_savepoints() should never fail as it uses memory IO");
+        let rollback_result = if is_write {
+            let clear_result = self.clear_savepoints();
             // IMPORTANT: rollback() must be called BEFORE end_write_tx() releases the write_lock.
             // Otherwise, another thread could commit new frames to frame_cache between
             // end_write_tx() and rollback(), and rollback() would incorrectly remove them.
-            self.rollback(schema_did_change, connection, is_write);
+            let rollback_result = self.rollback(schema_did_change, connection, is_write);
             wal.end_write_tx();
+            rollback_result.and(clear_result)
         } else {
-            self.rollback(schema_did_change, connection, is_write);
-        }
+            self.rollback(schema_did_change, connection, is_write)
+        };
         wal.end_read_tx();
+        rollback_result
     }
 
     pub(crate) fn cleanup_read_tx(&self) {
@@ -3533,14 +3544,14 @@ impl Pager {
 
     /// Rollback and clean up an attached database pager's transaction.
     /// Unlike rollback_tx, this doesn't modify connection-level state.
-    pub fn rollback_attached(&self) {
+    pub fn rollback_attached(&self) -> Result<()> {
         let Some(wal) = self.wal.as_ref() else {
-            return;
+            return Ok(());
         };
         let is_write = wal.holds_write_lock();
-        if is_write {
-            self.clear_savepoints()
-                .expect("clear_savepoints should not fail for attached DB");
+        let rollback_result = if is_write {
+            let preservation_result = self.save_cursor_positions_for_rollback();
+            let clear_result = self.clear_savepoints();
             // Clear dirty pages and page cache before releasing the write lock
             self.clear_page_cache(true);
             self.dirty_pages.write().clear();
@@ -3548,12 +3559,15 @@ impl Pager {
             self.set_schema_cookie(None);
             wal.rollback(None);
             wal.end_write_tx();
+            clear_result.and(preservation_result)
         } else {
             self.cleanup_read_tx();
-        }
+            Ok(())
+        };
         if wal.holds_read_lock() {
             wal.end_read_tx();
         }
+        rollback_result
     }
 
     /// Reads a page from disk (either WAL or DB file) bypassing page-cache
@@ -3633,6 +3647,14 @@ impl Pager {
         page_idx: i64,
         group: Option<&mut CompletionGroup>,
     ) -> IOResultOr<(PageRef, Option<Completion>)> {
+        if self
+            .wal
+            .as_ref()
+            .is_some_and(|wal| wal.commit_is_uncertain())
+        {
+            return Err(LimboError::CommitUncertain.into());
+        }
+
         turso_assert_greater_than_or_equal!(page_idx, 0, "pages in pager should be positive, negative might indicate unallocated pages from mvcc or any other nasty bug");
         tracing::debug!("read_page_nonblock(page_idx = {})", page_idx);
         #[cfg(test)]
@@ -4464,6 +4486,35 @@ impl Pager {
     /// gates the post-commit auto-checkpoint when `should_checkpoint()` is
     /// true.
     #[instrument(skip_all, level = Level::DEBUG)]
+    /// A failed pwritev completion can mean the entire commit frame was written
+    /// before the backend reported failure. Recovery, not rollback, decides.
+    pub(crate) fn pending_commit_write_uncertain(&self) -> bool {
+        let state = self.commit_info.read();
+        matches!(state.state, CommitState::WaitWrites) && !state.prepared_frames.is_empty()
+    }
+
+    pub(crate) fn wal_commit_is_uncertain(&self) -> bool {
+        self.wal
+            .as_ref()
+            .is_some_and(|wal| wal.commit_is_uncertain())
+    }
+
+    pub(crate) fn mark_wal_commit_uncertain(&self) {
+        if let Some(wal) = self.wal.as_ref() {
+            wal.mark_commit_uncertain();
+        }
+    }
+
+    pub(crate) fn pending_commit_sync_failed(&self) -> bool {
+        let state = self.commit_info.read();
+        matches!(state.state, CommitState::WaitSync)
+            && !state.prepared_frames.is_empty()
+            && state
+                .pending_sync
+                .as_ref()
+                .is_some_and(|sync| sync.finished() && !sync.succeeded())
+    }
+
     pub fn commit_wal(
         &self,
         allowed_auto_actions: WalAutoActions,
@@ -4487,6 +4538,10 @@ impl Pager {
             self.commit_info.write().reset();
         }
         result
+    }
+
+    pub(crate) fn take_uncertain_commit_sync_error(&self) -> Option<CompletionError> {
+        self.uncertain_commit_sync_error.write().take()
     }
 
     pub fn commit_wal_end(&self) {
@@ -4679,13 +4734,12 @@ impl Pager {
                     }
                     let mut commit_info = self.commit_info.write();
                     if !writes.succeeded() {
+                        // An error completion does not prove the written bytes are absent:
+                        // the last frame can be fully present but not acknowledged.
+                        wal.mark_commit_uncertain();
                         commit_info.completion_group = None;
                         commit_info.prepared_frames.clear();
-                        return Err(LimboError::CompletionError(CompletionError::IOError(
-                            std::io::ErrorKind::Other,
-                            "write",
-                        ))
-                        .into());
+                        return Err(LimboError::CommitUncertain.into());
                     }
                     commit_info.completion_group = None;
                     // All writes complete; WaitSync submits the WAL fsync if
@@ -4723,20 +4777,19 @@ impl Pager {
                         // Check for fsync error as we might need to panic on data_sync_retry=off
                         let mut commit_info = self.commit_info.write();
                         if !sync_c.succeeded() {
-                            commit_info.pending_sync = None;
-                            commit_info.prepared_frames.clear();
-
                             if !data_sync_retry {
                                 panic!(
                                     "fsync error (data_sync_retry=off): {:?}",
                                     sync_c.get_error()
                                 );
                             }
-                            return Err(LimboError::CompletionError(CompletionError::IOError(
-                                std::io::ErrorKind::Other,
-                                "sync",
-                            ))
-                            .into());
+                            wal.mark_commit_uncertain();
+                            *self.uncertain_commit_sync_error.write() =
+                                Some(sync_c.get_error().unwrap_or(CompletionError::IOError(
+                                    std::io::ErrorKind::Other,
+                                    "sync",
+                                )));
+                            tracing::error!("failed fsync after written WAL commit frame; publishing visible but not durable commit");
                         }
                         commit_info.pending_sync = None;
                     }
@@ -6061,8 +6114,18 @@ impl Pager {
     }
 
     #[instrument(skip_all, level = Level::DEBUG)]
-    pub fn rollback(&self, schema_did_change: bool, connection: &Connection, is_write: bool) {
+    pub fn rollback(
+        &self,
+        schema_did_change: bool,
+        connection: &Connection,
+        is_write: bool,
+    ) -> Result<()> {
         tracing::debug!(schema_did_change);
+        let preservation_result = if is_write {
+            self.save_cursor_positions_for_rollback()
+        } else {
+            Ok(())
+        };
         if is_write {
             let clear_dirty = true;
             // The page cache only needs to be cleared if we are rolling back a write transaction.
@@ -6091,6 +6154,64 @@ impl Pager {
             if let Some(wal) = self.wal.as_ref() {
                 wal.rollback(None);
             }
+        }
+        preservation_result
+    }
+
+    fn save_cursor_positions_for_rollback(&self) -> Result<()> {
+        let snapshot: smallvec::SmallVec<[RegisteredCursor; 8]> = {
+            let registry = self.cursor_registry.lock();
+            registry
+                .values()
+                .flat_map(|bucket| bucket.iter().copied())
+                .collect()
+        };
+        for cursor in snapshot {
+            let saved = self.save_cursor_position_for_rollback(cursor);
+            let saved = match saved {
+                Ok(saved) => saved,
+                Err(error) => {
+                    self.trip_cursors_on_rollback(error.clone());
+                    return Err(error);
+                }
+            };
+            if matches!(saved, super::btree::SavePositionResult::MustInvalidate) {
+                unsafe { cursor.as_mut().trip_on_rollback(LimboError::TxTerminated) };
+            }
+        }
+        Ok(())
+    }
+
+    fn save_cursor_position_for_rollback(
+        &self,
+        cursor: RegisteredCursor,
+    ) -> Result<super::btree::SavePositionResult> {
+        loop {
+            match unsafe { cursor.as_mut().try_save_position_for_external_balance() }? {
+                IOResult::Done(saved) => return Ok(saved),
+                IOResult::IO(pending) => {
+                    let completion = pending.0.clone();
+                    if let Err(error) = pending.wait(self.io.as_ref()) {
+                        let completions = std::slice::from_ref(&completion);
+                        let cancel_result = self.io.cancel(completions);
+                        let drain_result = self.io.drain_completions(completions);
+                        return drain_result.and(cancel_result).and(Err(error));
+                    }
+                }
+            }
+        }
+    }
+
+    fn trip_cursors_on_rollback(&self, error: LimboError) {
+        let snapshot: smallvec::SmallVec<[RegisteredCursor; 8]> = {
+            let registry = self.cursor_registry.lock();
+            registry
+                .values()
+                .flat_map(|bucket| bucket.iter().copied())
+                .collect()
+        };
+        for cursor in snapshot {
+            unsafe { cursor.as_mut().trip_on_rollback(error.clone()) };
         }
     }
 

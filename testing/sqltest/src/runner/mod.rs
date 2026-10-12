@@ -828,6 +828,7 @@ pub struct RunnerConfig {
     /// Path to binary for cross-checking integrity (None = disabled).
     /// Used by tests annotated with `@cross-check-integrity`.
     pub cross_check_binary: Option<PathBuf>,
+    pub skip_matrix: bool,
 }
 
 impl Default for RunnerConfig {
@@ -839,6 +840,7 @@ impl Default for RunnerConfig {
             snapshot_update_mode: SnapshotUpdateMode::Auto,
             snapshot_filter: None,
             cross_check_binary: None,
+            skip_matrix: false,
         }
     }
 }
@@ -871,6 +873,11 @@ impl RunnerConfig {
 
     pub fn with_cross_check_binary(mut self, binary: PathBuf) -> Self {
         self.cross_check_binary = Some(binary);
+        self
+    }
+
+    pub fn with_skip_matrix(mut self, skip_matrix: bool) -> Self {
+        self.skip_matrix = skip_matrix;
         self
     }
 }
@@ -1099,8 +1106,10 @@ impl<B: SqlBackend + 'static> TestRunner<B> {
     ) -> Result<FileResult, BackendError> {
         let start = Instant::now();
         let futures = self.spawn_file_tests(path, test_file);
-        for future in self.spawn_matrix_tests(path, test_file) {
-            futures.push(future);
+        if self.should_run_matrix_tests() {
+            for future in self.spawn_matrix_tests(path, test_file) {
+                futures.push(future);
+            }
         }
         let mut futures = futures;
 
@@ -1131,6 +1140,10 @@ impl<B: SqlBackend + 'static> TestRunner<B> {
             results,
             duration: start.elapsed(),
         })
+    }
+
+    fn should_run_matrix_tests(&self) -> bool {
+        !self.config.skip_matrix
     }
 
     /// Run tests from multiple paths (files or directories) - all in parallel
@@ -1189,10 +1202,10 @@ impl<B: SqlBackend + 'static> TestRunner<B> {
                 all_futures.push(future);
             }
 
-            // Spawn matrix expansions
-            let matrix_futures = self.spawn_matrix_tests(path, test_file);
-            for future in matrix_futures {
-                all_futures.push(future);
+            if self.should_run_matrix_tests() {
+                for future in self.spawn_matrix_tests(path, test_file) {
+                    all_futures.push(future);
+                }
             }
         }
 
@@ -1362,6 +1375,38 @@ pub fn summarize(start: Instant, results: &[FileResult]) -> RunSummary {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backends::rust::RustBackend;
+
+    #[tokio::test]
+    async fn skip_matrix_runs_regular_cases_without_oracle() {
+        let file = crate::parse(
+            "@database :memory:\n@var x { 1 | 2 }\nmatrix oracle-case { SELECT $x; }\ntest regular-case { SELECT 7; }\nexpect { 7 }\n",
+        )
+        .unwrap();
+        assert_eq!(file.matrices.len(), 1);
+        let frozen = TestRunner::new(RustBackend::new());
+        assert!(frozen.should_run_matrix_tests());
+        let skipped = TestRunner::new(RustBackend::new())
+            .with_config(RunnerConfig::default().with_skip_matrix(true));
+        assert!(!skipped.should_run_matrix_tests());
+        let result = skipped
+            .run_file(Path::new("inline.sqltest"), &file)
+            .await
+            .unwrap();
+        assert_eq!(result.results.len(), 1);
+        assert_eq!(result.results[0].name, "regular-case");
+        assert!(matches!(result.results[0].outcome, TestOutcome::Passed));
+
+        let loaded = LoadedTests {
+            files: vec![(PathBuf::from("inline.sqltest"), file)],
+            errors: Vec::new(),
+        };
+        let results = skipped.run_loaded_tests(loaded, |_| {}).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].results.len(), 1);
+        assert_eq!(results[0].results[0].name, "regular-case");
+        assert!(matches!(results[0].results[0].outcome, TestOutcome::Passed));
+    }
 
     #[test]
     fn test_matches_filter_exact() {

@@ -1,6 +1,65 @@
 @database :memory:
 
 @cross-check-integrity
+test create-index-retains-declared-table-name {
+    CREATE TABLE "Mixed Table"(x);
+    CREATE INDEX "MiX Index" ON "mixed table"(x);
+    SELECT name, tbl_name FROM sqlite_schema WHERE type='index';
+}
+expect {
+    MiX Index|Mixed Table
+}
+
+@skip-if sqlite "OPTIMIZE INDEX and index methods are Turso extensions"
+test optimize-index-ignores-name-case {
+    CREATE TABLE docs(id INTEGER PRIMARY KEY, body TEXT);
+    CREATE INDEX "Mixed_Fts" ON docs USING fts(body);
+    INSERT INTO docs VALUES (1, 'searchable content');
+    OPTIMIZE INDEX mixed_fts;
+    SELECT id FROM docs WHERE fts_match(body, 'searchable');
+}
+expect {
+    1
+}
+
+@cross-check-integrity
+test create-index-if-not-exists-ignores-name-case {
+    CREATE TABLE t(a);
+    CREATE INDEX "MiX_Name" ON t(a);
+    CREATE INDEX IF NOT EXISTS mix_name ON t(a);
+    SELECT name FROM sqlite_schema WHERE type='index';
+}
+expect {
+    MiX_Name
+}
+
+@cross-check-integrity
+test create-index-duplicate-name-ignores-case {
+    CREATE TABLE t(a);
+    CREATE INDEX "MiX_Name" ON t(a);
+    CREATE INDEX mix_name ON t(a);
+}
+expect error {
+    index mix_name already exists
+}
+
+test create-index-preserves-declared-index-name-case {
+    CREATE TABLE t(x);
+    CREATE INDEX "My Index" ON t(x);
+    SELECT name,tbl_name FROM sqlite_schema WHERE type='index';
+    PRAGMA index_list('t');
+    PRAGMA index_info('my index');
+    DROP INDEX "MY INDEX";
+    SELECT count(*) FROM sqlite_schema WHERE type='index';
+}
+expect {
+    My Index|t
+    0|My Index|0|c|0
+    0|0|x
+    0
+}
+
+@cross-check-integrity
 test create-index-quoted-identifiers {
     CREATE TABLE "t t" ("a a");
     CREATE INDEX "idx idx" ON "t t" ("a a");

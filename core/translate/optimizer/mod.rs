@@ -1134,6 +1134,7 @@ fn find_select_plan_form(
         &mut plan.offset,
         plan.input_cardinality_hint.unwrap_or(1.0),
         cost_limit,
+        resolver.hash_join_memory_budget,
     )?;
 
     if matches!(plan.simple_aggregate, Some(SimpleAggregate::MinMax(_)))
@@ -1145,7 +1146,14 @@ fn find_select_plan_form(
     }
 
     let table_cost = table_plan.as_ref().map(|table_plan| {
-        table_plan.join.cost + required_group_sort_and_read_cost(plan, table_plan, params)
+        table_plan.join.cost
+            + required_group_sort_and_read_cost(plan, table_plan, params)
+            + required_order_sort_cost(
+                table_plan.join.output_cardinality,
+                !table_plan.sort_eliminated
+                    && order_sort_cost_enabled(table_plan.order_target.as_ref()),
+                params,
+            )
     });
     let mut subquery_calls = table_plan
         .as_ref()
@@ -1230,6 +1238,27 @@ fn find_select_plan_form(
     }
 
     Ok(table_plan)
+}
+
+fn order_sort_cost_enabled(target: Option<&order::OrderTarget>) -> bool {
+    target.is_some_and(|target| {
+        matches!(
+            target.purpose,
+            OrderTargetPurpose::EliminatesSort(EliminatesSortBy::Order)
+        )
+    })
+}
+
+fn required_order_sort_cost(
+    rows: f64,
+    sort_required: bool,
+    params: &cost_params::CostModelParams,
+) -> Cost {
+    if sort_required {
+        estimate_sort_cpu_cost(rows, params)
+    } else {
+        Cost(0.0)
+    }
 }
 
 fn required_group_sort_and_read_cost(
@@ -2407,6 +2436,7 @@ fn optimize_table_access(
         offset,
         initial_input_cardinality,
         None,
+        resolver.hash_join_memory_budget,
     )?
     else {
         return Ok(None);
@@ -2442,6 +2472,7 @@ fn find_table_access_plan(
     offset: &mut Option<Box<Expr>>,
     initial_input_cardinality: f64,
     cost_limit: Option<Cost>,
+    hash_join_memory_budget: usize,
 ) -> Result<Option<TableAccessPlan>> {
     // When optimizer_params feature is enabled, use lazily-loaded params (cached process-wide).
     // Otherwise, use the compile-time static for zero overhead.
@@ -2597,7 +2628,9 @@ fn find_table_access_plan(
 
     let planning_context = JoinPlanningContext {
         maybe_order_target: maybe_order_target.as_ref(),
+        require_ordered_access: false,
         cost_limit,
+        hash_join_memory_budget,
     };
 
     let Some(best_join_order_result) = compute_best_join_order_with_context(
@@ -2631,8 +2664,27 @@ fn find_table_access_plan(
         let best_unordered_plan_cost = best_plan.cost;
         let best_ordered_plan_cost = best_ordered_plan.cost;
         const SORT_COST_PER_ROW_MULTIPLIER: f64 = 0.001;
-        let sorting_penalty = Cost(best_plan.output_cardinality * SORT_COST_PER_ROW_MULTIPLIER);
-        if best_unordered_plan_cost + sorting_penalty > best_ordered_plan_cost {
+        let order_cost_enabled = order_sort_cost_enabled(maybe_order_target.as_ref());
+        let sorting_penalty = if order_cost_enabled {
+            required_order_sort_cost(
+                best_plan.output_cardinality,
+                !plan_satisfies_order_target(
+                    &best_plan,
+                    &access_methods_arena,
+                    table_references.joined_tables(),
+                    &constraints_per_table,
+                    maybe_order_target.as_ref().unwrap(),
+                    schema,
+                ),
+                params,
+            )
+        } else {
+            Cost(best_plan.output_cardinality * SORT_COST_PER_ROW_MULTIPLIER)
+        };
+        if best_unordered_plan_cost + sorting_penalty > best_ordered_plan_cost
+            || (order_cost_enabled
+                && best_unordered_plan_cost + sorting_penalty == best_ordered_plan_cost)
+        {
             best_ordered_plan
         } else {
             best_plan
@@ -4399,6 +4451,44 @@ mod tests {
     use crate::{schema::Schema, DatabaseCatalog, RwLock, SymbolTable};
     use rustc_hash::FxHashMap as HashMap;
     use turso_parser::ast::{self, Expr, FunctionTail, Name, TableInternalId};
+
+    #[test]
+    fn order_sort_accounting_preserves_other_planning_objectives() {
+        use super::order::{EliminatesSortBy, OrderTarget, OrderTargetPurpose};
+
+        assert!(!super::order_sort_cost_enabled(None));
+        for purpose in [
+            OrderTargetPurpose::Extremum,
+            OrderTargetPurpose::EliminatesSort(EliminatesSortBy::Group),
+            OrderTargetPurpose::EliminatesSort(EliminatesSortBy::GroupByAndOrder),
+        ] {
+            let target = OrderTarget {
+                columns: Vec::new(),
+                purpose,
+            };
+            assert!(!super::order_sort_cost_enabled(Some(&target)));
+        }
+        let target = OrderTarget {
+            columns: Vec::new(),
+            purpose: OrderTargetPurpose::EliminatesSort(EliminatesSortBy::Order),
+        };
+        assert!(super::order_sort_cost_enabled(Some(&target)));
+    }
+
+    #[test]
+    fn order_sort_accounting_uses_configured_full_input_cost() {
+        let mut params = super::cost_params::DEFAULT_PARAMS.clone();
+        params.sort_cpu_per_row = 0.125;
+        assert_eq!(
+            super::required_order_sort_cost(1024.0, true, &params).0,
+            1280.0
+        );
+        assert_eq!(
+            super::required_order_sort_cost(1024.0, false, &params).0,
+            0.0
+        );
+        assert_eq!(super::required_order_sort_cost(1.0, true, &params).0, 0.0);
+    }
 
     fn empty_resolver<'a>(
         schema: &'a Schema,

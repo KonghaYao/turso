@@ -23,7 +23,6 @@ use crate::translate::plan::{
 };
 use crate::util::exprs_are_equivalent;
 use crate::vdbe::affinity::Affinity;
-use crate::vdbe::hash_table::DEFAULT_MEM_BUDGET;
 use crate::{
     schema::{FromClauseSubquery, Index, IndexColumn, Table},
     translate::plan::{IndexMethodQuery, IterationDirection, JoinOrderMember, JoinedTable},
@@ -205,11 +204,45 @@ pub(super) fn choose_best_btree_candidate(
     base_row_count: RowCountEstimate,
     params: &CostModelParams,
 ) -> Result<Option<ChosenBtreeCandidate>> {
+    choose_btree_candidate(
+        rhs_table,
+        rhs_constraints,
+        lhs_mask,
+        rhs_table_idx,
+        maybe_order_target,
+        schema,
+        available_indexes,
+        analyze_stats,
+        input_cardinality,
+        base_row_count,
+        params,
+        false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn choose_btree_candidate(
+    rhs_table: &JoinedTable,
+    rhs_constraints: &TableConstraints,
+    lhs_mask: &TableMask,
+    rhs_table_idx: usize,
+    maybe_order_target: Option<&OrderTarget>,
+    schema: &Schema,
+    available_indexes: &AvailableIndexes,
+    analyze_stats: &AnalyzeStats,
+    input_cardinality: f64,
+    base_row_count: RowCountEstimate,
+    params: &CostModelParams,
+    require_order: bool,
+) -> Result<Option<ChosenBtreeCandidate>> {
+    if require_order && !super::order_sort_cost_enabled(maybe_order_target) {
+        return Ok(None);
+    }
     // Seed the baseline with a table scan only if a rowid candidate exists
     // (i.e. no INDEXED BY has removed it). Otherwise start at infinite cost
     // so the forced index candidate always wins.
     let has_rowid_candidate = rhs_constraints.candidates.iter().any(|c| c.index.is_none());
-    let mut best_cost = if has_rowid_candidate {
+    let mut best_cost = if has_rowid_candidate && !require_order {
         estimate_cost_for_scan_or_seek(
             None,
             &[],
@@ -317,6 +350,9 @@ pub(super) fn choose_best_btree_candidate(
             } else {
                 (IterationDirection::Forwards, false, Cost(0.0))
             };
+        if require_order && !is_index_ordered {
+            continue;
+        }
 
         let analyze_ctx = AnalyzeCtx {
             rhs_table,
@@ -432,7 +468,7 @@ pub(super) fn choose_best_btree_candidate(
         // Only apply the order bonus when this candidate satisfies order but
         // the current best does not. When both satisfy order, switching saves
         // no additional sort cost.
-        let effective_bonus = if is_index_ordered && !best_is_ordered {
+        let effective_bonus = if !require_order && is_index_ordered && !best_is_ordered {
             order_satisfiability_bonus
         } else {
             Cost(0.0)
@@ -453,7 +489,11 @@ pub(super) fn choose_best_btree_candidate(
         }
     }
 
-    Ok(Some(best_choice))
+    if require_order && !best_is_ordered {
+        Ok(None)
+    } else {
+        Ok(Some(best_choice))
+    }
 }
 
 fn consumed_where_terms_from_constraint_refs(
@@ -749,6 +789,16 @@ pub fn find_best_access_method_for_join_order(
     base_row_count: RowCountEstimate,
     params: &CostModelParams,
 ) -> Result<Option<AccessMethod>> {
+    if planning_context.require_ordered_access
+        && (!matches!(rhs_table.table, Table::BTree(_))
+            || !super::order_sort_cost_enabled(planning_context.maybe_order_target)
+            || rhs_table
+                .join_info
+                .as_ref()
+                .is_some_and(|join| join.is_full_outer()))
+    {
+        return Ok(None);
+    }
     match &rhs_table.table {
         Table::BTree(_) => find_best_access_method_for_btree(
             rhs_table,
@@ -766,6 +816,7 @@ pub fn find_best_access_method_for_join_order(
             input_cardinality,
             base_row_count,
             params,
+            planning_context.require_ordered_access,
         ),
         Table::Virtual(vtab) => find_best_access_method_for_vtab(
             vtab,
@@ -822,9 +873,10 @@ fn find_best_access_method_for_btree(
     input_cardinality: f64,
     base_row_count: RowCountEstimate,
     params: &CostModelParams,
+    require_ordered_access: bool,
 ) -> Result<Option<AccessMethod>> {
     let rhs_table_idx = join_order.last().unwrap().original_idx;
-    let best = choose_best_btree_candidate(
+    let Some(best) = choose_btree_candidate(
         rhs_table,
         rhs_constraints,
         lhs_mask,
@@ -836,8 +888,11 @@ fn find_best_access_method_for_btree(
         input_cardinality,
         base_row_count,
         params,
+        require_ordered_access,
     )?
-    .expect("btree candidate selection must always consider the rowid candidate");
+    else {
+        return Ok(None);
+    };
 
     let access_base_row_count = best.base_row_count;
     let estimated_rows_per_outer_row = if best.constraint_refs.is_empty() {
@@ -897,6 +952,9 @@ fn find_best_access_method_for_btree(
             constraint_refs: best.constraint_refs.into_vec(),
         },
     };
+    if require_ordered_access {
+        return Ok(Some(best_access_method));
+    }
     let mut best_cost_with_filters =
         cost_with_where_work(&best_access_method, ready_where, input_cardinality, params);
 
@@ -1307,6 +1365,7 @@ pub fn try_hash_join_access_method(
     probe_multiplier: f64,
     hash_can_replace_build_index: bool,
     subqueries: &[NonFromClauseSubquery],
+    mem_budget: usize,
     params: &CostModelParams,
 ) -> Result<Option<AccessMethod>> {
     let hash_join_type = hash_join_type(probe_table);
@@ -1424,7 +1483,7 @@ pub fn try_hash_join_access_method(
         probe_cardinality,
         build_cardinality * estimated_rows_per_outer_row * probe_multiplier,
         hash_join_type,
-        DEFAULT_MEM_BUDGET,
+        mem_budget,
         probe_multiplier,
         params,
     );
@@ -1439,7 +1498,7 @@ pub fn try_hash_join_access_method(
             build_table_idx,
             probe_table_idx,
             join_keys: join_keys.into_vec(),
-            mem_budget: DEFAULT_MEM_BUDGET,
+            mem_budget,
             materialize_build_input: false,
             use_bloom_filter: false,
             join_type: hash_join_type,

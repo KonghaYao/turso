@@ -1,9 +1,12 @@
 mod abandoned_create_index;
 mod abandoned_statement_pager;
+mod active_select_delete;
+mod active_select_rollback;
 mod assert_details;
 #[macro_use]
 mod assertions;
 mod attach;
+mod aux_wal_contract;
 mod checkpoint_crash_atomicity;
 mod common;
 mod conflict_resolution;
@@ -22,6 +25,7 @@ mod query_processing;
 mod query_timeout;
 mod queued_io;
 mod reindex;
+mod rename_views;
 mod statement_metadata;
 mod statement_reset;
 mod stmt_journal;
@@ -29,6 +33,7 @@ mod stmt_readonly;
 mod storage;
 mod suspended_statement_checkpoint;
 mod trigger;
+mod ungrouped_having;
 mod unreliable_io;
 mod views;
 mod wal;

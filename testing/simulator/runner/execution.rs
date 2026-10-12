@@ -348,7 +348,7 @@ fn finish_turso_query(
             {
                 ExecutionContinuation::NextInteraction
             }
-            LimboError::Constraint(_) => {
+            LimboError::Constraint(_) | LimboError::ConstraintWithCode { .. } => {
                 let shadow_result =
                     interaction.shadow(&mut env.get_conn_tables_mut(connection_index));
                 if shadow_result.is_ok() {

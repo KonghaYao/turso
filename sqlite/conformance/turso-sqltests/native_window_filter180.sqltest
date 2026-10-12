@@ -1,0 +1,2437 @@
+@database :memory:
+
+# Complete original 180-product including 15 illegal frame-bound cases.
+setup anchored_filtered {
+    CREATE TABLE tf(k INT, v INT);
+    INSERT INTO tf VALUES (1,10),(2,20),(3,30),(4,40),(5,50),(6,60),(7,70);
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m0-s0-e0 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20
+    3|20
+    4|60
+    5|60
+    6|120
+    7|120
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m0-s0-e1 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|60
+    3|60
+    4|120
+    5|120
+    6|120
+    7|120
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m0-s0-e2 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|120
+    2|120
+    3|120
+    4|120
+    5|120
+    6|120
+    7|120
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m0-s1-e0 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20
+    3|20
+    4|60
+    5|40
+    6|100
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m0-s1-e1 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 2 PRECEDING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|60
+    3|60
+    4|120
+    5|100
+    6|100
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m0-s1-e2 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|120
+    2|120
+    3|120
+    4|120
+    5|100
+    6|100
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m0-s2-e0 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN CURRENT ROW AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20
+    3|
+    4|40
+    5|
+    6|60
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m0-s2-e1 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|60
+    3|40
+    4|100
+    5|60
+    6|60
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m0-s2-e2 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|120
+    2|120
+    3|100
+    4|100
+    5|60
+    6|60
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m0-s3-e0 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 1 FOLLOWING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect error {
+    unsupported frame specification
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m0-s3-e1 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 1 FOLLOWING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|40
+    3|40
+    4|60
+    5|60
+    6|
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m0-s3-e2 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|120
+    2|100
+    3|100
+    4|60
+    5|60
+    6|
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m1-s0-e0 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20
+    3|20
+    4|60
+    5|60
+    6|120
+    7|120
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m1-s0-e1 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|60
+    3|60
+    4|120
+    5|120
+    6|120
+    7|120
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m1-s0-e2 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|120
+    2|120
+    3|120
+    4|120
+    5|120
+    6|120
+    7|120
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m1-s1-e0 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 2 PRECEDING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20
+    3|20
+    4|60
+    5|40
+    6|100
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m1-s1-e1 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 2 PRECEDING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|60
+    3|60
+    4|120
+    5|100
+    6|100
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m1-s1-e2 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|120
+    2|120
+    3|120
+    4|120
+    5|100
+    6|100
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m1-s2-e0 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN CURRENT ROW AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20
+    3|
+    4|40
+    5|
+    6|60
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m1-s2-e1 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN CURRENT ROW AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|60
+    3|40
+    4|100
+    5|60
+    6|60
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m1-s2-e2 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|120
+    2|120
+    3|100
+    4|100
+    5|60
+    6|60
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m1-s3-e0 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect error {
+    unsupported frame specification
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m1-s3-e1 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|40
+    3|40
+    4|60
+    5|60
+    6|
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m1-s3-e2 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|120
+    2|100
+    3|100
+    4|60
+    5|60
+    6|
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m2-s0-e0 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20
+    3|20
+    4|60
+    5|60
+    6|120
+    7|120
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m2-s0-e1 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|60
+    3|60
+    4|120
+    5|120
+    6|120
+    7|120
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m2-s0-e2 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|120
+    2|120
+    3|120
+    4|120
+    5|120
+    6|120
+    7|120
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m2-s1-e0 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 2 PRECEDING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20
+    3|20
+    4|60
+    5|40
+    6|100
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m2-s1-e1 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 2 PRECEDING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|60
+    3|60
+    4|120
+    5|100
+    6|100
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m2-s1-e2 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|120
+    2|120
+    3|120
+    4|120
+    5|100
+    6|100
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m2-s2-e0 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN CURRENT ROW AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20
+    3|
+    4|40
+    5|
+    6|60
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m2-s2-e1 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN CURRENT ROW AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|60
+    3|40
+    4|100
+    5|60
+    6|60
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m2-s2-e2 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|120
+    2|120
+    3|100
+    4|100
+    5|60
+    6|60
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m2-s3-e0 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect error {
+    unsupported frame specification
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m2-s3-e1 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|40
+    3|40
+    4|60
+    5|60
+    6|
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f0-m2-s3-e2 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|120
+    2|100
+    3|100
+    4|60
+    5|60
+    6|
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m0-s0-e0 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|0
+    2|1
+    3|1
+    4|2
+    5|2
+    6|3
+    7|3
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m0-s0-e1 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|1
+    2|2
+    3|2
+    4|3
+    5|3
+    6|3
+    7|3
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m0-s0-e2 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|3
+    2|3
+    3|3
+    4|3
+    5|3
+    6|3
+    7|3
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m0-s1-e0 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|0
+    2|1
+    3|1
+    4|2
+    5|1
+    6|2
+    7|1
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m0-s1-e1 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 2 PRECEDING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|1
+    2|2
+    3|2
+    4|3
+    5|2
+    6|2
+    7|1
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m0-s1-e2 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|3
+    2|3
+    3|3
+    4|3
+    5|2
+    6|2
+    7|1
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m0-s2-e0 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN CURRENT ROW AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|0
+    2|1
+    3|0
+    4|1
+    5|0
+    6|1
+    7|0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m0-s2-e1 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|1
+    2|2
+    3|1
+    4|2
+    5|1
+    6|1
+    7|0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m0-s2-e2 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|3
+    2|3
+    3|2
+    4|2
+    5|1
+    6|1
+    7|0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m0-s3-e0 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 1 FOLLOWING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect error {
+    unsupported frame specification
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m0-s3-e1 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 1 FOLLOWING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|1
+    2|1
+    3|1
+    4|1
+    5|1
+    6|0
+    7|0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m0-s3-e2 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|3
+    2|2
+    3|2
+    4|1
+    5|1
+    6|0
+    7|0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m1-s0-e0 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|0
+    2|1
+    3|1
+    4|2
+    5|2
+    6|3
+    7|3
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m1-s0-e1 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|1
+    2|2
+    3|2
+    4|3
+    5|3
+    6|3
+    7|3
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m1-s0-e2 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|3
+    2|3
+    3|3
+    4|3
+    5|3
+    6|3
+    7|3
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m1-s1-e0 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 2 PRECEDING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|0
+    2|1
+    3|1
+    4|2
+    5|1
+    6|2
+    7|1
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m1-s1-e1 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 2 PRECEDING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|1
+    2|2
+    3|2
+    4|3
+    5|2
+    6|2
+    7|1
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m1-s1-e2 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|3
+    2|3
+    3|3
+    4|3
+    5|2
+    6|2
+    7|1
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m1-s2-e0 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN CURRENT ROW AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|0
+    2|1
+    3|0
+    4|1
+    5|0
+    6|1
+    7|0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m1-s2-e1 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN CURRENT ROW AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|1
+    2|2
+    3|1
+    4|2
+    5|1
+    6|1
+    7|0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m1-s2-e2 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|3
+    2|3
+    3|2
+    4|2
+    5|1
+    6|1
+    7|0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m1-s3-e0 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect error {
+    unsupported frame specification
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m1-s3-e1 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|1
+    2|1
+    3|1
+    4|1
+    5|1
+    6|0
+    7|0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m1-s3-e2 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|3
+    2|2
+    3|2
+    4|1
+    5|1
+    6|0
+    7|0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m2-s0-e0 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|0
+    2|1
+    3|1
+    4|2
+    5|2
+    6|3
+    7|3
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m2-s0-e1 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|1
+    2|2
+    3|2
+    4|3
+    5|3
+    6|3
+    7|3
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m2-s0-e2 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|3
+    2|3
+    3|3
+    4|3
+    5|3
+    6|3
+    7|3
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m2-s1-e0 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 2 PRECEDING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|0
+    2|1
+    3|1
+    4|2
+    5|1
+    6|2
+    7|1
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m2-s1-e1 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 2 PRECEDING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|1
+    2|2
+    3|2
+    4|3
+    5|2
+    6|2
+    7|1
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m2-s1-e2 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|3
+    2|3
+    3|3
+    4|3
+    5|2
+    6|2
+    7|1
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m2-s2-e0 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN CURRENT ROW AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|0
+    2|1
+    3|0
+    4|1
+    5|0
+    6|1
+    7|0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m2-s2-e1 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN CURRENT ROW AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|1
+    2|2
+    3|1
+    4|2
+    5|1
+    6|1
+    7|0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m2-s2-e2 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|3
+    2|3
+    3|2
+    4|2
+    5|1
+    6|1
+    7|0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m2-s3-e0 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect error {
+    unsupported frame specification
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m2-s3-e1 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|1
+    2|1
+    3|1
+    4|1
+    5|1
+    6|0
+    7|0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f1-m2-s3-e2 {
+    SELECT k, count(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|3
+    2|2
+    3|2
+    4|1
+    5|1
+    6|0
+    7|0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m0-s0-e0 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20
+    3|20
+    4|20
+    5|20
+    6|20
+    7|20
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m0-s0-e1 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|20
+    3|20
+    4|20
+    5|20
+    6|20
+    7|20
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m0-s0-e2 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|20
+    3|20
+    4|20
+    5|20
+    6|20
+    7|20
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m0-s1-e0 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20
+    3|20
+    4|20
+    5|40
+    6|40
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m0-s1-e1 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 2 PRECEDING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|20
+    3|20
+    4|20
+    5|40
+    6|40
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m0-s1-e2 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|20
+    3|20
+    4|20
+    5|40
+    6|40
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m0-s2-e0 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN CURRENT ROW AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20
+    3|
+    4|40
+    5|
+    6|60
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m0-s2-e1 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|20
+    3|40
+    4|40
+    5|60
+    6|60
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m0-s2-e2 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|20
+    3|40
+    4|40
+    5|60
+    6|60
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m0-s3-e0 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 1 FOLLOWING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect error {
+    unsupported frame specification
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m0-s3-e1 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 1 FOLLOWING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|40
+    3|40
+    4|60
+    5|60
+    6|
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m0-s3-e2 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|40
+    3|40
+    4|60
+    5|60
+    6|
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m1-s0-e0 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20
+    3|20
+    4|20
+    5|20
+    6|20
+    7|20
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m1-s0-e1 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|20
+    3|20
+    4|20
+    5|20
+    6|20
+    7|20
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m1-s0-e2 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|20
+    3|20
+    4|20
+    5|20
+    6|20
+    7|20
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m1-s1-e0 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 2 PRECEDING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20
+    3|20
+    4|20
+    5|40
+    6|40
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m1-s1-e1 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 2 PRECEDING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|20
+    3|20
+    4|20
+    5|40
+    6|40
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m1-s1-e2 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|20
+    3|20
+    4|20
+    5|40
+    6|40
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m1-s2-e0 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN CURRENT ROW AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20
+    3|
+    4|40
+    5|
+    6|60
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m1-s2-e1 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN CURRENT ROW AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|20
+    3|40
+    4|40
+    5|60
+    6|60
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m1-s2-e2 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|20
+    3|40
+    4|40
+    5|60
+    6|60
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m1-s3-e0 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect error {
+    unsupported frame specification
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m1-s3-e1 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|40
+    3|40
+    4|60
+    5|60
+    6|
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m1-s3-e2 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|40
+    3|40
+    4|60
+    5|60
+    6|
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m2-s0-e0 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20
+    3|20
+    4|20
+    5|20
+    6|20
+    7|20
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m2-s0-e1 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|20
+    3|20
+    4|20
+    5|20
+    6|20
+    7|20
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m2-s0-e2 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|20
+    3|20
+    4|20
+    5|20
+    6|20
+    7|20
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m2-s1-e0 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 2 PRECEDING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20
+    3|20
+    4|20
+    5|40
+    6|40
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m2-s1-e1 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 2 PRECEDING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|20
+    3|20
+    4|20
+    5|40
+    6|40
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m2-s1-e2 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|20
+    3|20
+    4|20
+    5|40
+    6|40
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m2-s2-e0 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN CURRENT ROW AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20
+    3|
+    4|40
+    5|
+    6|60
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m2-s2-e1 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN CURRENT ROW AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|20
+    3|40
+    4|40
+    5|60
+    6|60
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m2-s2-e2 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|20
+    3|40
+    4|40
+    5|60
+    6|60
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m2-s3-e0 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect error {
+    unsupported frame specification
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m2-s3-e1 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|40
+    3|40
+    4|60
+    5|60
+    6|
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f2-m2-s3-e2 {
+    SELECT k, min(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|40
+    3|40
+    4|60
+    5|60
+    6|
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m0-s0-e0 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20
+    3|20
+    4|40
+    5|40
+    6|60
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m0-s0-e1 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|40
+    3|40
+    4|60
+    5|60
+    6|60
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m0-s0-e2 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|60
+    2|60
+    3|60
+    4|60
+    5|60
+    6|60
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m0-s1-e0 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20
+    3|20
+    4|40
+    5|40
+    6|60
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m0-s1-e1 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 2 PRECEDING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|40
+    3|40
+    4|60
+    5|60
+    6|60
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m0-s1-e2 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|60
+    2|60
+    3|60
+    4|60
+    5|60
+    6|60
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m0-s2-e0 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN CURRENT ROW AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20
+    3|
+    4|40
+    5|
+    6|60
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m0-s2-e1 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|40
+    3|40
+    4|60
+    5|60
+    6|60
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m0-s2-e2 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|60
+    2|60
+    3|60
+    4|60
+    5|60
+    6|60
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m0-s3-e0 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 1 FOLLOWING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect error {
+    unsupported frame specification
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m0-s3-e1 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 1 FOLLOWING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|40
+    3|40
+    4|60
+    5|60
+    6|
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m0-s3-e2 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|60
+    2|60
+    3|60
+    4|60
+    5|60
+    6|
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m1-s0-e0 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20
+    3|20
+    4|40
+    5|40
+    6|60
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m1-s0-e1 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|40
+    3|40
+    4|60
+    5|60
+    6|60
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m1-s0-e2 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|60
+    2|60
+    3|60
+    4|60
+    5|60
+    6|60
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m1-s1-e0 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 2 PRECEDING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20
+    3|20
+    4|40
+    5|40
+    6|60
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m1-s1-e1 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 2 PRECEDING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|40
+    3|40
+    4|60
+    5|60
+    6|60
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m1-s1-e2 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|60
+    2|60
+    3|60
+    4|60
+    5|60
+    6|60
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m1-s2-e0 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN CURRENT ROW AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20
+    3|
+    4|40
+    5|
+    6|60
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m1-s2-e1 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN CURRENT ROW AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|40
+    3|40
+    4|60
+    5|60
+    6|60
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m1-s2-e2 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|60
+    2|60
+    3|60
+    4|60
+    5|60
+    6|60
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m1-s3-e0 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect error {
+    unsupported frame specification
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m1-s3-e1 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|40
+    3|40
+    4|60
+    5|60
+    6|
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m1-s3-e2 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|60
+    2|60
+    3|60
+    4|60
+    5|60
+    6|
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m2-s0-e0 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20
+    3|20
+    4|40
+    5|40
+    6|60
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m2-s0-e1 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|40
+    3|40
+    4|60
+    5|60
+    6|60
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m2-s0-e2 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|60
+    2|60
+    3|60
+    4|60
+    5|60
+    6|60
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m2-s1-e0 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 2 PRECEDING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20
+    3|20
+    4|40
+    5|40
+    6|60
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m2-s1-e1 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 2 PRECEDING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|40
+    3|40
+    4|60
+    5|60
+    6|60
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m2-s1-e2 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|60
+    2|60
+    3|60
+    4|60
+    5|60
+    6|60
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m2-s2-e0 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN CURRENT ROW AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20
+    3|
+    4|40
+    5|
+    6|60
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m2-s2-e1 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN CURRENT ROW AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|40
+    3|40
+    4|60
+    5|60
+    6|60
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m2-s2-e2 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|60
+    2|60
+    3|60
+    4|60
+    5|60
+    6|60
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m2-s3-e0 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect error {
+    unsupported frame specification
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m2-s3-e1 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|40
+    3|40
+    4|60
+    5|60
+    6|
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f3-m2-s3-e2 {
+    SELECT k, max(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|60
+    2|60
+    3|60
+    4|60
+    5|60
+    6|
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m0-s0-e0 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20.0
+    3|20.0
+    4|30.0
+    5|30.0
+    6|40.0
+    7|40.0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m0-s0-e1 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20.0
+    2|30.0
+    3|30.0
+    4|40.0
+    5|40.0
+    6|40.0
+    7|40.0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m0-s0-e2 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|40.0
+    2|40.0
+    3|40.0
+    4|40.0
+    5|40.0
+    6|40.0
+    7|40.0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m0-s1-e0 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20.0
+    3|20.0
+    4|30.0
+    5|40.0
+    6|50.0
+    7|60.0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m0-s1-e1 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 2 PRECEDING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20.0
+    2|30.0
+    3|30.0
+    4|40.0
+    5|50.0
+    6|50.0
+    7|60.0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m0-s1-e2 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|40.0
+    2|40.0
+    3|40.0
+    4|40.0
+    5|50.0
+    6|50.0
+    7|60.0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m0-s2-e0 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN CURRENT ROW AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20.0
+    3|
+    4|40.0
+    5|
+    6|60.0
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m0-s2-e1 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN CURRENT ROW AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20.0
+    2|30.0
+    3|40.0
+    4|50.0
+    5|60.0
+    6|60.0
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m0-s2-e2 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|40.0
+    2|40.0
+    3|50.0
+    4|50.0
+    5|60.0
+    6|60.0
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m0-s3-e0 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 1 FOLLOWING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect error {
+    unsupported frame specification
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m0-s3-e1 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 1 FOLLOWING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20.0
+    2|40.0
+    3|40.0
+    4|60.0
+    5|60.0
+    6|
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m0-s3-e2 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|40.0
+    2|50.0
+    3|50.0
+    4|60.0
+    5|60.0
+    6|
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m1-s0-e0 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20.0
+    3|20.0
+    4|30.0
+    5|30.0
+    6|40.0
+    7|40.0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m1-s0-e1 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20.0
+    2|30.0
+    3|30.0
+    4|40.0
+    5|40.0
+    6|40.0
+    7|40.0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m1-s0-e2 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|40.0
+    2|40.0
+    3|40.0
+    4|40.0
+    5|40.0
+    6|40.0
+    7|40.0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m1-s1-e0 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 2 PRECEDING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20.0
+    3|20.0
+    4|30.0
+    5|40.0
+    6|50.0
+    7|60.0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m1-s1-e1 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 2 PRECEDING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20.0
+    2|30.0
+    3|30.0
+    4|40.0
+    5|50.0
+    6|50.0
+    7|60.0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m1-s1-e2 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|40.0
+    2|40.0
+    3|40.0
+    4|40.0
+    5|50.0
+    6|50.0
+    7|60.0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m1-s2-e0 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN CURRENT ROW AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20.0
+    3|
+    4|40.0
+    5|
+    6|60.0
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m1-s2-e1 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN CURRENT ROW AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20.0
+    2|30.0
+    3|40.0
+    4|50.0
+    5|60.0
+    6|60.0
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m1-s2-e2 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|40.0
+    2|40.0
+    3|50.0
+    4|50.0
+    5|60.0
+    6|60.0
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m1-s3-e0 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect error {
+    unsupported frame specification
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m1-s3-e1 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20.0
+    2|40.0
+    3|40.0
+    4|60.0
+    5|60.0
+    6|
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m1-s3-e2 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|40.0
+    2|50.0
+    3|50.0
+    4|60.0
+    5|60.0
+    6|
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m2-s0-e0 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20.0
+    3|20.0
+    4|30.0
+    5|30.0
+    6|40.0
+    7|40.0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m2-s0-e1 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20.0
+    2|30.0
+    3|30.0
+    4|40.0
+    5|40.0
+    6|40.0
+    7|40.0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m2-s0-e2 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|40.0
+    2|40.0
+    3|40.0
+    4|40.0
+    5|40.0
+    6|40.0
+    7|40.0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m2-s1-e0 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 2 PRECEDING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20.0
+    3|20.0
+    4|30.0
+    5|40.0
+    6|50.0
+    7|60.0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m2-s1-e1 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 2 PRECEDING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20.0
+    2|30.0
+    3|30.0
+    4|40.0
+    5|50.0
+    6|50.0
+    7|60.0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m2-s1-e2 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 2 PRECEDING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|40.0
+    2|40.0
+    3|40.0
+    4|40.0
+    5|50.0
+    6|50.0
+    7|60.0
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m2-s2-e0 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN CURRENT ROW AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|
+    2|20.0
+    3|
+    4|40.0
+    5|
+    6|60.0
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m2-s2-e1 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN CURRENT ROW AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20.0
+    2|30.0
+    3|40.0
+    4|50.0
+    5|60.0
+    6|60.0
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m2-s2-e2 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|40.0
+    2|40.0
+    3|50.0
+    4|50.0
+    5|60.0
+    6|60.0
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m2-s3-e0 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND CURRENT ROW) FROM tf ORDER BY k;
+}
+expect error {
+    unsupported frame specification
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m2-s3-e1 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND 2 FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|20.0
+    2|40.0
+    3|40.0
+    4|60.0
+    5|60.0
+    6|
+    7|
+}
+
+@setup anchored_filtered
+test anchored-window-filter-f4-m2-s3-e2 {
+    SELECT k, avg(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING) FROM tf ORDER BY k;
+}
+expect {
+    1|40.0
+    2|50.0
+    3|50.0
+    4|60.0
+    5|60.0
+    6|
+    7|
+}

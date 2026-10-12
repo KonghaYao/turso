@@ -1,0 +1,980 @@
+@database :memory:
+
+# 54 exact original mixed-type SQL expansions; binary blob controls are literal U+0001/U+0002.
+setup mixed_types {
+    CREATE TABLE tm(x);
+    INSERT INTO tm VALUES (NULL),(1),(2.5),(2),('t'),('T'),(x'01'),(x'0102');
+}
+
+
+@setup mixed_types
+test fixed-original-mixed-m0-s0-e0-d0 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    ORDER BY x ASC;
+}
+expect {
+    null|1||
+    integer|2|1|1
+    integer|3|1|2
+    real|4|1|2.5
+    text|5|1|T
+    text|6|1|t
+    blob|7|1|
+    blob|8|1|
+}
+
+@setup mixed_types
+test fixed-original-mixed-m0-s0-e0-d1 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x DESC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    ORDER BY x DESC;
+}
+expect {
+    blob|1||
+    blob|2||
+    text|3|t|
+    text|4|T|
+    real|5|2.5|
+    integer|6|2|
+    integer|7|1|
+    null|8|1|
+}
+
+@setup mixed_types
+test fixed-original-mixed-m0-s0-e1-d0 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x ASC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING)
+    ORDER BY x ASC;
+}
+expect {
+    null|2|1|1
+    integer|3|1|2
+    integer|4|1|2.5
+    real|5|1|T
+    text|6|1|t
+    text|7|1|
+    blob|8|1|
+    blob|8|1|
+}
+
+@setup mixed_types
+test fixed-original-mixed-m0-s0-e1-d1 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING)
+    ORDER BY x DESC;
+}
+expect {
+    blob|2||
+    blob|3|t|
+    text|4|T|
+    text|5|2.5|
+    real|6|2|
+    integer|7|1|
+    integer|8|1|
+    null|8|1|
+}
+
+@setup mixed_types
+test fixed-original-mixed-m0-s0-e2-d0 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY x ASC;
+}
+expect {
+    null|8|1|
+    integer|8|1|
+    integer|8|1|
+    real|8|1|
+    text|8|1|
+    text|8|1|
+    blob|8|1|
+    blob|8|1|
+}
+
+@setup mixed_types
+test fixed-original-mixed-m0-s0-e2-d1 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x DESC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY x DESC;
+}
+expect {
+    blob|8|1|
+    blob|8|1|
+    text|8|1|
+    text|8|1|
+    real|8|1|
+    integer|8|1|
+    integer|8|1|
+    null|8|1|
+}
+
+@setup mixed_types
+test fixed-original-mixed-m0-s1-e0-d0 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)
+    ORDER BY x ASC;
+}
+expect {
+    null|1||
+    integer|2|1|1
+    integer|2|1|2
+    real|2|2|2.5
+    text|2|2.5|T
+    text|2|T|t
+    blob|2|t|
+    blob|2||
+}
+
+@setup mixed_types
+test fixed-original-mixed-m0-s1-e0-d1 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x DESC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)
+    ORDER BY x DESC;
+}
+expect {
+    blob|1||
+    blob|2||
+    text|2|t|
+    text|2|T|t
+    real|2|2.5|T
+    integer|2|2|2.5
+    integer|2|1|2
+    null|2|1|1
+}
+
+@setup mixed_types
+test fixed-original-mixed-m0-s1-e1-d0 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x ASC ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING)
+    ORDER BY x ASC;
+}
+expect {
+    null|2|1|1
+    integer|3|1|2
+    integer|3|1|2.5
+    real|3|2|T
+    text|3|2.5|t
+    text|3|T|
+    blob|3|t|
+    blob|2||
+}
+
+@setup mixed_types
+test fixed-original-mixed-m0-s1-e1-d1 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x DESC ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING)
+    ORDER BY x DESC;
+}
+expect {
+    blob|2||
+    blob|3|t|
+    text|3|T|
+    text|3|2.5|t
+    real|3|2|T
+    integer|3|1|2.5
+    integer|3|1|2
+    null|2|1|1
+}
+
+@setup mixed_types
+test fixed-original-mixed-m0-s1-e2-d0 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x ASC ROWS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY x ASC;
+}
+expect {
+    null|8|1|
+    integer|8|1|
+    integer|7|1|
+    real|6|2|
+    text|5|2.5|
+    text|4|T|
+    blob|3|t|
+    blob|2||
+}
+
+@setup mixed_types
+test fixed-original-mixed-m0-s1-e2-d1 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x DESC ROWS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY x DESC;
+}
+expect {
+    blob|8|1|
+    blob|8|1|
+    text|7|1|
+    text|6|1|t
+    real|5|1|T
+    integer|4|1|2.5
+    integer|3|1|2
+    null|2|1|1
+}
+
+@setup mixed_types
+test fixed-original-mixed-m0-s2-e0-d0 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x ASC ROWS BETWEEN CURRENT ROW AND CURRENT ROW)
+    ORDER BY x ASC;
+}
+expect {
+    null|1||
+    integer|1|1|1
+    integer|1|2|2
+    real|1|2.5|2.5
+    text|1|T|T
+    text|1|t|t
+    blob|1||
+    blob|1||
+}
+
+@setup mixed_types
+test fixed-original-mixed-m0-s2-e0-d1 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x DESC ROWS BETWEEN CURRENT ROW AND CURRENT ROW)
+    ORDER BY x DESC;
+}
+expect {
+    blob|1||
+    blob|1||
+    text|1|t|t
+    text|1|T|T
+    real|1|2.5|2.5
+    integer|1|2|2
+    integer|1|1|1
+    null|1||
+}
+
+@setup mixed_types
+test fixed-original-mixed-m0-s2-e1-d0 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING)
+    ORDER BY x ASC;
+}
+expect {
+    null|2|1|1
+    integer|2|1|2
+    integer|2|2|2.5
+    real|2|2.5|T
+    text|2|T|t
+    text|2|t|
+    blob|2||
+    blob|1||
+}
+
+@setup mixed_types
+test fixed-original-mixed-m0-s2-e1-d1 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x DESC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING)
+    ORDER BY x DESC;
+}
+expect {
+    blob|2||
+    blob|2|t|
+    text|2|T|t
+    text|2|2.5|T
+    real|2|2|2.5
+    integer|2|1|2
+    integer|2|1|1
+    null|1||
+}
+
+@setup mixed_types
+test fixed-original-mixed-m0-s2-e2-d0 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x ASC ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+    ORDER BY x ASC;
+}
+expect {
+    null|8|1|
+    integer|7|1|
+    integer|6|2|
+    real|5|2.5|
+    text|4|T|
+    text|3|t|
+    blob|2||
+    blob|1||
+}
+
+@setup mixed_types
+test fixed-original-mixed-m0-s2-e2-d1 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x DESC ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+    ORDER BY x DESC;
+}
+expect {
+    blob|8|1|
+    blob|7|1|
+    text|6|1|t
+    text|5|1|T
+    real|4|1|2.5
+    integer|3|1|2
+    integer|2|1|1
+    null|1||
+}
+
+@setup mixed_types
+test fixed-original-mixed-m1-s0-e0-d0 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x ASC GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    ORDER BY x ASC;
+}
+expect {
+    null|1||
+    integer|2|1|1
+    integer|3|1|2
+    real|4|1|2.5
+    text|5|1|T
+    text|6|1|t
+    blob|7|1|
+    blob|8|1|
+}
+
+@setup mixed_types
+test fixed-original-mixed-m1-s0-e0-d1 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x DESC GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    ORDER BY x DESC;
+}
+expect {
+    blob|1||
+    blob|2||
+    text|3|t|
+    text|4|T|
+    real|5|2.5|
+    integer|6|2|
+    integer|7|1|
+    null|8|1|
+}
+
+@setup mixed_types
+test fixed-original-mixed-m1-s0-e1-d0 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x ASC GROUPS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING)
+    ORDER BY x ASC;
+}
+expect {
+    null|2|1|1
+    integer|3|1|2
+    integer|4|1|2.5
+    real|5|1|T
+    text|6|1|t
+    text|7|1|
+    blob|8|1|
+    blob|8|1|
+}
+
+@setup mixed_types
+test fixed-original-mixed-m1-s0-e1-d1 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x DESC GROUPS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING)
+    ORDER BY x DESC;
+}
+expect {
+    blob|2||
+    blob|3|t|
+    text|4|T|
+    text|5|2.5|
+    real|6|2|
+    integer|7|1|
+    integer|8|1|
+    null|8|1|
+}
+
+@setup mixed_types
+test fixed-original-mixed-m1-s0-e2-d0 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x ASC GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY x ASC;
+}
+expect {
+    null|8|1|
+    integer|8|1|
+    integer|8|1|
+    real|8|1|
+    text|8|1|
+    text|8|1|
+    blob|8|1|
+    blob|8|1|
+}
+
+@setup mixed_types
+test fixed-original-mixed-m1-s0-e2-d1 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x DESC GROUPS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY x DESC;
+}
+expect {
+    blob|8|1|
+    blob|8|1|
+    text|8|1|
+    text|8|1|
+    real|8|1|
+    integer|8|1|
+    integer|8|1|
+    null|8|1|
+}
+
+@setup mixed_types
+test fixed-original-mixed-m1-s1-e0-d0 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x ASC GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW)
+    ORDER BY x ASC;
+}
+expect {
+    null|1||
+    integer|2|1|1
+    integer|2|1|2
+    real|2|2|2.5
+    text|2|2.5|T
+    text|2|T|t
+    blob|2|t|
+    blob|2||
+}
+
+@setup mixed_types
+test fixed-original-mixed-m1-s1-e0-d1 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x DESC GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW)
+    ORDER BY x DESC;
+}
+expect {
+    blob|1||
+    blob|2||
+    text|2|t|
+    text|2|T|t
+    real|2|2.5|T
+    integer|2|2|2.5
+    integer|2|1|2
+    null|2|1|1
+}
+
+@setup mixed_types
+test fixed-original-mixed-m1-s1-e1-d0 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x ASC GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING)
+    ORDER BY x ASC;
+}
+expect {
+    null|2|1|1
+    integer|3|1|2
+    integer|3|1|2.5
+    real|3|2|T
+    text|3|2.5|t
+    text|3|T|
+    blob|3|t|
+    blob|2||
+}
+
+@setup mixed_types
+test fixed-original-mixed-m1-s1-e1-d1 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x DESC GROUPS BETWEEN 1 PRECEDING AND 1 FOLLOWING)
+    ORDER BY x DESC;
+}
+expect {
+    blob|2||
+    blob|3|t|
+    text|3|T|
+    text|3|2.5|t
+    real|3|2|T
+    integer|3|1|2.5
+    integer|3|1|2
+    null|2|1|1
+}
+
+@setup mixed_types
+test fixed-original-mixed-m1-s1-e2-d0 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x ASC GROUPS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY x ASC;
+}
+expect {
+    null|8|1|
+    integer|8|1|
+    integer|7|1|
+    real|6|2|
+    text|5|2.5|
+    text|4|T|
+    blob|3|t|
+    blob|2||
+}
+
+@setup mixed_types
+test fixed-original-mixed-m1-s1-e2-d1 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x DESC GROUPS BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY x DESC;
+}
+expect {
+    blob|8|1|
+    blob|8|1|
+    text|7|1|
+    text|6|1|t
+    real|5|1|T
+    integer|4|1|2.5
+    integer|3|1|2
+    null|2|1|1
+}
+
+@setup mixed_types
+test fixed-original-mixed-m1-s2-e0-d0 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x ASC GROUPS BETWEEN CURRENT ROW AND CURRENT ROW)
+    ORDER BY x ASC;
+}
+expect {
+    null|1||
+    integer|1|1|1
+    integer|1|2|2
+    real|1|2.5|2.5
+    text|1|T|T
+    text|1|t|t
+    blob|1||
+    blob|1||
+}
+
+@setup mixed_types
+test fixed-original-mixed-m1-s2-e0-d1 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x DESC GROUPS BETWEEN CURRENT ROW AND CURRENT ROW)
+    ORDER BY x DESC;
+}
+expect {
+    blob|1||
+    blob|1||
+    text|1|t|t
+    text|1|T|T
+    real|1|2.5|2.5
+    integer|1|2|2
+    integer|1|1|1
+    null|1||
+}
+
+@setup mixed_types
+test fixed-original-mixed-m1-s2-e1-d0 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x ASC GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING)
+    ORDER BY x ASC;
+}
+expect {
+    null|2|1|1
+    integer|2|1|2
+    integer|2|2|2.5
+    real|2|2.5|T
+    text|2|T|t
+    text|2|t|
+    blob|2||
+    blob|1||
+}
+
+@setup mixed_types
+test fixed-original-mixed-m1-s2-e1-d1 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x DESC GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING)
+    ORDER BY x DESC;
+}
+expect {
+    blob|2||
+    blob|2|t|
+    text|2|T|t
+    text|2|2.5|T
+    real|2|2|2.5
+    integer|2|1|2
+    integer|2|1|1
+    null|1||
+}
+
+@setup mixed_types
+test fixed-original-mixed-m1-s2-e2-d0 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x ASC GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+    ORDER BY x ASC;
+}
+expect {
+    null|8|1|
+    integer|7|1|
+    integer|6|2|
+    real|5|2.5|
+    text|4|T|
+    text|3|t|
+    blob|2||
+    blob|1||
+}
+
+@setup mixed_types
+test fixed-original-mixed-m1-s2-e2-d1 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x DESC GROUPS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+    ORDER BY x DESC;
+}
+expect {
+    blob|8|1|
+    blob|7|1|
+    text|6|1|t
+    text|5|1|T
+    real|4|1|2.5
+    integer|3|1|2
+    integer|2|1|1
+    null|1||
+}
+
+@setup mixed_types
+test fixed-original-mixed-m2-s0-e0-d0 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x ASC RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    ORDER BY x ASC;
+}
+expect {
+    null|1||
+    integer|2|1|1
+    integer|3|1|2
+    real|4|1|2.5
+    text|5|1|T
+    text|6|1|t
+    blob|7|1|
+    blob|8|1|
+}
+
+@setup mixed_types
+test fixed-original-mixed-m2-s0-e0-d1 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x DESC RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    ORDER BY x DESC;
+}
+expect {
+    blob|1||
+    blob|2||
+    text|3|t|
+    text|4|T|
+    real|5|2.5|
+    integer|6|2|
+    integer|7|1|
+    null|8|1|
+}
+
+@setup mixed_types
+test fixed-original-mixed-m2-s0-e1-d0 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x ASC RANGE BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING)
+    ORDER BY x ASC;
+}
+expect {
+    null|1||
+    integer|3|1|2
+    integer|4|1|2.5
+    real|4|1|2.5
+    text|5|1|T
+    text|6|1|t
+    blob|7|1|
+    blob|8|1|
+}
+
+@setup mixed_types
+test fixed-original-mixed-m2-s0-e1-d1 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x DESC RANGE BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING)
+    ORDER BY x DESC;
+}
+expect {
+    blob|1||
+    blob|2||
+    text|3|t|
+    text|4|T|
+    real|6|2|
+    integer|7|1|
+    integer|7|1|
+    null|8|1|
+}
+
+@setup mixed_types
+test fixed-original-mixed-m2-s0-e2-d0 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x ASC RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY x ASC;
+}
+expect {
+    null|8|1|
+    integer|8|1|
+    integer|8|1|
+    real|8|1|
+    text|8|1|
+    text|8|1|
+    blob|8|1|
+    blob|8|1|
+}
+
+@setup mixed_types
+test fixed-original-mixed-m2-s0-e2-d1 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x DESC RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY x DESC;
+}
+expect {
+    blob|8|1|
+    blob|8|1|
+    text|8|1|
+    text|8|1|
+    real|8|1|
+    integer|8|1|
+    integer|8|1|
+    null|8|1|
+}
+
+@setup mixed_types
+test fixed-original-mixed-m2-s1-e0-d0 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x ASC RANGE BETWEEN 1 PRECEDING AND CURRENT ROW)
+    ORDER BY x ASC;
+}
+expect {
+    null|1||
+    integer|1|1|1
+    integer|2|1|2
+    real|2|2|2.5
+    text|1|T|T
+    text|1|t|t
+    blob|1||
+    blob|1||
+}
+
+@setup mixed_types
+test fixed-original-mixed-m2-s1-e0-d1 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x DESC RANGE BETWEEN 1 PRECEDING AND CURRENT ROW)
+    ORDER BY x DESC;
+}
+expect {
+    blob|1||
+    blob|1||
+    text|1|t|t
+    text|1|T|T
+    real|1|2.5|2.5
+    integer|2|2|2.5
+    integer|2|1|2
+    null|1||
+}
+
+@setup mixed_types
+test fixed-original-mixed-m2-s1-e1-d0 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x ASC RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING)
+    ORDER BY x ASC;
+}
+expect {
+    null|1||
+    integer|2|1|2
+    integer|3|1|2.5
+    real|2|2|2.5
+    text|1|T|T
+    text|1|t|t
+    blob|1||
+    blob|1||
+}
+
+@setup mixed_types
+test fixed-original-mixed-m2-s1-e1-d1 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x DESC RANGE BETWEEN 1 PRECEDING AND 1 FOLLOWING)
+    ORDER BY x DESC;
+}
+expect {
+    blob|1||
+    blob|1||
+    text|1|t|t
+    text|1|T|T
+    real|2|2|2.5
+    integer|3|1|2.5
+    integer|2|1|2
+    null|1||
+}
+
+@setup mixed_types
+test fixed-original-mixed-m2-s1-e2-d0 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x ASC RANGE BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY x ASC;
+}
+expect {
+    null|8|1|
+    integer|7|1|
+    integer|7|1|
+    real|6|2|
+    text|4|T|
+    text|3|t|
+    blob|2||
+    blob|1||
+}
+
+@setup mixed_types
+test fixed-original-mixed-m2-s1-e2-d1 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x DESC RANGE BETWEEN 1 PRECEDING AND UNBOUNDED FOLLOWING)
+    ORDER BY x DESC;
+}
+expect {
+    blob|8|1|
+    blob|7|1|
+    text|6|1|t
+    text|5|1|T
+    real|4|1|2.5
+    integer|4|1|2.5
+    integer|3|1|2
+    null|1||
+}
+
+@setup mixed_types
+test fixed-original-mixed-m2-s2-e0-d0 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x ASC RANGE BETWEEN CURRENT ROW AND CURRENT ROW)
+    ORDER BY x ASC;
+}
+expect {
+    null|1||
+    integer|1|1|1
+    integer|1|2|2
+    real|1|2.5|2.5
+    text|1|T|T
+    text|1|t|t
+    blob|1||
+    blob|1||
+}
+
+@setup mixed_types
+test fixed-original-mixed-m2-s2-e0-d1 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x DESC RANGE BETWEEN CURRENT ROW AND CURRENT ROW)
+    ORDER BY x DESC;
+}
+expect {
+    blob|1||
+    blob|1||
+    text|1|t|t
+    text|1|T|T
+    real|1|2.5|2.5
+    integer|1|2|2
+    integer|1|1|1
+    null|1||
+}
+
+@setup mixed_types
+test fixed-original-mixed-m2-s2-e1-d0 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x ASC RANGE BETWEEN CURRENT ROW AND 1 FOLLOWING)
+    ORDER BY x ASC;
+}
+expect {
+    null|1||
+    integer|2|1|2
+    integer|2|2|2.5
+    real|1|2.5|2.5
+    text|1|T|T
+    text|1|t|t
+    blob|1||
+    blob|1||
+}
+
+@setup mixed_types
+test fixed-original-mixed-m2-s2-e1-d1 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x DESC RANGE BETWEEN CURRENT ROW AND 1 FOLLOWING)
+    ORDER BY x DESC;
+}
+expect {
+    blob|1||
+    blob|1||
+    text|1|t|t
+    text|1|T|T
+    real|2|2|2.5
+    integer|2|1|2
+    integer|1|1|1
+    null|1||
+}
+
+@setup mixed_types
+test fixed-original-mixed-m2-s2-e2-d0 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x ASC RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+    ORDER BY x ASC;
+}
+expect {
+    null|8|1|
+    integer|7|1|
+    integer|6|2|
+    real|5|2.5|
+    text|4|T|
+    text|3|t|
+    blob|2||
+    blob|1||
+}
+
+@setup mixed_types
+test fixed-original-mixed-m2-s2-e2-d1 {
+    SELECT typeof(x), count(*) OVER w, min(x) OVER w, max(x) OVER w
+    FROM tm
+    WINDOW w AS (ORDER BY x DESC RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+    ORDER BY x DESC;
+}
+expect {
+    blob|8|1|
+    blob|7|1|
+    text|6|1|t
+    text|5|1|T
+    real|4|1|2.5
+    integer|3|1|2
+    integer|2|1|1
+    null|1||
+}

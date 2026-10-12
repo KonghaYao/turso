@@ -12,7 +12,7 @@ pub fn to_u32(v: usize) -> u32 {
 use super::{execute, BranchOffset, CursorID, FuncCtx, InsnFunction, PageIdx};
 use crate::function::AccumulatorFunc;
 use crate::{
-    schema::{BTreeTable, CheckConstraint, Column, ForeignKey, Index},
+    schema::{BTreeTable, CheckConstraint, Column, ForeignKey, Index, View},
     storage::{pager::CreateBTreeFlags, wal::CheckpointMode},
     sync::{Arc, OnceLock, Weak},
     translate::{collate::CollationSeq, emitter::TransactionMode, plan::BitSet},
@@ -1654,6 +1654,12 @@ pub enum Insn {
     Close {
         cursor_id: CursorID,
     },
+    CursorLock {
+        cursor_id: CursorID,
+    },
+    CursorUnlock {
+        cursor_id: CursorID,
+    },
 
     /// Check if the register is null.
     IsNull {
@@ -1869,7 +1875,7 @@ pub enum Insn {
     RenameTable {
         db: usize,
         from: String,
-        to: String,
+        to: RenameTableTarget,
     },
     DropColumn {
         db: usize,
@@ -2120,6 +2126,18 @@ pub enum Insn {
     },
 }
 
+#[derive(Debug, Clone)]
+pub struct RenameTableTarget {
+    pub name: String,
+    pub views: Vec<(usize, Arc<View>)>,
+}
+
+impl std::fmt::Display for RenameTableTarget {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.name.fmt(formatter)
+    }
+}
+
 const fn get_insn_virtual_table() -> [InsnFunction; InsnVariants::COUNT] {
     let mut result: [InsnFunction; InsnVariants::COUNT] = [execute::op_init; InsnVariants::COUNT];
 
@@ -2294,6 +2312,8 @@ impl InsnVariants {
             InsnVariants::AddType => execute::op_add_type,
             InsnVariants::DropView => execute::op_drop_view,
             InsnVariants::Close => execute::op_close,
+            InsnVariants::CursorLock => execute::op_cursor_lock,
+            InsnVariants::CursorUnlock => execute::op_cursor_unlock,
             InsnVariants::IsNull => execute::op_is_null,
             InsnVariants::ParseSchema => execute::op_parse_schema,
             InsnVariants::PopulateMaterializedViews => execute::op_populate_materialized_views,

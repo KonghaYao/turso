@@ -86,3 +86,24 @@ expect @js {
     2|20|200
     ok
 }
+
+@cross-check-integrity
+test attached-alter-keeps-distinct-unique-collations-isolated {
+    CREATE TABLE t(a TEXT PRIMARY KEY,b);
+    INSERT INTO t VALUES('A',99);
+    ATTACH ':memory:' AS aux;
+    CREATE TABLE aux.t(a TEXT PRIMARY KEY,b,UNIQUE(a COLLATE NOCASE));
+    INSERT INTO aux.t VALUES('a',1);
+    ALTER TABLE aux.t ADD COLUMN c INT DEFAULT 7;
+    INSERT OR IGNORE INTO aux.t(a,b) VALUES('A',2);
+    SELECT count(*) FROM aux.sqlite_schema WHERE type='index' AND tbl_name='t';
+    SELECT a,b,c FROM aux.t;
+    SELECT a,b FROM main.t;
+    PRAGMA aux.integrity_check;
+}
+expect {
+    2
+    a|1|7
+    A|99
+    ok
+}

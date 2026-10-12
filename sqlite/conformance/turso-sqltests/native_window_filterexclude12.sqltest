@@ -1,0 +1,175 @@
+@database :memory:
+
+# Complete original FILTER x EXCLUDE combinations, with source-only fixed results.
+setup anchored_filtered {
+    CREATE TABLE tf(k INT, v INT);
+    INSERT INTO tf VALUES (1,10),(2,20),(3,30),(4,40),(5,50),(6,60),(7,70);
+}
+
+@setup anchored_filtered
+test anchored-window-filter-exclude-x0-m0 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 2 PRECEDING AND 1 FOLLOWING EXCLUDE NO OTHERS) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|20
+    3|60
+    4|60
+    5|100
+    6|100
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-exclude-x0-m1 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 2 PRECEDING AND 1 FOLLOWING EXCLUDE NO OTHERS) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|20
+    3|60
+    4|60
+    5|100
+    6|100
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-exclude-x0-m2 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 2 PRECEDING AND 1 FOLLOWING EXCLUDE NO OTHERS) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|20
+    3|60
+    4|60
+    5|100
+    6|100
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-exclude-x1-m0 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 2 PRECEDING AND 1 FOLLOWING EXCLUDE CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|
+    3|60
+    4|20
+    5|100
+    6|40
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-exclude-x1-m1 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 2 PRECEDING AND 1 FOLLOWING EXCLUDE CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|
+    3|60
+    4|20
+    5|100
+    6|40
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-exclude-x1-m2 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 2 PRECEDING AND 1 FOLLOWING EXCLUDE CURRENT ROW) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|
+    3|60
+    4|20
+    5|100
+    6|40
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-exclude-x2-m0 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 2 PRECEDING AND 1 FOLLOWING EXCLUDE GROUP) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|
+    3|60
+    4|20
+    5|100
+    6|40
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-exclude-x2-m1 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 2 PRECEDING AND 1 FOLLOWING EXCLUDE GROUP) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|
+    3|60
+    4|20
+    5|100
+    6|40
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-exclude-x2-m2 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 2 PRECEDING AND 1 FOLLOWING EXCLUDE GROUP) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|
+    3|60
+    4|20
+    5|100
+    6|40
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-exclude-x3-m0 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k ROWS BETWEEN 2 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|20
+    3|60
+    4|60
+    5|100
+    6|100
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-exclude-x3-m1 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k GROUPS BETWEEN 2 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|20
+    3|60
+    4|60
+    5|100
+    6|100
+    7|60
+}
+
+@setup anchored_filtered
+test anchored-window-filter-exclude-x3-m2 {
+    SELECT k, sum(v) FILTER (WHERE k % 2 = 0) OVER (ORDER BY k RANGE BETWEEN 2 PRECEDING AND 1 FOLLOWING EXCLUDE TIES) FROM tf ORDER BY k;
+}
+expect {
+    1|20
+    2|20
+    3|60
+    4|60
+    5|100
+    6|100
+    7|60
+}

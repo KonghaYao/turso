@@ -1,5 +1,21 @@
 @database :memory:
 
+test pragma-index-list-retains-autoindex-table-name-case {
+    CREATE TABLE "Mixed Child"(x UNIQUE);
+    INSERT INTO "Mixed Child" VALUES(7);
+    INSERT OR IGNORE INTO "Mixed Child" VALUES(7);
+    PRAGMA index_list('mixed child');
+    PRAGMA index_info('sqlite_autoindex_Mixed Child_1');
+    PRAGMA index_info('SQLITE_AUTOINDEX_MIXED CHILD_1');
+    SELECT count(*) FROM "Mixed Child" WHERE x=7;
+}
+expect {
+    0|sqlite_autoindex_Mixed Child_1|1|u|0
+    0|0|x
+    0|0|x
+    1
+}
+
 @cross-check-integrity
 test pragma-index-list-single-index {
     CREATE TABLE t1(a, b, c);

@@ -1,0 +1,391 @@
+@database :memory:
+
+# Exact original 32-way matrix with source-only calculated 5-row window expectations.
+setup anchored_small {
+    CREATE TABLE ts(k INT);
+    INSERT INTO ts VALUES (1),(2),(3),(4),(5);
+}
+
+@setup anchored_small
+test anchored-window-offset-m0-s0-e0 {
+    SELECT k, sum(k) OVER (ORDER BY k ROWS BETWEEN 0 PRECEDING AND 0 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k ROWS BETWEEN 0 PRECEDING AND 0 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|1|1
+    2|2|2
+    3|3|3
+    4|4|4
+    5|5|5
+}
+
+@setup anchored_small
+test anchored-window-offset-m0-s0-e1 {
+    SELECT k, sum(k) OVER (ORDER BY k ROWS BETWEEN 0 PRECEDING AND 3 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k ROWS BETWEEN 0 PRECEDING AND 3 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|10|1,2,3,4
+    2|14|2,3,4,5
+    3|12|3,4,5
+    4|9|4,5
+    5|5|5
+}
+
+@setup anchored_small
+test anchored-window-offset-m0-s0-e2 {
+    SELECT k, sum(k) OVER (ORDER BY k ROWS BETWEEN 0 PRECEDING AND 5 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k ROWS BETWEEN 0 PRECEDING AND 5 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|15|1,2,3,4,5
+    2|14|2,3,4,5
+    3|12|3,4,5
+    4|9|4,5
+    5|5|5
+}
+
+@setup anchored_small
+test anchored-window-offset-m0-s0-e3 {
+    SELECT k, sum(k) OVER (ORDER BY k ROWS BETWEEN 0 PRECEDING AND 100 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k ROWS BETWEEN 0 PRECEDING AND 100 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|15|1,2,3,4,5
+    2|14|2,3,4,5
+    3|12|3,4,5
+    4|9|4,5
+    5|5|5
+}
+
+@setup anchored_small
+test anchored-window-offset-m0-s1-e0 {
+    SELECT k, sum(k) OVER (ORDER BY k ROWS BETWEEN 3 PRECEDING AND 0 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k ROWS BETWEEN 3 PRECEDING AND 0 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|1|1
+    2|3|1,2
+    3|6|1,2,3
+    4|10|1,2,3,4
+    5|14|2,3,4,5
+}
+
+@setup anchored_small
+test anchored-window-offset-m0-s1-e1 {
+    SELECT k, sum(k) OVER (ORDER BY k ROWS BETWEEN 3 PRECEDING AND 3 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k ROWS BETWEEN 3 PRECEDING AND 3 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|10|1,2,3,4
+    2|15|1,2,3,4,5
+    3|15|1,2,3,4,5
+    4|15|1,2,3,4,5
+    5|14|2,3,4,5
+}
+
+@setup anchored_small
+test anchored-window-offset-m0-s1-e2 {
+    SELECT k, sum(k) OVER (ORDER BY k ROWS BETWEEN 3 PRECEDING AND 5 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k ROWS BETWEEN 3 PRECEDING AND 5 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|15|1,2,3,4,5
+    2|15|1,2,3,4,5
+    3|15|1,2,3,4,5
+    4|15|1,2,3,4,5
+    5|14|2,3,4,5
+}
+
+@setup anchored_small
+test anchored-window-offset-m0-s1-e3 {
+    SELECT k, sum(k) OVER (ORDER BY k ROWS BETWEEN 3 PRECEDING AND 100 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k ROWS BETWEEN 3 PRECEDING AND 100 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|15|1,2,3,4,5
+    2|15|1,2,3,4,5
+    3|15|1,2,3,4,5
+    4|15|1,2,3,4,5
+    5|14|2,3,4,5
+}
+
+@setup anchored_small
+test anchored-window-offset-m0-s2-e0 {
+    SELECT k, sum(k) OVER (ORDER BY k ROWS BETWEEN 5 PRECEDING AND 0 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k ROWS BETWEEN 5 PRECEDING AND 0 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|1|1
+    2|3|1,2
+    3|6|1,2,3
+    4|10|1,2,3,4
+    5|15|1,2,3,4,5
+}
+
+@setup anchored_small
+test anchored-window-offset-m0-s2-e1 {
+    SELECT k, sum(k) OVER (ORDER BY k ROWS BETWEEN 5 PRECEDING AND 3 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k ROWS BETWEEN 5 PRECEDING AND 3 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|10|1,2,3,4
+    2|15|1,2,3,4,5
+    3|15|1,2,3,4,5
+    4|15|1,2,3,4,5
+    5|15|1,2,3,4,5
+}
+
+@setup anchored_small
+test anchored-window-offset-m0-s2-e2 {
+    SELECT k, sum(k) OVER (ORDER BY k ROWS BETWEEN 5 PRECEDING AND 5 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k ROWS BETWEEN 5 PRECEDING AND 5 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|15|1,2,3,4,5
+    2|15|1,2,3,4,5
+    3|15|1,2,3,4,5
+    4|15|1,2,3,4,5
+    5|15|1,2,3,4,5
+}
+
+@setup anchored_small
+test anchored-window-offset-m0-s2-e3 {
+    SELECT k, sum(k) OVER (ORDER BY k ROWS BETWEEN 5 PRECEDING AND 100 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k ROWS BETWEEN 5 PRECEDING AND 100 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|15|1,2,3,4,5
+    2|15|1,2,3,4,5
+    3|15|1,2,3,4,5
+    4|15|1,2,3,4,5
+    5|15|1,2,3,4,5
+}
+
+@setup anchored_small
+test anchored-window-offset-m0-s3-e0 {
+    SELECT k, sum(k) OVER (ORDER BY k ROWS BETWEEN 100 PRECEDING AND 0 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k ROWS BETWEEN 100 PRECEDING AND 0 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|1|1
+    2|3|1,2
+    3|6|1,2,3
+    4|10|1,2,3,4
+    5|15|1,2,3,4,5
+}
+
+@setup anchored_small
+test anchored-window-offset-m0-s3-e1 {
+    SELECT k, sum(k) OVER (ORDER BY k ROWS BETWEEN 100 PRECEDING AND 3 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k ROWS BETWEEN 100 PRECEDING AND 3 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|10|1,2,3,4
+    2|15|1,2,3,4,5
+    3|15|1,2,3,4,5
+    4|15|1,2,3,4,5
+    5|15|1,2,3,4,5
+}
+
+@setup anchored_small
+test anchored-window-offset-m0-s3-e2 {
+    SELECT k, sum(k) OVER (ORDER BY k ROWS BETWEEN 100 PRECEDING AND 5 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k ROWS BETWEEN 100 PRECEDING AND 5 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|15|1,2,3,4,5
+    2|15|1,2,3,4,5
+    3|15|1,2,3,4,5
+    4|15|1,2,3,4,5
+    5|15|1,2,3,4,5
+}
+
+@setup anchored_small
+test anchored-window-offset-m0-s3-e3 {
+    SELECT k, sum(k) OVER (ORDER BY k ROWS BETWEEN 100 PRECEDING AND 100 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k ROWS BETWEEN 100 PRECEDING AND 100 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|15|1,2,3,4,5
+    2|15|1,2,3,4,5
+    3|15|1,2,3,4,5
+    4|15|1,2,3,4,5
+    5|15|1,2,3,4,5
+}
+
+@setup anchored_small
+test anchored-window-offset-m1-s0-e0 {
+    SELECT k, sum(k) OVER (ORDER BY k GROUPS BETWEEN 0 PRECEDING AND 0 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k GROUPS BETWEEN 0 PRECEDING AND 0 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|1|1
+    2|2|2
+    3|3|3
+    4|4|4
+    5|5|5
+}
+
+@setup anchored_small
+test anchored-window-offset-m1-s0-e1 {
+    SELECT k, sum(k) OVER (ORDER BY k GROUPS BETWEEN 0 PRECEDING AND 3 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k GROUPS BETWEEN 0 PRECEDING AND 3 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|10|1,2,3,4
+    2|14|2,3,4,5
+    3|12|3,4,5
+    4|9|4,5
+    5|5|5
+}
+
+@setup anchored_small
+test anchored-window-offset-m1-s0-e2 {
+    SELECT k, sum(k) OVER (ORDER BY k GROUPS BETWEEN 0 PRECEDING AND 5 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k GROUPS BETWEEN 0 PRECEDING AND 5 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|15|1,2,3,4,5
+    2|14|2,3,4,5
+    3|12|3,4,5
+    4|9|4,5
+    5|5|5
+}
+
+@setup anchored_small
+test anchored-window-offset-m1-s0-e3 {
+    SELECT k, sum(k) OVER (ORDER BY k GROUPS BETWEEN 0 PRECEDING AND 100 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k GROUPS BETWEEN 0 PRECEDING AND 100 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|15|1,2,3,4,5
+    2|14|2,3,4,5
+    3|12|3,4,5
+    4|9|4,5
+    5|5|5
+}
+
+@setup anchored_small
+test anchored-window-offset-m1-s1-e0 {
+    SELECT k, sum(k) OVER (ORDER BY k GROUPS BETWEEN 3 PRECEDING AND 0 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k GROUPS BETWEEN 3 PRECEDING AND 0 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|1|1
+    2|3|1,2
+    3|6|1,2,3
+    4|10|1,2,3,4
+    5|14|2,3,4,5
+}
+
+@setup anchored_small
+test anchored-window-offset-m1-s1-e1 {
+    SELECT k, sum(k) OVER (ORDER BY k GROUPS BETWEEN 3 PRECEDING AND 3 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k GROUPS BETWEEN 3 PRECEDING AND 3 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|10|1,2,3,4
+    2|15|1,2,3,4,5
+    3|15|1,2,3,4,5
+    4|15|1,2,3,4,5
+    5|14|2,3,4,5
+}
+
+@setup anchored_small
+test anchored-window-offset-m1-s1-e2 {
+    SELECT k, sum(k) OVER (ORDER BY k GROUPS BETWEEN 3 PRECEDING AND 5 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k GROUPS BETWEEN 3 PRECEDING AND 5 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|15|1,2,3,4,5
+    2|15|1,2,3,4,5
+    3|15|1,2,3,4,5
+    4|15|1,2,3,4,5
+    5|14|2,3,4,5
+}
+
+@setup anchored_small
+test anchored-window-offset-m1-s1-e3 {
+    SELECT k, sum(k) OVER (ORDER BY k GROUPS BETWEEN 3 PRECEDING AND 100 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k GROUPS BETWEEN 3 PRECEDING AND 100 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|15|1,2,3,4,5
+    2|15|1,2,3,4,5
+    3|15|1,2,3,4,5
+    4|15|1,2,3,4,5
+    5|14|2,3,4,5
+}
+
+@setup anchored_small
+test anchored-window-offset-m1-s2-e0 {
+    SELECT k, sum(k) OVER (ORDER BY k GROUPS BETWEEN 5 PRECEDING AND 0 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k GROUPS BETWEEN 5 PRECEDING AND 0 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|1|1
+    2|3|1,2
+    3|6|1,2,3
+    4|10|1,2,3,4
+    5|15|1,2,3,4,5
+}
+
+@setup anchored_small
+test anchored-window-offset-m1-s2-e1 {
+    SELECT k, sum(k) OVER (ORDER BY k GROUPS BETWEEN 5 PRECEDING AND 3 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k GROUPS BETWEEN 5 PRECEDING AND 3 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|10|1,2,3,4
+    2|15|1,2,3,4,5
+    3|15|1,2,3,4,5
+    4|15|1,2,3,4,5
+    5|15|1,2,3,4,5
+}
+
+@setup anchored_small
+test anchored-window-offset-m1-s2-e2 {
+    SELECT k, sum(k) OVER (ORDER BY k GROUPS BETWEEN 5 PRECEDING AND 5 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k GROUPS BETWEEN 5 PRECEDING AND 5 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|15|1,2,3,4,5
+    2|15|1,2,3,4,5
+    3|15|1,2,3,4,5
+    4|15|1,2,3,4,5
+    5|15|1,2,3,4,5
+}
+
+@setup anchored_small
+test anchored-window-offset-m1-s2-e3 {
+    SELECT k, sum(k) OVER (ORDER BY k GROUPS BETWEEN 5 PRECEDING AND 100 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k GROUPS BETWEEN 5 PRECEDING AND 100 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|15|1,2,3,4,5
+    2|15|1,2,3,4,5
+    3|15|1,2,3,4,5
+    4|15|1,2,3,4,5
+    5|15|1,2,3,4,5
+}
+
+@setup anchored_small
+test anchored-window-offset-m1-s3-e0 {
+    SELECT k, sum(k) OVER (ORDER BY k GROUPS BETWEEN 100 PRECEDING AND 0 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k GROUPS BETWEEN 100 PRECEDING AND 0 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|1|1
+    2|3|1,2
+    3|6|1,2,3
+    4|10|1,2,3,4
+    5|15|1,2,3,4,5
+}
+
+@setup anchored_small
+test anchored-window-offset-m1-s3-e1 {
+    SELECT k, sum(k) OVER (ORDER BY k GROUPS BETWEEN 100 PRECEDING AND 3 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k GROUPS BETWEEN 100 PRECEDING AND 3 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|10|1,2,3,4
+    2|15|1,2,3,4,5
+    3|15|1,2,3,4,5
+    4|15|1,2,3,4,5
+    5|15|1,2,3,4,5
+}
+
+@setup anchored_small
+test anchored-window-offset-m1-s3-e2 {
+    SELECT k, sum(k) OVER (ORDER BY k GROUPS BETWEEN 100 PRECEDING AND 5 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k GROUPS BETWEEN 100 PRECEDING AND 5 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|15|1,2,3,4,5
+    2|15|1,2,3,4,5
+    3|15|1,2,3,4,5
+    4|15|1,2,3,4,5
+    5|15|1,2,3,4,5
+}
+
+@setup anchored_small
+test anchored-window-offset-m1-s3-e3 {
+    SELECT k, sum(k) OVER (ORDER BY k GROUPS BETWEEN 100 PRECEDING AND 100 FOLLOWING), group_concat(k, ',') OVER (ORDER BY k GROUPS BETWEEN 100 PRECEDING AND 100 FOLLOWING) FROM ts ORDER BY k;
+}
+expect {
+    1|15|1,2,3,4,5
+    2|15|1,2,3,4,5
+    3|15|1,2,3,4,5
+    4|15|1,2,3,4,5
+    5|15|1,2,3,4,5
+}

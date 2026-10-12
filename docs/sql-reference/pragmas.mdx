@@ -320,11 +320,17 @@ PRAGMA ignore_check_constraints = 0;   -- enable CHECK constraints
 
 ### data_sync_retry
 
-Controls whether Turso retries a disk sync (fsync) after a failure instead of treating it as fatal.
+Controls whether a WAL sync failure is reported as an I/O error when the commit
+state machine observes it (`1`), or treated as a fatal error (`0`, the default).
+This setting does not guarantee that the transaction was rolled back. A WAL
+commit frame might have been written before sync failed, and reopening the
+database can recover it. If a write returns a sync error, treat its commit
+outcome as unknown: reopen the database and check durable application state
+before retrying the write.
 
 ```sql
-PRAGMA data_sync_retry = 1;   -- retry on sync failure
-PRAGMA data_sync_retry = 0;   -- do not retry (default)
+PRAGMA data_sync_retry = 1;   -- report a recoverable sync error
+PRAGMA data_sync_retry = 0;   -- treat an observed sync error as fatal (default)
 ```
 
 ### require_where

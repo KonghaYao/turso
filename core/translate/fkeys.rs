@@ -1794,6 +1794,7 @@ fn qualified_table_name(table_name: &str, db_name: Option<&str>) -> QualifiedNam
 fn generate_cascade_delete_stmt(
     child_table: &str,
     child_cols: &[String],
+    parent_index: Option<&Index>,
     ctx: &FkSubprogramContext,
     db_name: Option<&str>,
 ) -> ast::Stmt {
@@ -1801,7 +1802,11 @@ fn generate_cascade_delete_stmt(
         with: None,
         tbl_name: qualified_table_name(child_table, db_name),
         indexed: None,
-        where_clause: Some(Box::new(build_fk_match_where_clause(child_cols, ctx))),
+        where_clause: Some(Box::new(build_fk_match_where_clause(
+            child_cols,
+            parent_index,
+            ctx,
+        ))),
         returning: vec![],
     }
 }
@@ -1811,6 +1816,7 @@ fn generate_cascade_delete_stmt(
 fn generate_set_null_stmt(
     child_table: &str,
     child_cols: &[String],
+    parent_index: Option<&Index>,
     ctx: &FkSubprogramContext,
     db_name: Option<&str>,
 ) -> ast::Stmt {
@@ -1829,7 +1835,11 @@ fn generate_set_null_stmt(
         indexed: None,
         sets,
         from: None,
-        where_clause: Some(Box::new(build_fk_match_where_clause(child_cols, ctx))),
+        where_clause: Some(Box::new(build_fk_match_where_clause(
+            child_cols,
+            parent_index,
+            ctx,
+        ))),
         returning: vec![],
     })
 }
@@ -1839,6 +1849,7 @@ fn generate_set_null_stmt(
 fn generate_set_default_stmt(
     child_table: &BTreeTable,
     child_cols: &[String],
+    parent_index: Option<&Index>,
     ctx: &FkSubprogramContext,
     db_name: Option<&str>,
 ) -> ast::Stmt {
@@ -1865,7 +1876,11 @@ fn generate_set_default_stmt(
         indexed: None,
         sets,
         from: None,
-        where_clause: Some(Box::new(build_fk_match_where_clause(child_cols, ctx))),
+        where_clause: Some(Box::new(build_fk_match_where_clause(
+            child_cols,
+            parent_index,
+            ctx,
+        ))),
         returning: vec![],
     })
 }
@@ -1875,6 +1890,7 @@ fn generate_set_default_stmt(
 fn generate_cascade_update_stmt(
     child_table: &str,
     child_cols: &[String],
+    parent_index: Option<&Index>,
     ctx: &FkSubprogramContext,
     db_name: Option<&str>,
 ) -> ast::Stmt {
@@ -1898,7 +1914,7 @@ fn generate_cascade_update_stmt(
         })
         .collect();
 
-    let where_clause = build_fk_match_where_clause(child_cols, ctx);
+    let where_clause = build_fk_match_where_clause(child_cols, parent_index, ctx);
     ast::Stmt::Update(ast::Update {
         with: None,
         or_conflict: None,
@@ -1913,13 +1929,24 @@ fn generate_cascade_update_stmt(
 
 /// Build a WHERE clause that matches FK columns to parameter values:
 /// fk_col1 = ?1 AND fk_col2 = ?2 ...
-fn build_fk_match_where_clause(child_cols: &[String], ctx: &FkSubprogramContext) -> Expr {
+fn build_fk_match_where_clause(
+    child_cols: &[String],
+    parent_index: Option<&Index>,
+    ctx: &FkSubprogramContext,
+) -> Expr {
     let mut conditions: Vec<Expr> = Vec::with_capacity(child_cols.len());
 
     for (i, col) in child_cols.iter().enumerate() {
         let param_idx = ctx.old_param_index(i);
+        let collation = parent_index
+            .and_then(|index| index.columns.get(i))
+            .and_then(|column| column.collation)
+            .unwrap_or(CollationSeq::Binary);
         let cond = Expr::Binary(
-            Box::new(Expr::Id(Name::from_string(col))),
+            Box::new(Expr::Collate(
+                Box::new(Expr::Id(Name::from_string(col))),
+                Name::exact(collation.name()),
+            )),
             ast::Operator::Equals,
             Box::new(Expr::Variable(ast::Variable::indexed(
                 u32::try_from(param_idx.get())
@@ -1962,6 +1989,7 @@ fn fire_fk_cascade_delete(
     let stmt = generate_cascade_delete_stmt(
         &fk_ref.child_table.name,
         child_cols,
+        fk_ref.parent_unique_index.as_deref(),
         &subprog_ctx,
         db_name.as_deref(),
     );
@@ -1996,6 +2024,7 @@ fn fire_fk_set_null(
     let stmt = generate_set_null_stmt(
         &fk_ref.child_table.name,
         child_cols,
+        fk_ref.parent_unique_index.as_deref(),
         &subprog_ctx,
         db_name.as_deref(),
     );
@@ -2030,6 +2059,7 @@ fn fire_fk_set_default(
     let stmt = generate_set_default_stmt(
         &fk_ref.child_table,
         child_cols,
+        fk_ref.parent_unique_index.as_deref(),
         &subprog_ctx,
         db_name.as_deref(),
     );
@@ -2065,6 +2095,7 @@ fn fire_fk_cascade_update(
     let stmt = generate_cascade_update_stmt(
         &fk_ref.child_table.name,
         child_cols,
+        fk_ref.parent_unique_index.as_deref(),
         &subprog_ctx,
         db_name.as_deref(),
     );

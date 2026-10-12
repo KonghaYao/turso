@@ -1,0 +1,544 @@
+@database :memory:
+
+# Exact original SQL for 28 peer-order invariant JSON frame expansions.
+setup nested_json_values {
+    CREATE TABLE tj(id INT, k INT, j TEXT);
+    INSERT INTO tj VALUES
+        (1,10,json_object('a',1)),
+        (2,10,json_array(2,'x,y')),
+        (3,20,json_quote('p,q')),
+        (4,20,json_object('z',json_array(3,4))),
+        (5,30,'null');
+}
+
+@setup nested_json_values
+test anchored-original-nested-json-m1-f2-x0-v0 {
+    SELECT id,
+           json_group_array(json(j)) OVER w,
+           json_group_object(id, json(j)) OVER w,
+           json(jsonb_group_array(json(j)) OVER w),
+           json(jsonb_group_object(id, json(j)) OVER w)
+    FROM tj
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN 2 FOLLOWING AND 2 FOLLOWING )
+    ORDER BY id;
+}
+expect {
+    1|[null]|{"5":null}|[null]|{"5":null}
+    2|[null]|{"5":null}|[null]|{"5":null}
+    3|[]|{}|[]|{}
+    4|[]|{}|[]|{}
+    5|[]|{}|[]|{}
+}
+
+@setup nested_json_values
+test anchored-original-nested-json-m1-f2-x0-v1 {
+    SELECT id,
+           json_group_array(j -> '$') OVER w,
+           json_group_object(id, j -> '$') OVER w,
+           json(jsonb_group_array(j -> '$') OVER w),
+           json(jsonb_group_object(id, j -> '$') OVER w)
+    FROM tj
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN 2 FOLLOWING AND 2 FOLLOWING )
+    ORDER BY id;
+}
+expect {
+    1|[null]|{"5":null}|[null]|{"5":null}
+    2|[null]|{"5":null}|[null]|{"5":null}
+    3|[]|{}|[]|{}
+    4|[]|{}|[]|{}
+    5|[]|{}|[]|{}
+}
+
+@setup nested_json_values
+test anchored-original-nested-json-m1-f2-x0-v2 {
+    SELECT id,
+           json_group_array(json_extract(j, '$')) OVER w,
+           json_group_object(id, json_extract(j, '$')) OVER w,
+           json(jsonb_group_array(json_extract(j, '$')) OVER w),
+           json(jsonb_group_object(id, json_extract(j, '$')) OVER w)
+    FROM tj
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN 2 FOLLOWING AND 2 FOLLOWING )
+    ORDER BY id;
+}
+expect {
+    1|[null]|{"5":null}|[null]|{"5":null}
+    2|[null]|{"5":null}|[null]|{"5":null}
+    3|[]|{}|[]|{}
+    4|[]|{}|[]|{}
+    5|[]|{}|[]|{}
+}
+
+@setup nested_json_values
+test anchored-original-nested-json-m1-f2-x0-v3 {
+    SELECT id,
+           json_group_array(iif(id % 2, json(j), 'plain')) OVER w,
+           json_group_object(id, iif(id % 2, json(j), 'plain')) OVER w,
+           json(jsonb_group_array(iif(id % 2, json(j), 'plain')) OVER w),
+           json(jsonb_group_object(id, iif(id % 2, json(j), 'plain')) OVER w)
+    FROM tj
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN 2 FOLLOWING AND 2 FOLLOWING )
+    ORDER BY id;
+}
+expect {
+    1|[null]|{"5":null}|[null]|{"5":null}
+    2|[null]|{"5":null}|[null]|{"5":null}
+    3|[]|{}|[]|{}
+    4|[]|{}|[]|{}
+    5|[]|{}|[]|{}
+}
+
+@setup nested_json_values
+test anchored-original-nested-json-m1-f2-x1-v0 {
+    SELECT id,
+           json_group_array(json(j)) OVER w,
+           json_group_object(id, json(j)) OVER w,
+           json(jsonb_group_array(json(j)) OVER w),
+           json(jsonb_group_object(id, json(j)) OVER w)
+    FROM tj
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN 2 FOLLOWING AND 2 FOLLOWING EXCLUDE CURRENT ROW)
+    ORDER BY id;
+}
+expect {
+    1|[null]|{"5":null}|[null]|{"5":null}
+    2|[null]|{"5":null}|[null]|{"5":null}
+    3|[]|{}|[]|{}
+    4|[]|{}|[]|{}
+    5|[]|{}|[]|{}
+}
+
+@setup nested_json_values
+test anchored-original-nested-json-m1-f2-x1-v1 {
+    SELECT id,
+           json_group_array(j -> '$') OVER w,
+           json_group_object(id, j -> '$') OVER w,
+           json(jsonb_group_array(j -> '$') OVER w),
+           json(jsonb_group_object(id, j -> '$') OVER w)
+    FROM tj
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN 2 FOLLOWING AND 2 FOLLOWING EXCLUDE CURRENT ROW)
+    ORDER BY id;
+}
+expect {
+    1|[null]|{"5":null}|[null]|{"5":null}
+    2|[null]|{"5":null}|[null]|{"5":null}
+    3|[]|{}|[]|{}
+    4|[]|{}|[]|{}
+    5|[]|{}|[]|{}
+}
+
+@setup nested_json_values
+test anchored-original-nested-json-m1-f2-x1-v2 {
+    SELECT id,
+           json_group_array(json_extract(j, '$')) OVER w,
+           json_group_object(id, json_extract(j, '$')) OVER w,
+           json(jsonb_group_array(json_extract(j, '$')) OVER w),
+           json(jsonb_group_object(id, json_extract(j, '$')) OVER w)
+    FROM tj
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN 2 FOLLOWING AND 2 FOLLOWING EXCLUDE CURRENT ROW)
+    ORDER BY id;
+}
+expect {
+    1|[null]|{"5":null}|[null]|{"5":null}
+    2|[null]|{"5":null}|[null]|{"5":null}
+    3|[]|{}|[]|{}
+    4|[]|{}|[]|{}
+    5|[]|{}|[]|{}
+}
+
+@setup nested_json_values
+test anchored-original-nested-json-m1-f2-x1-v3 {
+    SELECT id,
+           json_group_array(iif(id % 2, json(j), 'plain')) OVER w,
+           json_group_object(id, iif(id % 2, json(j), 'plain')) OVER w,
+           json(jsonb_group_array(iif(id % 2, json(j), 'plain')) OVER w),
+           json(jsonb_group_object(id, iif(id % 2, json(j), 'plain')) OVER w)
+    FROM tj
+    WINDOW w AS (ORDER BY k GROUPS BETWEEN 2 FOLLOWING AND 2 FOLLOWING EXCLUDE CURRENT ROW)
+    ORDER BY id;
+}
+expect {
+    1|[null]|{"5":null}|[null]|{"5":null}
+    2|[null]|{"5":null}|[null]|{"5":null}
+    3|[]|{}|[]|{}
+    4|[]|{}|[]|{}
+    5|[]|{}|[]|{}
+}
+
+@setup nested_json_values
+test anchored-original-nested-json-m2-f0-x1-v0 {
+    SELECT id,
+           json_group_array(json(j)) OVER w,
+           json_group_object(id, json(j)) OVER w,
+           json(jsonb_group_array(json(j)) OVER w),
+           json(jsonb_group_object(id, json(j)) OVER w)
+    FROM tj
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE CURRENT ROW)
+    ORDER BY id;
+}
+expect {
+    1|[[2,"x,y"]]|{"2":[2,"x,y"]}|[[2,"x,y"]]|{"2":[2,"x,y"]}
+    2|[{"a":1}]|{"1":{"a":1}}|[{"a":1}]|{"1":{"a":1}}
+    3|[{"z":[3,4]}]|{"4":{"z":[3,4]}}|[{"z":[3,4]}]|{"4":{"z":[3,4]}}
+    4|["p,q"]|{"3":"p,q"}|["p,q"]|{"3":"p,q"}
+    5|[]|{}|[]|{}
+}
+
+@setup nested_json_values
+test anchored-original-nested-json-m2-f0-x1-v1 {
+    SELECT id,
+           json_group_array(j -> '$') OVER w,
+           json_group_object(id, j -> '$') OVER w,
+           json(jsonb_group_array(j -> '$') OVER w),
+           json(jsonb_group_object(id, j -> '$') OVER w)
+    FROM tj
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE CURRENT ROW)
+    ORDER BY id;
+}
+expect {
+    1|[[2,"x,y"]]|{"2":[2,"x,y"]}|[[2,"x,y"]]|{"2":[2,"x,y"]}
+    2|[{"a":1}]|{"1":{"a":1}}|[{"a":1}]|{"1":{"a":1}}
+    3|[{"z":[3,4]}]|{"4":{"z":[3,4]}}|[{"z":[3,4]}]|{"4":{"z":[3,4]}}
+    4|["p,q"]|{"3":"p,q"}|["p,q"]|{"3":"p,q"}
+    5|[]|{}|[]|{}
+}
+
+@setup nested_json_values
+test anchored-original-nested-json-m2-f0-x1-v2 {
+    SELECT id,
+           json_group_array(json_extract(j, '$')) OVER w,
+           json_group_object(id, json_extract(j, '$')) OVER w,
+           json(jsonb_group_array(json_extract(j, '$')) OVER w),
+           json(jsonb_group_object(id, json_extract(j, '$')) OVER w)
+    FROM tj
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE CURRENT ROW)
+    ORDER BY id;
+}
+expect {
+    1|[[2,"x,y"]]|{"2":[2,"x,y"]}|[[2,"x,y"]]|{"2":[2,"x,y"]}
+    2|[{"a":1}]|{"1":{"a":1}}|[{"a":1}]|{"1":{"a":1}}
+    3|[{"z":[3,4]}]|{"4":{"z":[3,4]}}|[{"z":[3,4]}]|{"4":{"z":[3,4]}}
+    4|["p,q"]|{"3":"p,q"}|["p,q"]|{"3":"p,q"}
+    5|[]|{}|[]|{}
+}
+
+@setup nested_json_values
+test anchored-original-nested-json-m2-f0-x1-v3 {
+    SELECT id,
+           json_group_array(iif(id % 2, json(j), 'plain')) OVER w,
+           json_group_object(id, iif(id % 2, json(j), 'plain')) OVER w,
+           json(jsonb_group_array(iif(id % 2, json(j), 'plain')) OVER w),
+           json(jsonb_group_object(id, iif(id % 2, json(j), 'plain')) OVER w)
+    FROM tj
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 1 PRECEDING AND CURRENT ROW EXCLUDE CURRENT ROW)
+    ORDER BY id;
+}
+expect {
+    1|["plain"]|{"2":"plain"}|["plain"]|{"2":"plain"}
+    2|[{"a":1}]|{"1":{"a":1}}|[{"a":1}]|{"1":{"a":1}}
+    3|["plain"]|{"4":"plain"}|["plain"]|{"4":"plain"}
+    4|["p,q"]|{"3":"p,q"}|["p,q"]|{"3":"p,q"}
+    5|[]|{}|[]|{}
+}
+
+@setup nested_json_values
+test anchored-original-nested-json-m2-f1-x0-v0 {
+    SELECT id,
+           json_group_array(json(j)) OVER w,
+           json_group_object(id, json(j)) OVER w,
+           json(jsonb_group_array(json(j)) OVER w),
+           json(jsonb_group_object(id, json(j)) OVER w)
+    FROM tj
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND 2 FOLLOWING )
+    ORDER BY id;
+}
+expect {
+    1|[]|{}|[]|{}
+    2|[]|{}|[]|{}
+    3|[]|{}|[]|{}
+    4|[]|{}|[]|{}
+    5|[]|{}|[]|{}
+}
+
+@setup nested_json_values
+test anchored-original-nested-json-m2-f1-x0-v1 {
+    SELECT id,
+           json_group_array(j -> '$') OVER w,
+           json_group_object(id, j -> '$') OVER w,
+           json(jsonb_group_array(j -> '$') OVER w),
+           json(jsonb_group_object(id, j -> '$') OVER w)
+    FROM tj
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND 2 FOLLOWING )
+    ORDER BY id;
+}
+expect {
+    1|[]|{}|[]|{}
+    2|[]|{}|[]|{}
+    3|[]|{}|[]|{}
+    4|[]|{}|[]|{}
+    5|[]|{}|[]|{}
+}
+
+@setup nested_json_values
+test anchored-original-nested-json-m2-f1-x0-v2 {
+    SELECT id,
+           json_group_array(json_extract(j, '$')) OVER w,
+           json_group_object(id, json_extract(j, '$')) OVER w,
+           json(jsonb_group_array(json_extract(j, '$')) OVER w),
+           json(jsonb_group_object(id, json_extract(j, '$')) OVER w)
+    FROM tj
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND 2 FOLLOWING )
+    ORDER BY id;
+}
+expect {
+    1|[]|{}|[]|{}
+    2|[]|{}|[]|{}
+    3|[]|{}|[]|{}
+    4|[]|{}|[]|{}
+    5|[]|{}|[]|{}
+}
+
+@setup nested_json_values
+test anchored-original-nested-json-m2-f1-x0-v3 {
+    SELECT id,
+           json_group_array(iif(id % 2, json(j), 'plain')) OVER w,
+           json_group_object(id, iif(id % 2, json(j), 'plain')) OVER w,
+           json(jsonb_group_array(iif(id % 2, json(j), 'plain')) OVER w),
+           json(jsonb_group_object(id, iif(id % 2, json(j), 'plain')) OVER w)
+    FROM tj
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND 2 FOLLOWING )
+    ORDER BY id;
+}
+expect {
+    1|[]|{}|[]|{}
+    2|[]|{}|[]|{}
+    3|[]|{}|[]|{}
+    4|[]|{}|[]|{}
+    5|[]|{}|[]|{}
+}
+
+@setup nested_json_values
+test anchored-original-nested-json-m2-f1-x1-v0 {
+    SELECT id,
+           json_group_array(json(j)) OVER w,
+           json_group_object(id, json(j)) OVER w,
+           json(jsonb_group_array(json(j)) OVER w),
+           json(jsonb_group_object(id, json(j)) OVER w)
+    FROM tj
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND 2 FOLLOWING EXCLUDE CURRENT ROW)
+    ORDER BY id;
+}
+expect {
+    1|[]|{}|[]|{}
+    2|[]|{}|[]|{}
+    3|[]|{}|[]|{}
+    4|[]|{}|[]|{}
+    5|[]|{}|[]|{}
+}
+
+@setup nested_json_values
+test anchored-original-nested-json-m2-f1-x1-v1 {
+    SELECT id,
+           json_group_array(j -> '$') OVER w,
+           json_group_object(id, j -> '$') OVER w,
+           json(jsonb_group_array(j -> '$') OVER w),
+           json(jsonb_group_object(id, j -> '$') OVER w)
+    FROM tj
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND 2 FOLLOWING EXCLUDE CURRENT ROW)
+    ORDER BY id;
+}
+expect {
+    1|[]|{}|[]|{}
+    2|[]|{}|[]|{}
+    3|[]|{}|[]|{}
+    4|[]|{}|[]|{}
+    5|[]|{}|[]|{}
+}
+
+@setup nested_json_values
+test anchored-original-nested-json-m2-f1-x1-v2 {
+    SELECT id,
+           json_group_array(json_extract(j, '$')) OVER w,
+           json_group_object(id, json_extract(j, '$')) OVER w,
+           json(jsonb_group_array(json_extract(j, '$')) OVER w),
+           json(jsonb_group_object(id, json_extract(j, '$')) OVER w)
+    FROM tj
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND 2 FOLLOWING EXCLUDE CURRENT ROW)
+    ORDER BY id;
+}
+expect {
+    1|[]|{}|[]|{}
+    2|[]|{}|[]|{}
+    3|[]|{}|[]|{}
+    4|[]|{}|[]|{}
+    5|[]|{}|[]|{}
+}
+
+@setup nested_json_values
+test anchored-original-nested-json-m2-f1-x1-v3 {
+    SELECT id,
+           json_group_array(iif(id % 2, json(j), 'plain')) OVER w,
+           json_group_object(id, iif(id % 2, json(j), 'plain')) OVER w,
+           json(jsonb_group_array(iif(id % 2, json(j), 'plain')) OVER w),
+           json(jsonb_group_object(id, iif(id % 2, json(j), 'plain')) OVER w)
+    FROM tj
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 1 FOLLOWING AND 2 FOLLOWING EXCLUDE CURRENT ROW)
+    ORDER BY id;
+}
+expect {
+    1|[]|{}|[]|{}
+    2|[]|{}|[]|{}
+    3|[]|{}|[]|{}
+    4|[]|{}|[]|{}
+    5|[]|{}|[]|{}
+}
+
+@setup nested_json_values
+test anchored-original-nested-json-m2-f2-x0-v0 {
+    SELECT id,
+           json_group_array(json(j)) OVER w,
+           json_group_object(id, json(j)) OVER w,
+           json(jsonb_group_array(json(j)) OVER w),
+           json(jsonb_group_object(id, json(j)) OVER w)
+    FROM tj
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 2 FOLLOWING AND 2 FOLLOWING )
+    ORDER BY id;
+}
+expect {
+    1|[]|{}|[]|{}
+    2|[]|{}|[]|{}
+    3|[]|{}|[]|{}
+    4|[]|{}|[]|{}
+    5|[]|{}|[]|{}
+}
+
+@setup nested_json_values
+test anchored-original-nested-json-m2-f2-x0-v1 {
+    SELECT id,
+           json_group_array(j -> '$') OVER w,
+           json_group_object(id, j -> '$') OVER w,
+           json(jsonb_group_array(j -> '$') OVER w),
+           json(jsonb_group_object(id, j -> '$') OVER w)
+    FROM tj
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 2 FOLLOWING AND 2 FOLLOWING )
+    ORDER BY id;
+}
+expect {
+    1|[]|{}|[]|{}
+    2|[]|{}|[]|{}
+    3|[]|{}|[]|{}
+    4|[]|{}|[]|{}
+    5|[]|{}|[]|{}
+}
+
+@setup nested_json_values
+test anchored-original-nested-json-m2-f2-x0-v2 {
+    SELECT id,
+           json_group_array(json_extract(j, '$')) OVER w,
+           json_group_object(id, json_extract(j, '$')) OVER w,
+           json(jsonb_group_array(json_extract(j, '$')) OVER w),
+           json(jsonb_group_object(id, json_extract(j, '$')) OVER w)
+    FROM tj
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 2 FOLLOWING AND 2 FOLLOWING )
+    ORDER BY id;
+}
+expect {
+    1|[]|{}|[]|{}
+    2|[]|{}|[]|{}
+    3|[]|{}|[]|{}
+    4|[]|{}|[]|{}
+    5|[]|{}|[]|{}
+}
+
+@setup nested_json_values
+test anchored-original-nested-json-m2-f2-x0-v3 {
+    SELECT id,
+           json_group_array(iif(id % 2, json(j), 'plain')) OVER w,
+           json_group_object(id, iif(id % 2, json(j), 'plain')) OVER w,
+           json(jsonb_group_array(iif(id % 2, json(j), 'plain')) OVER w),
+           json(jsonb_group_object(id, iif(id % 2, json(j), 'plain')) OVER w)
+    FROM tj
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 2 FOLLOWING AND 2 FOLLOWING )
+    ORDER BY id;
+}
+expect {
+    1|[]|{}|[]|{}
+    2|[]|{}|[]|{}
+    3|[]|{}|[]|{}
+    4|[]|{}|[]|{}
+    5|[]|{}|[]|{}
+}
+
+@setup nested_json_values
+test anchored-original-nested-json-m2-f2-x1-v0 {
+    SELECT id,
+           json_group_array(json(j)) OVER w,
+           json_group_object(id, json(j)) OVER w,
+           json(jsonb_group_array(json(j)) OVER w),
+           json(jsonb_group_object(id, json(j)) OVER w)
+    FROM tj
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 2 FOLLOWING AND 2 FOLLOWING EXCLUDE CURRENT ROW)
+    ORDER BY id;
+}
+expect {
+    1|[]|{}|[]|{}
+    2|[]|{}|[]|{}
+    3|[]|{}|[]|{}
+    4|[]|{}|[]|{}
+    5|[]|{}|[]|{}
+}
+
+@setup nested_json_values
+test anchored-original-nested-json-m2-f2-x1-v1 {
+    SELECT id,
+           json_group_array(j -> '$') OVER w,
+           json_group_object(id, j -> '$') OVER w,
+           json(jsonb_group_array(j -> '$') OVER w),
+           json(jsonb_group_object(id, j -> '$') OVER w)
+    FROM tj
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 2 FOLLOWING AND 2 FOLLOWING EXCLUDE CURRENT ROW)
+    ORDER BY id;
+}
+expect {
+    1|[]|{}|[]|{}
+    2|[]|{}|[]|{}
+    3|[]|{}|[]|{}
+    4|[]|{}|[]|{}
+    5|[]|{}|[]|{}
+}
+
+@setup nested_json_values
+test anchored-original-nested-json-m2-f2-x1-v2 {
+    SELECT id,
+           json_group_array(json_extract(j, '$')) OVER w,
+           json_group_object(id, json_extract(j, '$')) OVER w,
+           json(jsonb_group_array(json_extract(j, '$')) OVER w),
+           json(jsonb_group_object(id, json_extract(j, '$')) OVER w)
+    FROM tj
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 2 FOLLOWING AND 2 FOLLOWING EXCLUDE CURRENT ROW)
+    ORDER BY id;
+}
+expect {
+    1|[]|{}|[]|{}
+    2|[]|{}|[]|{}
+    3|[]|{}|[]|{}
+    4|[]|{}|[]|{}
+    5|[]|{}|[]|{}
+}
+
+@setup nested_json_values
+test anchored-original-nested-json-m2-f2-x1-v3 {
+    SELECT id,
+           json_group_array(iif(id % 2, json(j), 'plain')) OVER w,
+           json_group_object(id, iif(id % 2, json(j), 'plain')) OVER w,
+           json(jsonb_group_array(iif(id % 2, json(j), 'plain')) OVER w),
+           json(jsonb_group_object(id, iif(id % 2, json(j), 'plain')) OVER w)
+    FROM tj
+    WINDOW w AS (ORDER BY k RANGE BETWEEN 2 FOLLOWING AND 2 FOLLOWING EXCLUDE CURRENT ROW)
+    ORDER BY id;
+}
+expect {
+    1|[]|{}|[]|{}
+    2|[]|{}|[]|{}
+    3|[]|{}|[]|{}
+    4|[]|{}|[]|{}
+    5|[]|{}|[]|{}
+}

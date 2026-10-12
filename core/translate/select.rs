@@ -15,8 +15,9 @@ use crate::translate::group_by::compute_group_by_sort_order;
 use crate::translate::optimizer::optimize_plan;
 use crate::translate::plan::{GroupBy, Plan, ResultSetColumn, SelectPlan, SubqueryState};
 use crate::translate::planner::{
-    append_vtab_predicates_to_where_clause, break_predicate_at_and_boundaries, parse_from,
-    parse_limit, parse_where, plan_ctes_as_outer_refs, resolve_window_and_aggregate_functions,
+    append_vtab_predicates_to_where_clause, break_predicate_at_and_boundaries,
+    parse_from_with_deferred_join_predicates, parse_limit, parse_where, plan_ctes_as_outer_refs,
+    resolve_window_and_aggregate_functions,
 };
 use crate::translate::result_row::emit_select_result;
 use crate::translate::subquery::{plan_subqueries_from_select_plan, plan_subqueries_from_values};
@@ -286,6 +287,44 @@ fn prepare_one_select_plan(
     query_destination: QueryDestination,
     connection: &Arc<crate::Connection>,
 ) -> Result<SelectPlan> {
+    resolver.begin_collecting_aggregates_from_subqueries();
+    let result = prepare_one_select_plan_in_scope(
+        select,
+        resolver,
+        program,
+        limit,
+        order_by,
+        with,
+        outer_query_refs,
+        query_destination,
+        connection,
+    );
+    let collected = resolver.take_aggregates_from_subqueries();
+    result.map(|mut plan| {
+        for aggregate in collected {
+            if !plan.aggregates.iter().any(|existing| {
+                exprs_are_equivalent(&existing.original_expr, &aggregate.original_expr)
+            }) {
+                plan.aggregates.push(aggregate);
+            }
+        }
+        plan
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+#[turso_macros::trace_stack]
+fn prepare_one_select_plan_in_scope(
+    select: ast::OneSelect,
+    resolver: &Resolver,
+    program: &mut ProgramBuilder,
+    limit: Option<ast::Limit>,
+    order_by: Vec<ast::SortedColumn>,
+    with: Option<ast::With>,
+    outer_query_refs: &[OuterQueryReference],
+    query_destination: QueryDestination,
+    connection: &Arc<crate::Connection>,
+) -> Result<SelectPlan> {
     match select {
         ast::OneSelect::Select {
             columns,
@@ -302,6 +341,7 @@ fn prepare_one_select_plan(
 
             let mut where_predicates = vec![];
             let mut vtab_predicates = vec![];
+            let mut group_by_result_column_terms = Vec::new();
 
             let mut table_references = TableReferences::new(vec![], outer_query_refs.to_vec());
 
@@ -314,6 +354,7 @@ fn prepare_one_select_plan(
             }
 
             // Parse the FROM clause into a vec of TableReferences. Fold all the join conditions expressions into the WHERE clause.
+            let mut deferred_join_predicates = Vec::new();
             let preplan_ctes_for_non_from_subqueries = with.is_some()
                 && select_has_non_from_subqueries(
                     &columns,
@@ -324,7 +365,7 @@ fn prepare_one_select_plan(
                     limit.as_ref(),
                 );
             {
-                parse_from(
+                parse_from_with_deferred_join_predicates(
                     from,
                     resolver,
                     program,
@@ -334,8 +375,11 @@ fn prepare_one_select_plan(
                     &mut vtab_predicates,
                     &mut table_references,
                     connection,
+                    Some(&mut deferred_join_predicates),
                 )?;
             }
+
+            resolver.set_query_aggregate_tables(&table_references);
 
             // Preallocate space for the result columns
             let result_columns = Vec::with_capacity(
@@ -618,6 +662,8 @@ fn prepare_one_select_plan(
                 crate::bail_parse_error!("too many columns in result set");
             }
 
+            bind_deferred_join_predicates(&mut plan, &deferred_join_predicates, resolver)?;
+
             // This step can only be performed at this point, because all table references are now available.
             // Virtual table predicates may depend on column bindings from tables to the right in the join order,
             // so we must wait until the full set of references has been collected.
@@ -654,8 +700,12 @@ fn prepare_one_select_plan(
 
                     if !group_by.exprs.is_empty() {
                         // Normal GROUP BY with expressions
-                        for expr in group_by.exprs.iter_mut() {
-                            replace_column_number_with_copy_of_column_expr(
+                        for (term_index, expr) in group_by.exprs.iter_mut().enumerate() {
+                            let alias = match result_column_reference_expr(expr) {
+                                Expr::Id(name) => Some(normalize_ident(name.as_str())),
+                                _ => None,
+                            };
+                            let is_ordinal = replace_column_number_with_copy_of_column_expr(
                                 expr,
                                 &plan.result_columns,
                                 "GROUP BY",
@@ -667,6 +717,21 @@ fn prepare_one_select_plan(
                                 resolver,
                                 BindingBehavior::TryCanonicalColumnsFirst,
                             )?;
+                            let is_alias = alias.is_some_and(|alias| {
+                                plan.result_columns.iter().any(|column| {
+                                    column
+                                        .alias
+                                        .as_ref()
+                                        .is_some_and(|name| normalize_ident(name) == alias)
+                                        && exprs_are_equivalent(
+                                            result_column_reference_expr(expr),
+                                            result_column_reference_expr(&column.expr),
+                                        )
+                                })
+                            });
+                            if is_ordinal || is_alias {
+                                group_by_result_column_terms.push(term_index);
+                            }
                         }
 
                         plan.group_by = Some(GroupBy {
@@ -691,16 +756,47 @@ fn prepare_one_select_plan(
 
             plan.aggregates = aggregate_expressions;
 
+            for aggregate in &plan.aggregates {
+                validate_aggregate_arguments(aggregate, resolver)?;
+            }
+            let allows_where_aggregates = !plan.aggregates.is_empty() || plan.group_by.is_some();
+            for term in &plan.where_clause {
+                let mut where_aggregates = Vec::new();
+                resolve_window_and_aggregate_functions(
+                    &term.expr,
+                    resolver,
+                    &mut where_aggregates,
+                    None,
+                    &mut [],
+                )?;
+                for aggregate in where_aggregates {
+                    validate_aggregate_arguments(&aggregate, resolver)?;
+                    if !allows_where_aggregates
+                        || !resolver.aggregate_belongs_to_outer_query(&aggregate)
+                    {
+                        crate::bail_parse_error!(
+                            "misuse of aggregate function {}()",
+                            aggregate.func
+                        );
+                    }
+                    resolver.move_aggregate_to_enclosing_query(aggregate);
+                }
+            }
+
             // An aggregate whose argument columns belong to the enclosing query
             // is computed by that query, not by this subquery (SQLite binds an
             // aggregate to the nearest query that supplies a referenced column).
             // Move those up so this subquery never computes them; the enclosing
             // query collects them once its subqueries are planned. When there is
             // no enclosing query the move fails and the aggregate stays here.
-            let tables = &plan.table_references;
+            let mut enclosing_aggregate_exprs = Vec::new();
             plan.aggregates.retain(|agg| {
-                !(aggregate_belongs_to_enclosing_query(agg, tables)
-                    && resolver.move_aggregate_to_enclosing_query(agg.clone()))
+                if resolver.move_aggregate_to_enclosing_query(agg.clone()) {
+                    enclosing_aggregate_exprs.push(agg.original_expr.clone());
+                    false
+                } else {
+                    true
+                }
             });
 
             // HAVING without GROUP BY requires aggregates in the SELECT
@@ -839,14 +935,13 @@ fn prepare_one_select_plan(
             // this query. Collection starts before the subqueries are planned
             // and ends after; the collected aggregates become this query's,
             // making it an aggregate query.
-            resolver.begin_collecting_aggregates_from_subqueries();
             plan_subqueries_from_select_plan(program, &mut plan, resolver, connection)?;
-            let aggregates_from_subqueries = resolver.take_aggregates_from_subqueries();
-            plan.aggregates.extend(aggregates_from_subqueries);
+            plan.aggregates
+                .retain(|agg| !enclosing_aggregate_exprs.contains(&agg.original_expr));
 
             {
                 trace_stack!("validate_plan");
-                validate_group_by_outer_scope_refs(&plan)?;
+                validate_group_by_outer_scope_refs(&plan, &group_by_result_column_terms)?;
 
                 validate_expr_correct_column_counts(&plan)?;
             }
@@ -939,6 +1034,45 @@ fn prepare_one_select_plan(
     }
 }
 
+fn bind_deferred_join_predicates(
+    plan: &mut SelectPlan,
+    deferred_join_predicates: &[(usize, usize)],
+    resolver: &Resolver,
+) -> Result<()> {
+    for &(predicate_index, table_count) in deferred_join_predicates {
+        let later_tables = plan
+            .table_references
+            .joined_tables_mut()
+            .split_off(table_count);
+        let result = bind_and_rewrite_expr(
+            &mut plan.where_clause[predicate_index].expr,
+            Some(&mut plan.table_references),
+            Some(&plan.result_columns),
+            resolver,
+            BindingBehavior::TryCanonicalColumnsFirst,
+        )
+        .and_then(|()| {
+            walk_expr(&plan.where_clause[predicate_index].expr, &mut |expr| {
+                if let Expr::Column { table, .. } | Expr::RowId { table, .. } = expr {
+                    if plan
+                        .table_references
+                        .find_table_by_internal_id(*table)
+                        .is_none()
+                    {
+                        crate::bail_parse_error!("ON clause references tables to its right");
+                    }
+                }
+                Ok(WalkControl::Continue)
+            })
+        });
+        plan.table_references
+            .joined_tables_mut()
+            .extend(later_tables);
+        result?;
+    }
+    Ok(())
+}
+
 /// Validate that all expressions in the plan return the correct number of values;
 /// generally this only applies to parenthesized lists and subqueries.
 fn validate_expr_correct_column_counts(plan: &SelectPlan) -> Result<()> {
@@ -1009,14 +1143,20 @@ fn validate_expr_correct_column_counts(plan: &SelectPlan) -> Result<()> {
 
 /// SQLite compatibility: GROUP BY expressions in a correlated subquery cannot
 /// reference columns from the outer query scope.
-fn validate_group_by_outer_scope_refs(plan: &SelectPlan) -> Result<()> {
+fn validate_group_by_outer_scope_refs(
+    plan: &SelectPlan,
+    result_column_terms: &[usize],
+) -> Result<()> {
     if plan.table_references.outer_query_refs().is_empty() {
         return Ok(());
     }
     let Some(group_by) = &plan.group_by else {
         return Ok(());
     };
-    for expr in &group_by.exprs {
+    for (term_index, expr) in group_by.exprs.iter().enumerate() {
+        if result_column_terms.contains(&term_index) {
+            continue;
+        }
         reject_outer_query_refs_in_group_by_expr(
             expr,
             &plan.table_references,
@@ -1189,7 +1329,7 @@ fn replace_column_number_with_copy_of_column_expr(
     order_by_or_group_by_expr: &mut ast::Expr,
     columns: &[ResultSetColumn],
     clause_name: &str,
-) -> Result<()> {
+) -> Result<bool> {
     match order_by_or_group_by_expr {
         ast::Expr::Collate(inner, _) => {
             return replace_column_number_with_copy_of_column_expr(inner, columns, clause_name);
@@ -1245,10 +1385,21 @@ fn replace_column_number_with_copy_of_column_expr(
             }
             let ResultSetColumn { expr, .. } = &columns[column_number as usize - 1];
             *order_by_or_group_by_expr = expr.clone();
+            return Ok(true);
         }
         // Otherwise, leave the expression as-is (constant expression, case 3 per SQLite docs)
     }
-    Ok(())
+    Ok(false)
+}
+
+fn result_column_reference_expr(expr: &Expr) -> &Expr {
+    match expr {
+        Expr::Collate(inner, _) => result_column_reference_expr(inner),
+        Expr::Parenthesized(expressions) if expressions.len() == 1 => {
+            result_column_reference_expr(&expressions[0])
+        }
+        _ => expr,
+    }
 }
 
 /// Resolves a compound SELECT ORDER BY term to a 0-based result column index.
@@ -1814,39 +1965,38 @@ pub fn emit_simple_count(
     Ok(true)
 }
 
-/// True when this aggregate belongs to the immediate enclosing query rather
-/// than the subquery it is written in: every argument column is a reference to
-/// the enclosing query (scope depth 0), and none is this query's own column.
-/// SQLite binds an aggregate to the nearest query that supplies a referenced
-/// column; an argument column referencing a further ancestor (scope depth > 0)
-/// is not handled here, so the aggregate stays with this query.
-fn aggregate_belongs_to_enclosing_query(
-    agg: &super::plan::Aggregate,
-    tables: &TableReferences,
-) -> bool {
-    let mut belongs = false;
-    let mut disqualified = false;
-    for arg in agg.args.iter().chain(agg.filter_expr.iter()) {
-        let _ = walk_expr(arg, &mut |e: &ast::Expr| -> Result<WalkControl> {
-            if let ast::Expr::Column { table, .. } | ast::Expr::RowId { table, .. } = e {
-                if tables
-                    .joined_tables()
-                    .iter()
-                    .any(|t| t.internal_id == *table)
+fn validate_aggregate_arguments(
+    aggregate: &super::plan::Aggregate,
+    resolver: &Resolver,
+) -> Result<()> {
+    for argument in aggregate.args.iter().chain(aggregate.filter_expr.iter()) {
+        walk_expr(argument, &mut |expression| {
+            let function = match expression {
+                Expr::FunctionCall {
+                    name,
+                    args,
+                    filter_over,
+                    ..
+                } if filter_over.over_clause.is_none() => Some((name, args.len())),
+                Expr::FunctionCallStar { name, filter_over }
+                    if filter_over.over_clause.is_none() =>
                 {
-                    disqualified = true;
-                } else if let Some(outer) = tables.find_outer_query_ref_by_internal_id(*table) {
-                    if outer.scope_depth == 0 {
-                        belongs = true;
-                    } else {
-                        disqualified = true;
-                    }
+                    Some((name, 0))
+                }
+                _ => None,
+            };
+            if let Some((name, argument_count)) = function {
+                if matches!(
+                    resolver.resolve_function(name.as_str(), argument_count)?,
+                    Some(crate::function::Func::Agg(_))
+                ) {
+                    crate::bail_parse_error!("misuse of aggregate function {}()", name.as_str());
                 }
             }
             Ok(WalkControl::Continue)
-        });
+        })?;
     }
-    belongs && !disqualified
+    Ok(())
 }
 
 fn process_having_clause(
@@ -1858,6 +2008,28 @@ fn process_having_clause(
 ) -> Result<Vec<ast::Expr>> {
     let mut predicates = vec![];
     break_predicate_at_and_boundaries(&having, &mut predicates);
+    let having_aliases = result_columns
+        .iter()
+        .filter(|column| {
+            column.alias.as_ref().is_some_and(|alias| {
+                let normalized_alias = normalize_ident(alias);
+                !table_references.joined_tables().iter().any(|table| {
+                    table.columns().iter().any(|column| {
+                        column
+                            .name
+                            .as_ref()
+                            .is_some_and(|name| name.eq_ignore_ascii_case(&normalized_alias))
+                    }) || (matches!(normalized_alias.as_str(), "rowid" | "oid" | "_rowid_")
+                        && match &table.table {
+                            Table::BTree(table) => table.has_rowid,
+                            Table::Virtual(_) => true,
+                            _ => false,
+                        })
+                })
+            })
+        })
+        .cloned()
+        .collect::<Vec<_>>();
 
     // Before alias resolution replaces identifiers with their underlying expressions,
     // check for aliased aggregate misuse. SQLite does this during name resolution by
@@ -1865,14 +2037,14 @@ fn process_having_clause(
     // inside an aggregate function's arguments resolves to an alias whose original expression
     // has EP_Agg, SQLite reports "misuse of aliased aggregate X".
     for expr in predicates.iter() {
-        check_aliased_aggregate_misuse(expr, result_columns)?;
+        check_aliased_aggregate_misuse(expr, &having_aliases)?;
     }
 
     for expr in predicates.iter_mut() {
         bind_and_rewrite_expr(
             expr,
             Some(table_references),
-            Some(result_columns),
+            Some(&having_aliases),
             resolver,
             BindingBehavior::TryResultColumnsFirst,
         )?;

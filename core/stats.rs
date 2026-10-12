@@ -42,6 +42,10 @@ pub struct TableStat {
 }
 
 impl TableStat {
+    pub fn index_stat(&self, index_name: &str) -> Option<&IndexStat> {
+        self.index_stats.get(&normalize_ident(index_name))
+    }
+
     /// Get or create the per-index statistics bucket for the given index name.
     pub fn index_stats_mut(&mut self, index_name: &str) -> &mut IndexStat {
         let index_name = normalize_ident(index_name);
@@ -391,7 +395,22 @@ impl StatAccum {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_stat_numbers;
+    use super::{parse_stat_numbers, TableStat};
+
+    #[test]
+    fn index_stats_lookup_ignores_name_case() {
+        let mut stats = TableStat::default();
+        stats.index_stats_mut("MiXeD_Index").total_rows = Some(12);
+
+        assert_eq!(
+            stats.index_stat("MiXeD_Index").unwrap().total_rows,
+            Some(12)
+        );
+        assert_eq!(
+            stats.index_stat("mixed_index").unwrap().total_rows,
+            Some(12)
+        );
+    }
 
     #[test]
     fn parse_stat_numbers_basic() {

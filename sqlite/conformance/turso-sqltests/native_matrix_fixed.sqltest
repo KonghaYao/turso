@@ -1,0 +1,195 @@
+@database :memory:
+
+# Independent, hand-derived anchors for representative matrix families.
+# These fixed rows include order and errors; unlike matrix materialization,
+# success cannot follow from two matching wrong results or matching errors.
+
+setup join_rows {
+    CREATE TABLE jleft(id INTEGER PRIMARY KEY, k INTEGER, flag INTEGER);
+    CREATE TABLE jright(id INTEGER PRIMARY KEY, k INTEGER, flag INTEGER);
+    CREATE INDEX jleft_k ON jleft(k);
+    CREATE INDEX jright_k ON jright(k);
+    INSERT INTO jleft VALUES (1,1,1),(2,2,0),(3,NULL,1),(4,1,0);
+    INSERT INTO jright VALUES (10,1,1),(11,1,0),(12,3,1),(13,NULL,0);
+}
+
+# join/hash: duplicate build keys, NULL nonmatches, both sides unmatched.
+@setup join_rows
+test fixed-hash-full-join-row-order {
+    SELECT l.id, r.id FROM jleft AS l FULL OUTER JOIN jright AS r
+      ON l.k = r.k
+    ORDER BY coalesce(l.id, 1000), r.id;
+}
+expect {
+    1|10
+    1|11
+    2|
+    3|
+    4|10
+    4|11
+    |12
+    |13
+}
+
+# Same FULL JOIN without indexes is a positive control for the indexed plan.
+setup join_rows_no_index {
+    CREATE TABLE jleft(id INTEGER PRIMARY KEY, k INTEGER, flag INTEGER);
+    CREATE TABLE jright(id INTEGER PRIMARY KEY, k INTEGER, flag INTEGER);
+    INSERT INTO jleft VALUES (1,1,1),(2,2,0),(3,NULL,1),(4,1,0);
+    INSERT INTO jright VALUES (10,1,1),(11,1,0),(12,3,1),(13,NULL,0);
+}
+
+@setup join_rows_no_index
+test fixed-full-join-no-index-control {
+    SELECT count(*) FROM jleft AS l FULL OUTER JOIN jright AS r ON l.k = r.k;
+}
+expect {
+    8
+}
+
+# join/memory: indexed build input and residual predicate must retain outer rows.
+@setup join_rows
+test fixed-indexed-build-left-join {
+    SELECT l.id, r.id FROM jleft AS l LEFT JOIN jright AS r
+      ON l.k = r.k AND r.flag = 1
+    WHERE l.id IN (1,2,3)
+    ORDER BY l.id, r.id;
+}
+expect {
+    1|10
+    2|
+    3|
+}
+
+setup or_rows {
+    CREATE TABLE or_left(id INTEGER PRIMARY KEY, x INTEGER);
+    CREATE TABLE or_right(id INTEGER PRIMARY KEY, left_id INTEGER, y INTEGER);
+    CREATE INDEX or_left_x ON or_left(x);
+    CREATE INDEX or_right_y ON or_right(y);
+    INSERT INTO or_left VALUES (1,1),(2,2),(3,NULL);
+    INSERT INTO or_right VALUES (10,1,2),(11,1,1),(12,2,1),(13,3,2);
+}
+
+# multi_index_or_compound: OR branch inferred across both join inputs.
+@setup or_rows
+test fixed-join-or-two-branches {
+    SELECT l.id,r.id FROM or_left AS l JOIN or_right AS r
+      ON l.id=r.left_id
+    WHERE (l.x=1 AND r.y=2) OR (l.x=2 AND r.y=1)
+    ORDER BY l.id,r.id;
+}
+expect {
+    1|10
+    2|12
+}
+
+setup correlated_rows {
+    CREATE TABLE co(id INTEGER PRIMARY KEY,k INTEGER,n INTEGER);
+    CREATE TABLE ci(k INTEGER,n INTEGER);
+    CREATE INDEX ci_k_n ON ci(k,n);
+    INSERT INTO co VALUES (1,1,5),(2,2,6),(3,1,8),(4,NULL,5);
+    INSERT INTO ci VALUES (1,5),(1,NULL),(2,7);
+}
+
+# unnest-correlated: TRUE, FALSE, UNKNOWN, and empty correlated set.
+@setup correlated_rows
+test fixed-correlated-in-three-valued-result {
+    SELECT o.id, CASE WHEN o.n IN (SELECT i.n FROM ci AS i WHERE i.k=o.k)
+           THEN 1 WHEN (o.n IN (SELECT i.n FROM ci AS i WHERE i.k=o.k)) IS NULL
+           THEN -1 ELSE 0 END
+    FROM co AS o ORDER BY o.id;
+}
+expect {
+    1|1
+    2|0
+    3|-1
+    4|0
+}
+
+setup window_rows {
+    CREATE TABLE w(id INTEGER PRIMARY KEY,k INTEGER,v INTEGER);
+    INSERT INTO w VALUES (1,1,2),(2,1,4),(3,2,8),(4,3,16);
+}
+
+# frame_matrix: GROUPS and EXCLUDE GROUP advance by peer group, not row.
+@setup window_rows
+test fixed-frame-groups-exclude-peers {
+    SELECT id,sum(v) OVER (ORDER BY k GROUPS BETWEEN CURRENT ROW AND 1 FOLLOWING EXCLUDE GROUP)
+    FROM w ORDER BY id;
+}
+expect {
+    1|8
+    2|8
+    3|16
+    4|
+}
+
+# frame_matrix_edge: FILTER still subtracts evicted members in a sliding frame.
+@setup window_rows
+test fixed-filter-sliding-inverse {
+    SELECT id,sum(v) FILTER (WHERE id%2=0) OVER
+      (ORDER BY id ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING)
+    FROM w ORDER BY id;
+}
+expect {
+    1|4
+    2|4
+    3|20
+    4|16
+}
+
+setup offset_rows {
+    CREATE TABLE offs(k INTEGER);
+    INSERT INTO offs VALUES (1),(2),(3);
+}
+
+# frame_matrix_edge: the oversized boundary clamps to the partition start.
+@setup offset_rows
+test fixed-oversized-frame-offset {
+    SELECT k,sum(k) OVER (ORDER BY k ROWS BETWEEN 100 PRECEDING AND 0 FOLLOWING)
+    FROM offs ORDER BY k;
+}
+expect {
+    1|1
+    2|3
+    3|6
+}
+
+# frame_matrix_edge: permitted constant arithmetic offset.
+@setup offset_rows
+test fixed-accepted-frame-offset-expression {
+    SELECT k,sum(k) OVER (ORDER BY k ROWS BETWEEN 1+0 PRECEDING AND CURRENT ROW)
+    FROM offs ORDER BY k;
+}
+expect {
+    1|1
+    2|3
+    3|5
+}
+
+# frame_matrix_edge: a rejected runtime expression must report an error.
+@setup offset_rows
+test fixed-rejected-frame-offset-expression {
+    SELECT k,sum(k) OVER (ORDER BY k ROWS BETWEEN abs(-1) PRECEDING AND CURRENT ROW)
+    FROM offs ORDER BY k;
+}
+expect error {
+    frame starting offset must be a non-negative integer
+}
+
+setup json_rows {
+    CREATE TABLE js(id INTEGER PRIMARY KEY,j TEXT);
+    INSERT INTO js VALUES (1,json_object('a',1)),(2,json_array(2,'x,y'));
+}
+
+# frame_matrix_edge: JSON values must remain nested, not quoted as text.
+@setup json_rows
+test fixed-moving-json-subtype {
+    SELECT id,json_group_array(json(j)) OVER
+      (ORDER BY id ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING)
+    FROM js ORDER BY id;
+}
+expect {
+    1|[{"a":1},[2,"x,y"]]
+    2|[[2,"x,y"]]
+}

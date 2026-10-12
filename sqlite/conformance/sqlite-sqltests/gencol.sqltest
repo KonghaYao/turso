@@ -2768,7 +2768,6 @@ expect {
 
 # DELETE with indexed virtual column + TEXT PK
 @cross-check-integrity
-@skip "Same col_used_mask bug exists in DELETE path - panics (see #6206)"
 test delete-text-pk-indexed-virtual-column {
     CREATE TABLE t3(id TEXT PRIMARY KEY, col_a TEXT);
     ALTER TABLE t3 ADD COLUMN v TEXT GENERATED ALWAYS AS (CAST(col_a AS TEXT)) VIRTUAL;
@@ -3048,7 +3047,6 @@ expect {
     1|50|500
 }
 
-@skip "TODO requires https://github.com/tursodatabase/turso/issues/6087"
 test gencol_upsert_virtual_before_regular_with_index {
     CREATE TABLE t1(a INTEGER PRIMARY KEY, b AS (a * 2) VIRTUAL, c TEXT);
     CREATE INDEX idx_c ON t1(c);
@@ -3598,7 +3596,6 @@ expect {
 
 # --- VACUUM ---
 
-@skip "TODO: VACUUM is not supported yet"
 test gencol_vacuum_virtual {
     CREATE TABLE t1(a INTEGER, b AS (a * 2));
     INSERT INTO t1(a) VALUES(1), (2), (3), (4), (5);
@@ -3612,7 +3609,6 @@ expect {
     5|10
 }
 
-@skip "TODO: VACUUM is not supported yet"
 test gencol_vacuum_virtual_with_index {
     CREATE TABLE t1(a INTEGER, b AS (a * 2));
     CREATE INDEX idx1 ON t1(b);

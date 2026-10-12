@@ -20,8 +20,7 @@ use crate::{
         collate::get_collseq_from_expr,
         compound_select::emit_program_for_compound_select,
         emitter::select::{
-            emit_materialized_build_inputs, emit_program_for_select,
-            emit_program_for_select_with_resolver, emit_query,
+            emit_materialized_build_inputs, emit_program_for_select_with_resolver, emit_query,
         },
         eqp::{
             eqp_detail_for_rowid_search, eqp_detail_for_table_op, EqpDetail, EqpJoin, EqpSubquery,
@@ -403,6 +402,17 @@ pub fn plan_subqueries_from_select_plan(
         recollect_aggregates(plan, resolver)?;
     }
 
+    plan.aggregates
+        .retain(|aggregate| !resolver.aggregate_belongs_to_outer_query(aggregate));
+    for aggregate in resolver.take_current_query_aggregates() {
+        if !plan.aggregates.iter().any(|existing| {
+            crate::util::exprs_are_equivalent(&existing.original_expr, &aggregate.original_expr)
+        }) {
+            plan.aggregates.push(aggregate);
+        }
+    }
+
+    validate_aggregate_subquery_arguments(plan, resolver)?;
     assign_select_subquery_eval_phases(plan);
     mark_shared_cte_materialization_requirements(
         &mut plan.table_references,
@@ -860,19 +870,37 @@ fn get_subquery_parser<'a>(
 
                 // Only inject LIMIT 1 if there's no existing limit, or the existing limit is > 1,
                 // If LIMIT 0, subquery should return no rows (NULL).
-                let limit = match &plan.limit {
+                let (replace_with_one, rewrite_as_boolean) = match &plan.limit {
                     Some(expr) => match parse_signed_number(expr) {
-                        Ok(Value::Numeric(Numeric::Integer(v))) => !(0..=1).contains(&v),
-                        _ => true,
+                        Ok(Value::Numeric(Numeric::Integer(value))) => {
+                            (!(0..=1).contains(&value), false)
+                        }
+                        _ => (false, true),
                     },
-                    None => true,
+                    None => (true, false),
                 };
-                if limit {
+                if replace_with_one {
                     // RowValue subqueries are satisfied after at most 1 row has been returned,
                     // as they are used in comparisons with a scalar or a tuple of scalars like (x,y) = (SELECT ...) or x = (SELECT ...).
                     plan.limit = Some(Box::new(ast::Expr::Literal(ast::Literal::Numeric(
                         "1".to_string(),
                     ))));
+                } else if rewrite_as_boolean {
+                    let original_limit = plan.limit.take().unwrap();
+                    plan.limit = Some(Box::new(ast::Expr::Binary(
+                        original_limit,
+                        ast::Operator::NotEquals,
+                        Box::new(ast::Expr::Cast {
+                            expr: Box::new(ast::Expr::Literal(ast::Literal::Numeric(
+                                "0".to_string(),
+                            ))),
+                            type_name: Some(ast::Type {
+                                name: "NUMERIC".to_string(),
+                                size: None,
+                                array_dimensions: 0,
+                            }),
+                        }),
+                    )));
                 }
 
                 let ast::Expr::SubqueryResult {
@@ -1662,7 +1690,9 @@ pub fn emit_from_clause_subquery(
                     limit_ctx: None,
                     reg_offset: None,
                     reg_limit_offset_sum: None,
-                    resolver: t_ctx.resolver.fork(),
+                    resolver: t_ctx
+                        .resolver
+                        .fork_with_outer_query_cache(&select_plan.table_references),
                     non_aggregate_expressions: Vec::new(),
                     agg_leaf_columns: Vec::new(),
                     cdc_cursor_id: None,
@@ -1679,7 +1709,9 @@ pub fn emit_from_clause_subquery(
                 emit_query(program, select_plan, &mut metadata)?
             }
             Plan::CompoundSelect { .. } => {
-                let resolver = t_ctx.resolver.fork();
+                let resolver = t_ctx
+                    .resolver
+                    .fork_with_outer_query_cache(plan.select_table_references());
                 // emit_program_for_compound_select returns the result column start register
                 // for coroutine mode, which is needed by the outer query.
                 emit_program_for_compound_select(program, &resolver, plan)?
@@ -1759,7 +1791,9 @@ fn emit_indexed_materialized_subquery(
                 limit_ctx: None,
                 reg_offset: None,
                 reg_limit_offset_sum: None,
-                resolver: t_ctx.resolver.fork(),
+                resolver: t_ctx
+                    .resolver
+                    .fork_with_outer_query_cache(&select_plan.table_references),
                 non_aggregate_expressions: Vec::new(),
                 agg_leaf_columns: Vec::new(),
                 cdc_cursor_id: None,
@@ -1776,7 +1810,9 @@ fn emit_indexed_materialized_subquery(
             emit_query(program, select_plan, &mut metadata)?;
         }
         Plan::CompoundSelect { .. } => {
-            let resolver = t_ctx.resolver.fork();
+            let resolver = t_ctx
+                .resolver
+                .fork_with_outer_query_cache(plan.select_table_references());
             emit_program_for_compound_select(program, &resolver, plan)?;
         }
         Plan::RecursiveCte(_) => {
@@ -1872,7 +1908,9 @@ fn emit_materialized_subquery_table(
                 limit_ctx: None,
                 reg_offset: None,
                 reg_limit_offset_sum: None,
-                resolver: t_ctx.resolver.fork(),
+                resolver: t_ctx
+                    .resolver
+                    .fork_with_outer_query_cache(&select_plan.table_references),
                 non_aggregate_expressions: Vec::new(),
                 agg_leaf_columns: Vec::new(),
                 cdc_cursor_id: None,
@@ -1889,7 +1927,9 @@ fn emit_materialized_subquery_table(
             emit_query(program, select_plan, &mut metadata)?;
         }
         Plan::CompoundSelect { .. } => {
-            let resolver = t_ctx.resolver.fork();
+            let resolver = t_ctx
+                .resolver
+                .fork_with_outer_query_cache(plan.select_table_references());
             emit_program_for_compound_select(program, &resolver, plan)?;
         }
         Plan::RecursiveCte(recursive_cte) => {
@@ -1981,7 +2021,13 @@ pub fn emit_non_from_clause_subquery(
                             *select_plan,
                         )
                     } else {
-                        emit_program_for_select(program, resolver, *select_plan)
+                        let select_resolver =
+                            resolver.fork_with_outer_query_cache(&select_plan.table_references);
+                        emit_program_for_select_with_resolver(
+                            program,
+                            select_resolver,
+                            *select_plan,
+                        )
                     }
                 }
                 mut compound @ Plan::CompoundSelect { .. } => {
@@ -2157,14 +2203,19 @@ fn assign_select_subquery_eval_phases(plan: &mut SelectPlan) {
         // in the outer query's aggregate-output phase, after that aggregate has
         // been finalized into a register; run earlier, the aggregate expression
         // inside the subquery has no register to read.
-        if subquery_reads_outer_aggregate(subquery) {
-            subquery.eval_phase = if has_grouped_output {
-                SubqueryEvalPhase::GroupedOutput
-            } else {
-                SubqueryEvalPhase::UngroupedAggregateOutput
-            };
-            outer_aggregate_subquery_ids.push(subquery.internal_id);
-            continue;
+        if let SubqueryState::Unevaluated {
+            plan: Some(subquery_plan),
+        } = &subquery.state
+        {
+            if plan_reads_aggregates(subquery_plan, &plan.aggregates) {
+                subquery.eval_phase = if has_grouped_output {
+                    SubqueryEvalPhase::GroupedOutput
+                } else {
+                    SubqueryEvalPhase::UngroupedAggregateOutput
+                };
+                outer_aggregate_subquery_ids.push(subquery.internal_id);
+                continue;
+            }
         }
         subquery.eval_phase = match subquery.origin {
             SubqueryOrigin::SelectHaving | SubqueryOrigin::SelectOrderBy
@@ -2206,47 +2257,107 @@ fn expr_reads_subquery(expr: &ast::Expr, subquery_ids: &[ast::TableInternalId]) 
     found
 }
 
-/// True when a result column of the subquery contains an aggregate whose value
-/// the outer query computes: a plain aggregate call that is not one of the
-/// subquery's own aggregates, because its argument referenced an outer column
-/// and it was moved to the outer query during resolution. The subquery reads
-/// that aggregate back from the register the outer query finalizes it into.
-///
-/// Window functions (an aggregate name with an `OVER` clause) are computed by
-/// the subquery itself, not the outer query, so they are not counted here even
-/// though they also do not appear in `aggregates`.
-fn subquery_reads_outer_aggregate(subquery: &NonFromClauseSubquery) -> bool {
-    let SubqueryState::Unevaluated { plan: Some(plan) } = &subquery.state else {
-        return false;
-    };
-    let Plan::Select(select) = plan.as_ref() else {
-        return false;
-    };
-    let mut found = false;
-    for rc in &select.result_columns {
-        let _ = walk_expr(&rc.expr, &mut |e: &ast::Expr| -> Result<WalkControl> {
-            if let ast::Expr::FunctionCall {
-                name,
-                args,
-                filter_over,
-                ..
-            } = e
-            {
-                let is_plain_aggregate = filter_over.over_clause.is_none()
-                    && matches!(
-                        crate::function::Func::resolve_function(name.as_str(), args.len()),
-                        Ok(Some(crate::function::Func::Agg(_)))
-                    );
-                if is_plain_aggregate && !select.aggregates.iter().any(|a| a.original_expr == *e) {
-                    found = true;
-                    return Ok(WalkControl::SkipChildren);
+fn validate_aggregate_subquery_arguments(plan: &SelectPlan, resolver: &Resolver) -> Result<()> {
+    let mut dependencies = resolver.visible_query_aggregates();
+    dependencies.extend(plan.aggregates.iter().cloned());
+    for aggregate in &plan.aggregates {
+        for argument in aggregate.args.iter().chain(aggregate.filter_expr.iter()) {
+            walk_expr(argument, &mut |expression| {
+                if let ast::Expr::SubqueryResult { subquery_id, .. } = expression {
+                    if let Some(subquery) = plan
+                        .non_from_clause_subqueries
+                        .iter()
+                        .find(|subquery| subquery.internal_id == *subquery_id)
+                    {
+                        if let SubqueryState::Unevaluated {
+                            plan: Some(subquery_plan),
+                        } = &subquery.state
+                        {
+                            for dependency in &dependencies {
+                                if plan_reads_aggregates(
+                                    subquery_plan,
+                                    std::slice::from_ref(dependency),
+                                ) {
+                                    crate::bail_parse_error!(
+                                        "misuse of aggregate function {}()",
+                                        dependency.func
+                                    );
+                                }
+                            }
+                        }
+                    }
                 }
-            }
-            Ok(WalkControl::Continue)
-        });
-        if found {
-            break;
+                Ok(WalkControl::Continue)
+            })?;
         }
     }
-    found
+    Ok(())
+}
+
+fn plan_reads_aggregates(plan: &Plan, aggregates: &[Aggregate]) -> bool {
+    if aggregates.is_empty() {
+        return false;
+    }
+    match plan {
+        Plan::Select(select) => select_reads_aggregates(select, aggregates),
+        Plan::CompoundSelect {
+            left, right_most, ..
+        } => {
+            left.iter()
+                .any(|(select, _)| select_reads_aggregates(select, aggregates))
+                || select_reads_aggregates(right_most, aggregates)
+        }
+        Plan::RecursiveCte(recursive) => {
+            plan_reads_aggregates(&recursive.initial_query, aggregates)
+                || plan_reads_aggregates(&recursive.recursive_query, aggregates)
+        }
+        Plan::Delete(_) | Plan::Update(_) => false,
+    }
+}
+
+fn select_reads_aggregates(plan: &SelectPlan, aggregates: &[Aggregate]) -> bool {
+    for expression in plan
+        .result_columns
+        .iter()
+        .map(|column| &column.expr)
+        .chain(plan.where_clause.iter().map(|term| &term.expr))
+        .chain(
+            plan.group_by
+                .iter()
+                .flat_map(|group| group.exprs.iter().chain(group.having.iter().flatten())),
+        )
+        .chain(
+            plan.order_by
+                .iter()
+                .map(|(expression, _, _)| expression.as_ref()),
+        )
+    {
+        let mut found = false;
+        walk_expr(expression, &mut |expression| {
+            if aggregates.iter().any(|aggregate| {
+                crate::util::exprs_are_equivalent(&aggregate.original_expr, expression)
+            }) {
+                found = true;
+                return Ok(WalkControl::SkipChildren);
+            }
+            Ok(WalkControl::Continue)
+        })
+        .expect("walking aggregate dependencies cannot fail");
+        if found {
+            return true;
+        }
+    }
+    plan.table_references.joined_tables().iter().any(|table| {
+        if let Table::FromClauseSubquery(subquery) = &table.table {
+            plan_reads_aggregates(&subquery.plan, aggregates)
+        } else {
+            false
+        }
+    }) || plan.non_from_clause_subqueries.iter().any(|subquery| {
+        if let SubqueryState::Unevaluated { plan: Some(plan) } = &subquery.state {
+            plan_reads_aggregates(plan, aggregates)
+        } else {
+            false
+        }
+    })
 }
