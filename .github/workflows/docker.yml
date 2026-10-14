@@ -1,13 +1,6 @@
 name: Docker
 
 on:
-  push:
-    paths:
-      - Dockerfile
-      - .dockerignore
-      - compose.yaml
-      - .github/workflows/docker.yml
-      - .github/workflows/release.yml
   pull_request:
     paths:
       - Dockerfile
