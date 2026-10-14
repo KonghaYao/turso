@@ -200,11 +200,11 @@ codspeed-build-bench-exclude-tpc-h:
 	fi
 .PHONY: codspeed-build-bench-exclude-tpc-h
 
-docker-build:
-	docker compose build turso
+docker-cli-build:
+	docker build -f Dockerfile.cli -t turso-cli .
 
-docker-up:
-	docker compose up -d turso
+docker-cli-run:
+	docker run -it -v ./:/app turso-cli
 
 bench-tpc-c:
 	@cd perf/tpc-c/tpcc-turso && ./run_bench.sh
