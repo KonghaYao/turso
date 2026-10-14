@@ -110,12 +110,21 @@ You can also build and run the latest development version with:
 cargo run
 ```
 
-If you like docker, we got you covered. Simply run this in the root folder:
+Run the sync HTTP service in Docker from the repository root:
 
 ```bash
-make docker-cli-build && \
-make docker-cli-run
+docker compose up -d --build
 ```
+
+The service listens at `http://127.0.0.1:8080` and keeps its database in the `turso-data` volume. To stop it without deleting the database:
+
+```bash
+docker compose down
+```
+
+This is the sync HTTP service (`/v2/pipeline` and `/pull-updates`), not a general SQL endpoint. It has no authentication, so the port binds only to localhost; do not expose it publicly. Avoid `docker compose down -v` unless you want to delete the database.
+
+Pushing a `v<workspace version>` tag builds the service in Docker, publishes `ghcr.io/<owner>/<repo>:<tag>`, and creates a GitHub Release with the image pull command. Stable tags also update `:latest`. Releases no longer include standalone CLI binaries or publish the CLI to npm.
 
 </details>
 
