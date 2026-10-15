@@ -420,6 +420,7 @@ pub struct Connection {
     pub(crate) syms: parking_lot::RwLock<SymbolTable>,
     pub(super) _shared_cache: bool,
     pub(super) cache_size: AtomicI32,
+    pub(super) page_cache_budget_bytes: AtomicUsize,
     /// Maximum bytes a scalar blob constructor may allocate on this connection.
     pub(super) max_blob_bytes: AtomicUsize,
     /// page size used for an uninitialized database or the next vacuum command.
@@ -2853,6 +2854,29 @@ impl Connection {
     pub fn get_cache_size(&self) -> i32 {
         self.cache_size.load(Ordering::SeqCst)
     }
+    pub fn page_cache_budget_pages(&self) -> Option<usize> {
+        let bytes = self.page_cache_budget_bytes.load(Ordering::SeqCst);
+        (bytes != usize::MAX).then(|| bytes / self.get_page_size().get() as usize)
+    }
+    pub fn set_page_cache_budget_bytes(&self, bytes: usize) -> Result<()> {
+        let pages = bytes / self.get_page_size().get() as usize;
+        if pages < crate::storage::sqlite3_ondisk::CacheSize::MIN as usize
+            || pages > i32::MAX as usize
+        {
+            return Err(LimboError::InvalidArgument(
+                "page cache budget cannot support this database page size".to_string(),
+            ));
+        }
+        let resized = self.pager.load().change_page_cache_size(pages)?;
+        if !matches!(resized, crate::storage::page_cache::CacheResizeResult::Done) {
+            return Err(LimboError::InternalError(
+                "page cache budget could not evict live pages".to_string(),
+            ));
+        }
+        self.page_cache_budget_bytes.store(bytes, Ordering::SeqCst);
+        self.set_cache_size(pages as i32);
+        Ok(())
+    }
     pub fn max_blob_bytes(&self) -> usize {
         self.max_blob_bytes.load(Ordering::SeqCst)
     }
@@ -2930,6 +2954,10 @@ impl Connection {
 
         self.pager.load().set_initial_page_size(size)?;
         self.page_size.store(size.get_raw(), Ordering::SeqCst);
+        let budget = self.page_cache_budget_bytes.load(Ordering::SeqCst);
+        if budget != usize::MAX {
+            self.set_page_cache_budget_bytes(budget)?;
+        }
         // MvStore caches a copy of the database header in `global_header`, captured from the
         // pager during bootstrap (before any PRAGMA page_size can run). Propagate the new
         // page size so subsequent transactions and any header lookups see the same value the

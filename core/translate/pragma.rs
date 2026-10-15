@@ -2154,6 +2154,14 @@ fn update_cache_size(
         cache_size
     };
 
+    let final_cache_size = match connection.page_cache_budget_pages() {
+        Some(max_pages) if final_cache_size > max_pages as i64 => {
+            cache_size_unformatted = max_pages as i64;
+            max_pages as i64
+        }
+        _ => final_cache_size,
+    };
+
     connection.set_cache_size(cache_size_unformatted as i32);
 
     pager

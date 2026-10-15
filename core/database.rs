@@ -2555,6 +2555,7 @@ impl Database {
             syms: parking_lot::RwLock::new(SymbolTable::new()),
             _shared_cache: false,
             cache_size: AtomicI32::new(default_cache_size),
+            page_cache_budget_bytes: AtomicUsize::new(usize::MAX),
             max_blob_bytes: AtomicUsize::new(crate::Value::MAX_BLOB_LENGTH as usize),
             page_size: AtomicU16::new(page_size.get_raw()),
             wal_auto_actions: AtomicU8::new(WalAutoActions::all_enabled().bits()),
