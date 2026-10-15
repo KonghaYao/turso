@@ -10540,26 +10540,30 @@ pub fn op_function(
             | ScalarFunc::Soundex
             | ScalarFunc::ZeroBlob => {
                 let reg_value = state.registers[*start_reg].borrow_mut().get_value();
-                let result = match scalar_func {
-                    ScalarFunc::Sign => reg_value.exec_sign(),
-                    ScalarFunc::Abs => Some(reg_value.exec_abs()?),
-                    ScalarFunc::Lower => reg_value.exec_lower(),
-                    ScalarFunc::Upper => reg_value.exec_upper(),
-                    ScalarFunc::Length => Some(reg_value.exec_length()),
-                    ScalarFunc::OctetLength => Some(reg_value.exec_octet_length()),
-                    ScalarFunc::Subtype => Some(reg_value.exec_subtype()),
-                    ScalarFunc::Typeof => Some(reg_value.exec_typeof()),
-                    ScalarFunc::Unicode => Some(reg_value.exec_unicode()),
-                    ScalarFunc::Unistr => Some(reg_value.exec_unistr()?),
-                    ScalarFunc::Quote => Some(reg_value.exec_quote()),
-                    ScalarFunc::UnistrQuote => Some(reg_value.exec_unistr_quote()),
-                    ScalarFunc::RandomBlob => {
-                        Some(reg_value.exec_randomblob(|dest| pager.io.fill_bytes(dest))?)
-                    }
-                    ScalarFunc::ZeroBlob => Some(reg_value.exec_zeroblob()?),
-                    ScalarFunc::Soundex => Some(reg_value.exec_soundex()),
-                    _ => unreachable!(),
-                };
+                let result =
+                    match scalar_func {
+                        ScalarFunc::Sign => reg_value.exec_sign(),
+                        ScalarFunc::Abs => Some(reg_value.exec_abs()?),
+                        ScalarFunc::Lower => reg_value.exec_lower(),
+                        ScalarFunc::Upper => reg_value.exec_upper(),
+                        ScalarFunc::Length => Some(reg_value.exec_length()),
+                        ScalarFunc::OctetLength => Some(reg_value.exec_octet_length()),
+                        ScalarFunc::Subtype => Some(reg_value.exec_subtype()),
+                        ScalarFunc::Typeof => Some(reg_value.exec_typeof()),
+                        ScalarFunc::Unicode => Some(reg_value.exec_unicode()),
+                        ScalarFunc::Unistr => Some(reg_value.exec_unistr()?),
+                        ScalarFunc::Quote => Some(reg_value.exec_quote()),
+                        ScalarFunc::UnistrQuote => Some(reg_value.exec_unistr_quote()),
+                        ScalarFunc::RandomBlob => Some(reg_value.exec_randomblob_limited(
+                            program.connection.max_blob_bytes(),
+                            |dest| pager.io.fill_bytes(dest),
+                        )?),
+                        ScalarFunc::ZeroBlob => Some(
+                            reg_value.exec_zeroblob_limited(program.connection.max_blob_bytes())?,
+                        ),
+                        ScalarFunc::Soundex => Some(reg_value.exec_soundex()),
+                        _ => unreachable!(),
+                    };
                 // this is a `match` instead of `unwrap_or_else` because on the current pinned
                 // toolchain, it compiles to fewer instructions
                 let value = match result {

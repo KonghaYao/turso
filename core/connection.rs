@@ -420,6 +420,8 @@ pub struct Connection {
     pub(crate) syms: parking_lot::RwLock<SymbolTable>,
     pub(super) _shared_cache: bool,
     pub(super) cache_size: AtomicI32,
+    /// Maximum bytes a scalar blob constructor may allocate on this connection.
+    pub(super) max_blob_bytes: AtomicUsize,
     /// page size used for an uninitialized database or the next vacuum command.
     /// it's not always equal to the current page size of the database
     pub(super) page_size: AtomicU16,
@@ -2850,6 +2852,12 @@ impl Connection {
 
     pub fn get_cache_size(&self) -> i32 {
         self.cache_size.load(Ordering::SeqCst)
+    }
+    pub fn max_blob_bytes(&self) -> usize {
+        self.max_blob_bytes.load(Ordering::SeqCst)
+    }
+    pub fn set_max_blob_bytes(&self, bytes: usize) {
+        self.max_blob_bytes.store(bytes, Ordering::SeqCst);
     }
     pub fn set_cache_size(&self, size: i32) {
         self.cache_size.store(size, Ordering::SeqCst);

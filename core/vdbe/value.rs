@@ -346,6 +346,13 @@ impl Value {
     where
         F: Fn(&mut [u8]),
     {
+        self.exec_randomblob_limited(Self::MAX_BLOB_LENGTH as usize, fill_bytes)
+    }
+
+    pub fn exec_randomblob_limited<F>(&self, max_bytes: usize, fill_bytes: F) -> Result<Value>
+    where
+        F: Fn(&mut [u8]),
+    {
         let length = match self {
             Value::Numeric(Numeric::Integer(i)) => *i,
             Value::Numeric(Numeric::Float(f)) => f64::from(*f) as i64,
@@ -354,7 +361,7 @@ impl Value {
         }
         .max(1);
 
-        if length > Self::MAX_BLOB_LENGTH {
+        if length > Self::MAX_BLOB_LENGTH || length as usize > max_bytes {
             return Err(LimboError::TooBig);
         }
 
@@ -949,6 +956,10 @@ impl Value {
     }
 
     pub fn exec_zeroblob(&self) -> Result<Value> {
+        self.exec_zeroblob_limited(Self::MAX_BLOB_LENGTH as usize)
+    }
+
+    pub fn exec_zeroblob_limited(&self, max_bytes: usize) -> Result<Value> {
         let length: i64 = match self {
             Value::Numeric(Numeric::Integer(i)) => *i,
             Value::Numeric(Numeric::Float(f)) => f64::from(*f) as i64,
@@ -957,7 +968,7 @@ impl Value {
         }
         .max(0);
 
-        if length > Self::MAX_BLOB_LENGTH {
+        if length > Self::MAX_BLOB_LENGTH || length as usize > max_bytes {
             return Err(LimboError::TooBig);
         }
 
