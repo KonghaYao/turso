@@ -281,7 +281,7 @@ fn failed_internal_reset_is_not_an_unentered_proof() -> Result<()> {
 #[test]
 fn executed_unsupported_legacy_is_rejected_before_sticky_abort() -> Result<()> {
     let connection = connection()?;
-    let mut statement = connection.prepare("SELECT name FROM pragma_table_info('missing')")?;
+    let mut statement = connection.prepare("SELECT load_extension('/never-load-legacy')")?;
     let _legacy_result = statement.step();
     assert!(matches!(statement.cleanup_state, CleanupState::Unchecked));
     assert!(statement
@@ -294,6 +294,36 @@ fn executed_unsupported_legacy_is_rejected_before_sticky_abort() -> Result<()> {
         AbortState::NotRequested
     ));
     statement.reset()?;
+    Ok(())
+}
+
+#[test]
+fn builtin_readonly_vtab_reads_pass_admission_and_retire() -> Result<()> {
+    let connection = connection()?;
+    connection.execute("CREATE TABLE probe(id INTEGER PRIMARY KEY, name TEXT)")?;
+    connection.execute("CREATE INDEX probe_name_idx ON probe(name)")?;
+    for sql in [
+        "SELECT name FROM pragma_table_info('probe')",
+        "SELECT name, \"notnull\", pk, cid FROM pragma_table_xinfo('probe')",
+        "SELECT name FROM pragma_index_list('probe')",
+        "SELECT value FROM json_each('[1,2]')",
+    ] {
+        // The same program must pass admission for execution and for the cleanup proof,
+        // and it must leave no transaction state behind for the next statement.
+        let mut statement = connection.prepare(sql)?;
+        loop {
+            match statement.step_with_admission_check(|_| true)? {
+                StepResult::Row => break,
+                StepResult::IO | StepResult::Yield => statement._io().step()?,
+                result => panic!("unexpected step result for {sql}: {result:?}"),
+            }
+        }
+        assert_eq!(
+            statement.abort_noncommitting()?,
+            NoncommittingAbort::StatementStopped
+        );
+        assert!(connection.vtab_txn_states.read().is_empty());
+    }
     Ok(())
 }
 

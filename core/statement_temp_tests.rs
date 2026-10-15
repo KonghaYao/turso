@@ -190,12 +190,15 @@ fn internal_temp_default_file_and_existing_memory_are_not_certificates() -> Resu
 }
 
 #[test]
-fn internal_temp_rejects_user_schema_data_vtab_and_incomplete_begin_bytecode() -> Result<()> {
+fn internal_temp_rejects_user_schema_data_and_incomplete_begin_bytecode() -> Result<()> {
     let connection = connection()?;
+    // Builtin `pragma_*` and internal virtual tables are read-only and in-process, so the
+    // narrowed cursor rule admits them; `statement_profile_tests` covers that directly.
+    // Writing user schema data, touching another database and an unterminated program are
+    // still rejected before the gate, and none of them may open the internal TEMP database.
     for sql in [
         "CREATE TEMP TABLE private(value)",
         "SELECT * FROM temp.sqlite_schema",
-        "SELECT * FROM pragma_table_info('ledger')",
         "PRAGMA temp.wal_checkpoint",
     ] {
         let mut statement = connection.prepare(sql)?;

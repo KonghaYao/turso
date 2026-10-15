@@ -1,6 +1,7 @@
 use super::{builder::CursorType, insn::Insn, BranchOffset, PreparedProgram, Program};
 use crate::function::{AccumulatorFunc, AggFunc, Func, ScalarFunc, WindowFunc};
 use crate::storage::journal_mode::JournalMode;
+use crate::vtab::VirtualTableType;
 use crate::{Connection, LimboError, Result, TempStore, TransactionMode, MAIN_DB_ID, TEMP_DB_ID};
 use std::collections::HashSet;
 use std::str::FromStr;
@@ -127,14 +128,28 @@ fn validate_program(
     {
         return unsupported("non-main database bytecode");
     }
-    if program.cursor_ref.iter().any(|(_, cursor)| {
-        matches!(
-            cursor,
-            CursorType::IndexMethod(_)
-                | CursorType::VirtualTable(_)
-                | CursorType::MaterializedView(..)
-        )
-    }) {
+    // Built-in virtual tables — the eponymous `pragma_*` tables and the internal
+    // introspection tables — run in-process, refuse every write entry point, and own no
+    // transaction state, so read-only cursors over them keep the noncommitting contract.
+    // Extension virtual tables stay excluded: `VirtualTable::readonly()` is then the
+    // extension's own claim over callbacks this profile has not audited.
+    let builtin_cursors: HashSet<usize> = program
+        .cursor_ref
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, cursor))| is_builtin_vtab_cursor(cursor))
+        .map(|(index, _)| index)
+        .collect();
+    if program
+        .cursor_ref
+        .iter()
+        .enumerate()
+        .any(|(index, (_, cursor))| match cursor {
+            CursorType::IndexMethod(_) | CursorType::MaterializedView(..) => true,
+            CursorType::VirtualTable(_) => !builtin_cursors.contains(&index),
+            _ => false,
+        })
+    {
         return unsupported("virtual-table, custom-index, or materialized-view cursor");
     }
     for (instruction, _) in &program.insns {
@@ -166,9 +181,17 @@ fn validate_program(
             Insn::PopulateMaterializedViews { .. } => {
                 return unsupported("materialized-view helper execution");
             }
+            Insn::VOpen { cursor_id }
+            | Insn::VFilter { cursor_id, .. }
+            | Insn::VColumn { cursor_id, .. }
+            | Insn::VNext { cursor_id, .. }
+                if builtin_cursors.contains(cursor_id) => {}
             Insn::VOpen { .. }
             | Insn::VCreate { .. }
+            | Insn::VFilter { .. }
+            | Insn::VColumn { .. }
             | Insn::VUpdate { .. }
+            | Insn::VNext { .. }
             | Insn::VDestroy { .. }
             | Insn::VRename { .. }
             | Insn::VBegin { .. }
@@ -272,6 +295,17 @@ fn validate_aggregate(function: &AccumulatorFunc) -> Result<()> {
         return unsupported("external aggregate execution");
     }
     Ok(())
+}
+
+fn is_builtin_vtab_cursor(cursor: &CursorType) -> bool {
+    matches!(
+        cursor,
+        CursorType::VirtualTable(table)
+            if matches!(
+                table.vtab_type,
+                VirtualTableType::Pragma(_) | VirtualTableType::Internal(_)
+            )
+    )
 }
 
 fn unsupported<T>(feature: &str) -> Result<T> {
